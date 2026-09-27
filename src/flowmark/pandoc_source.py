@@ -120,8 +120,8 @@ def located_nodes(value: PandocJson) -> list[LocatedNode]:
     return nodes
 
 
-def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
-    """Wrap sourced paragraphs and preserve Pandoc inline source atoms."""
+def _propose_paragraph_edits(source: str, width: int, pandoc_exe: str) -> str:
+    """Return sourced paragraph edits for full-document verification."""
     if any(marker in source for marker in (_SPACE, _TAB, _NEWLINE)):
         raise ValueError("The source contains reserved formatter characters")
     lines = source.splitlines(keepends=True)
@@ -149,8 +149,11 @@ def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
             or "Note" in located.ancestors
         ):
             continue
+        prefix_width = first.column - 1
         end_line = min(located.source_range.end.line, len(lines) + 1) - 1
-        while end_line >= first.line and not lines[end_line - 1].strip():
+        while end_line >= first.line and not lines[end_line - 1][
+            prefix_width:
+        ].strip():
             end_line -= 1
         if end_line < first.line:
             continue
@@ -158,49 +161,6 @@ def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
         start = starts[first.line - 1]
         end = starts[end_line]
         old = source[start:end]
-        prefix_width = first.column - 1
-        if prefix_width:
-            paragraph_lines = lines[first.line - 1 : end_line]
-            first_prefix = paragraph_lines[0][:prefix_width]
-            if (
-                "\t" in first_prefix
-                or located_nodes(located.node)
-            ):
-                continue
-            if is_quote:
-                if ">" not in first_prefix or any(
-                    character not in " >" for character in first_prefix
-                ) or any(
-                    not line.startswith(first_prefix)
-                    for line in paragraph_lines[1:]
-                ):
-                    continue
-                continuation = first_prefix
-            else:
-                if any(
-                    line[:prefix_width].strip()
-                    for line in paragraph_lines[1:]
-                ):
-                    continue
-                continuation = " " * prefix_width
-            content = "".join(line[prefix_width:] for line in paragraph_lines)
-            wrapped_lines = wrap_paragraph_lines(
-                content,
-                width=width,
-                initial_column=prefix_width,
-                subsequent_offset=prefix_width,
-                splitter=simple_word_splitter,
-                is_markdown=True,
-            )
-            wrapped = (
-                first_prefix
-                + wrapped_lines[0]
-                + "".join("\n" + continuation + line for line in wrapped_lines[1:])
-                + "\n"
-            )
-            if wrapped != old:
-                edits.append(SourceEdit(start, end, wrapped))
-            continue
         protected = old
         inline_spans: list[tuple[int, int]] = []
         for inline in located_nodes(located.node):
@@ -219,12 +179,58 @@ def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
             if not (start <= begin_offset < finish_offset <= end):
                 continue
             inline_spans.append((begin_offset - start, finish_offset - start))
+        if prefix_width and any(
+            "\n" in old[begin:finish] for begin, finish in inline_spans
+        ):
+            continue
         for begin, finish in sorted(inline_spans, reverse=True):
             protected = (
                 protected[:begin]
                 + protected[begin:finish].translate(_HIDE)
                 + protected[finish:]
             )
+        if prefix_width:
+            paragraph_lines = lines[first.line - 1 : end_line]
+            first_prefix = paragraph_lines[0][:prefix_width]
+            if "\t" in first_prefix:
+                continue
+            if is_quote:
+                if ">" not in first_prefix or any(
+                    character not in " >" for character in first_prefix
+                ) or any(
+                    not line.startswith(first_prefix)
+                    for line in paragraph_lines[1:]
+                ):
+                    continue
+                continuation = first_prefix
+            else:
+                if any(
+                    line[:prefix_width].strip()
+                    for line in paragraph_lines[1:]
+                ):
+                    continue
+                continuation = " " * prefix_width
+            content = "".join(
+                line[prefix_width:]
+                for line in protected.splitlines(keepends=True)
+            )
+            wrapped_lines = wrap_paragraph_lines(
+                content,
+                width=width,
+                initial_column=prefix_width,
+                subsequent_offset=prefix_width,
+                splitter=simple_word_splitter,
+                is_markdown=True,
+            )
+            wrapped = (
+                first_prefix
+                + wrapped_lines[0]
+                + "".join("\n" + continuation + line for line in wrapped_lines[1:])
+                + "\n"
+            ).translate(_SHOW)
+            if wrapped != old:
+                edits.append(SourceEdit(start, end, wrapped))
+            continue
         wrapped = "\n".join(
             wrap_paragraph_lines(
                 protected,
@@ -239,6 +245,12 @@ def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
     result = source
     for edit in sorted(edits, key=lambda item: item.start, reverse=True):
         result = result[: edit.start] + edit.replacement + result[edit.end :]
+    return result
+
+
+def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
+    """Wrap sourced paragraphs and preserve Pandoc inline source atoms."""
+    result = _propose_paragraph_edits(source, width, pandoc_exe)
     if result != source:
         check_meaning_preserved(source, result)
     return result

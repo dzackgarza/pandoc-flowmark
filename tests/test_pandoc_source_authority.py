@@ -136,3 +136,27 @@ def test_pandoc_edit_wraps_quote_under_its_marker() -> None:
 
     assert formatted.startswith('> A quoted sentence has enough words to\n> ')
     assert wrap_plain_paragraphs(formatted, 40, pandoc) == formatted
+
+
+def test_pandoc_edit_wraps_list_item_with_inline_syntax() -> None:
+    source = (
+        '- A long item has [a linked phrase](https://example.org) and enough '
+        'words to need a line wrap inside this list.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = wrap_plain_paragraphs(source, 50, pandoc)
+
+    assert formatted != source
+    assert '[a linked phrase](https://example.org)' in formatted
+    assert formatted.splitlines()[1].startswith('  ')
+    assert wrap_plain_paragraphs(formatted, 50, pandoc) == formatted
+
+
+def test_pandoc_edit_preserves_hard_break_source() -> None:
+    source = 'This line has a two-space line break.  \nAnd this is a regular line.\n'
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = wrap_plain_paragraphs(source, 40, pandoc)
+
+    assert formatted != source
+    assert 'break.  \nAnd' in formatted
+    assert wrap_plain_paragraphs(formatted, 40, pandoc) == formatted
