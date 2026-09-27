@@ -16,6 +16,7 @@ from flowmark.pandoc_verify import (
     PANDOC_FORMAT,
     PandocJson,
     PandocParseError,
+    _SUSPENSION_WORDS,  # pyright: ignore[reportPrivateUsage]
     check_meaning_preserved,
 )
 
@@ -174,6 +175,8 @@ def _propose_paragraph_edits(
         protected = old
         inline_spans: list[tuple[int, int]] = []
         for inline in located_nodes(located.node):
+            if inline.node.get("t") == "SoftBreak":
+                continue
             begin = inline.source_range.start
             finish = inline.source_range.end
             if (
@@ -282,3 +285,132 @@ def wrap_plain_paragraphs(
     if result != source:
         check_meaning_preserved(source, result)
     return result
+
+
+def unbold_sourced_headings(source: str, pandoc_exe: str) -> str:
+    """Remove strong markup when it contains a heading's entire inline content."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+
+    edits: list[SourceEdit] = []
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        if located.node.get("t") != "Header":
+            continue
+        content = located.node.get("c")
+        if not isinstance(content, list) or len(content) != 3:
+            continue
+        inlines = content[2]
+        if not isinstance(inlines, list) or len(inlines) != 1:
+            continue
+        inline = inlines[0]
+        position = _position(inline)
+        if position is None or not isinstance(inline, dict):
+            continue
+        wrapper_content = inline.get("c")
+        if not isinstance(wrapper_content, list) or len(wrapper_content) != 2:
+            continue
+        children = wrapper_content[1]
+        if (
+            not isinstance(children, list)
+            or len(children) != 1
+            or not isinstance(children[0], dict)
+            or children[0].get("t") != "Strong"
+        ):
+            continue
+        if position.start.line > len(lines) or position.end.line > len(lines):
+            continue
+        start = starts[position.start.line - 1] + position.start.column - 1
+        end = starts[position.end.line - 1] + position.end.column - 1
+        raw = source[start:end]
+        if raw.startswith("**") and raw.endswith("**"):
+            edits.append(SourceEdit(start, end, raw[2:-2]))
+        elif raw.startswith("__") and raw.endswith("__"):
+            edits.append(SourceEdit(start, end, raw[2:-2]))
+
+    result = source
+    for edit in sorted(edits, key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
+def _inline_edge_text(value: PandocJson, *, last: bool) -> str:
+    if not isinstance(value, dict):
+        return ""
+    node_type = value.get("t")
+    content = value.get("c")
+    if node_type == "Str" and isinstance(content, str):
+        return content
+    if node_type == "Math":
+        return "$"
+    if node_type == "Span" and isinstance(content, list) and len(content) == 2:
+        content = content[1]
+    if not isinstance(content, list):
+        return ""
+    children = reversed(content) if last else iter(content)
+    for child in children:
+        result = _inline_edge_text(child, last=last)
+        if result:
+            return result
+    return ""
+
+
+def join_sourced_hyphen_breaks(source: str, pandoc_exe: str) -> tuple[str, int]:
+    """Close soft breaks after a hyphen when the following Pandoc inline joins it."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+
+    edits: list[SourceEdit] = []
+
+    def visit(value: PandocJson) -> None:
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                position = _position(item)
+                if position is not None and 0 < index < len(value) - 1:
+                    wrapper = cast(dict[str, PandocJson], item)
+                    content = cast(list[PandocJson], wrapper["c"])
+                    if content[1] == [{"t": "SoftBreak"}]:
+                        before = _inline_edge_text(value[index - 1], last=True)
+                        after = _inline_edge_text(value[index + 1], last=False)
+                        first_word = after.split()[0] if after.split() else ""
+                        joins = (
+                            before.endswith("-")
+                            and bool(after)
+                            and first_word.strip(".,;:!?").lower()
+                            not in _SUSPENSION_WORDS
+                            and (
+                                after[0].isdigit()
+                                or after[0].islower()
+                                or after[0] in "$\\"
+                            )
+                        )
+                        if joins and position.end.line <= len(lines) + 1:
+                            start = (
+                                starts[position.start.line - 1]
+                                + position.start.column
+                                - 1
+                            )
+                            end = (
+                                starts[position.end.line - 1]
+                                + position.end.column
+                                - 1
+                            )
+                            if source[start:end] in {"\n", "\r\n"}:
+                                edits.append(SourceEdit(start, end, ""))
+                visit(item)
+        elif isinstance(value, dict):
+            for child in value.values():
+                visit(child)
+
+    visit(read_source_ast(source, pandoc_exe))
+    result = source
+    for edit in sorted(edits, key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if result != source:
+        check_meaning_preserved(source, result)
+    return result, len(edits)

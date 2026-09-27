@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 
 from flowmark.pandoc_source import (
+    join_sourced_hyphen_breaks,
+    unbold_sourced_headings,
     located_nodes,
     read_source_ast,
     wrap_plain_paragraphs,
@@ -211,3 +213,38 @@ def test_pandoc_edit_keeps_nested_marker_after_outer_item() -> None:
     assert formatted.startswith('* An outer list item has enough words to\n  ')
     assert '\n\n  + The inner list item follows' in formatted
     assert wrap_plain_paragraphs(formatted, 42, pandoc) == formatted
+
+
+def test_pandoc_cleanup_unbolds_only_whole_strong_headings() -> None:
+    source = (
+        '# **Entire heading**\n'
+        '\n'
+        '## ***Bold and italic***\n'
+        '\n'
+        '### **Partial** heading\n'
+        '\n'
+        'A paragraph with **bold** text.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = unbold_sourced_headings(source, pandoc)
+
+    assert '# Entire heading\n' in formatted
+    assert '## *Bold and italic*\n' in formatted
+    assert '### **Partial** heading\n' in formatted
+    assert 'A paragraph with **bold** text.\n' in formatted
+
+
+def test_pandoc_cleanup_joins_sourced_hyphen_breaks() -> None:
+    source = (
+        'The degree-\n2 locus and the pre-\nand post-stable models.\n'
+        '\n'
+        'The **semi-log-\ncanonical** case and the degree-\n$4$ class.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted, count = join_sourced_hyphen_breaks(source, pandoc)
+
+    assert count == 3
+    assert 'degree-2' in formatted
+    assert 'pre-\nand' in formatted
+    assert '**semi-log-canonical**' in formatted
+    assert 'degree-$4$' in formatted
