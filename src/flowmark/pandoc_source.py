@@ -15,7 +15,6 @@ from flowmark.linewrapping.protocols import LineWrapper
 from flowmark.linewrapping.tag_handling import (
     add_tag_newline_handling,
     is_tag_only_line,
-    preprocess_tag_block_spacing,
 )
 from flowmark.linewrapping.text_wrapping import (
     simple_word_splitter,
@@ -50,6 +49,8 @@ _HIDE = str.maketrans({" ": _SPACE, "\t": _TAB, "\n": _NEWLINE})
 _SHOW = str.maketrans({_SPACE: " ", _TAB: "\t", _NEWLINE: "\n"})
 _ESCAPED_PERIOD = re.compile(r"(?<!\\)\\\.")
 _SIMPLE_REFERENCE = re.compile(r"\[([^\[\]\\]+)\](?:\[([^\[\]\\]*)\])?")
+_HTML_OPEN_LINE = re.compile(r"^<[A-Za-z][^<>]*>$")
+_HTML_CLOSE_LINE = re.compile(r"^</[A-Za-z][A-Za-z0-9-]*>$")
 
 
 def normalize_sourced_spelling(source: str, pandoc_exe: str) -> str:
@@ -59,7 +60,8 @@ def normalize_sourced_spelling(source: str, pandoc_exe: str) -> str:
     for line in lines:
         starts.append(starts[-1] + len(line))
     edits: list[SourceEdit] = []
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    nodes = located_nodes(read_source_ast(source, pandoc_exe))
+    for located in nodes:
         begin = located.source_range.start
         finish = located.source_range.end
         if begin.line >= len(starts):
@@ -78,7 +80,16 @@ def normalize_sourced_spelling(source: str, pandoc_exe: str) -> str:
         if not (0 <= start < end <= len(source)):
             continue
         raw = source[start:end]
-        if kind == "Link":
+        if kind in {"Emph", "Strong"}:
+            delimiter = "__" if kind == "Strong" else "_"
+            if raw.startswith(delimiter) and raw.endswith(delimiter):
+                replacement = (
+                    "*" * len(delimiter)
+                    + raw[len(delimiter) : -len(delimiter)]
+                    + "*" * len(delimiter)
+                )
+                edits.append(SourceEdit(start, end, replacement))
+        elif kind == "Link":
             match = _SIMPLE_REFERENCE.fullmatch(raw)
             if match is not None:
                 label, reference = match.groups()
@@ -112,6 +123,41 @@ def normalize_sourced_spelling(source: str, pandoc_exe: str) -> str:
     return result
 
 
+def normalize_sourced_html_block_layout(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
+    """Join HTML tag lines to adjacent Pandoc prose blocks."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    edits: list[SourceEdit] = []
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        if located.node.get("t") != "Plain":
+            continue
+        if any(
+            ancestor in {"BulletList", "OrderedList", "Table", "Note", "BlockQuote"}
+            for ancestor in located.ancestors
+        ):
+            continue
+        first = located.source_range.start.line - 1
+        last = located.source_range.end.line - 1
+        if 0 < first < len(lines):
+            opening = lines[first - 1].strip()
+            if _HTML_OPEN_LINE.fullmatch(opening):
+                edits.append(SourceEdit(starts[first] - 1, starts[first], " "))
+        if 0 <= last < len(lines) - 1:
+            closing = lines[last + 1].strip()
+            if _HTML_CLOSE_LINE.fullmatch(closing):
+                edits.append(SourceEdit(starts[last + 1] - 1, starts[last + 1], " "))
+    result = source
+    for edit in sorted(set(edits), key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if verify and result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
 def _propose_paragraph_edits(
     source: str,
     width: int,
@@ -128,7 +174,13 @@ def _propose_paragraph_edits(
         starts.append(starts[-1] + len(line))
 
     edits: list[SourceEdit] = []
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    nodes = located_nodes(read_source_ast(source, pandoc_exe))
+    raw_block_ends = {
+        (node.source_range.end.line, node.source_range.end.column)
+        for node in nodes
+        if node.node.get("t") == "RawBlock"
+    }
+    for located in nodes:
         is_list = any(
             ancestor in {"BulletList", "OrderedList"}
             for ancestor in located.ancestors
@@ -136,24 +188,48 @@ def _propose_paragraph_edits(
         is_quote = "BlockQuote" in located.ancestors
         if located.node.get("t") not in {"Para", "Plain"}:
             continue
-        if located.node.get("t") == "Plain" and not is_list:
+        if located.node.get("t") == "Plain" and "Table" in located.ancestors:
             continue
         first = located.source_range.start
         if first.line > len(lines):
             continue
-        if first.column != 1 and (
-            not (is_list or is_quote)
-            or (is_list and is_quote)
-            or "Note" in located.ancestors
-        ):
+        physical_prefix = lines[first.line - 1][: first.column - 1].strip()
+        inline_prefix = (
+            first.column != 1
+            and not (is_list or is_quote)
+            and (
+                (first.line, first.column) in raw_block_ends
+                or _HTML_OPEN_LINE.fullmatch(physical_prefix) is not None
+            )
+        )
+        if first.column != 1 and not (is_list or is_quote or inline_prefix):
+            continue
+        if "Note" in located.ancestors:
             continue
         prefix_width = first.column - 1
         last = located.source_range.end
         end_line = min(last.line, len(lines))
-        if last.line <= len(lines) and last.column < len(
+        end_before_line = last.line <= len(lines) and last.column < len(
             lines[last.line - 1].rstrip("\r\n")
-        ) + 1:
+        ) + 1
+        partial_end = end_before_line and last.column > 1 and inline_prefix
+        if end_before_line and not partial_end:
             end_line -= 1
+        # Pandoc can read a table-shaped run as paragraph text when prose touches
+        # its header. A standalone parse of the suffix identifies the table's
+        # authored rows, which stay on their own lines in this case.
+        for index in range(first.line - 1, end_line - 1):
+            if "|" not in lines[index] or "|" not in lines[index + 1]:
+                continue
+            suffix = "".join(lines[index:end_line])
+            if any(
+                node.node.get("t") == "Table"
+                and not node.ancestors
+                and node.source_range.start.line == 1
+                for node in located_nodes(read_source_ast(suffix, pandoc_exe))
+            ):
+                end_line = index
+                break
         while end_line >= first.line and not lines[end_line - 1][
             prefix_width:
         ].strip():
@@ -161,12 +237,15 @@ def _propose_paragraph_edits(
         if end_line < first.line:
             continue
 
-        start = starts[first.line - 1]
-        end = starts[end_line]
+        start = starts[first.line - 1] + (prefix_width if inline_prefix else 0)
+        end = (
+            starts[last.line - 1] + last.column - 1
+            if partial_end and inline_prefix else starts[end_line]
+        )
         old = source[start:end]
         if any(line.strip() == ":::" for line in old.splitlines()):
             continue
-        if semantic and any(tag in old for tag in ("{%", "{#", "{{", "<!--")):
+        if semantic and any(tag in old for tag in ("{%", "{#", "{{")):
             continue
         protected = old
         inline_spans: list[tuple[int, int]] = []
@@ -208,20 +287,40 @@ def _propose_paragraph_edits(
                 + protected[begin:finish].translate(_HIDE)
                 + protected[finish:]
             )
+        if inline_prefix:
+            leading = " " if protected.startswith(" ") else ""
+            content = protected.lstrip(" ")
+            wrapper = line_wrapper or (
+                line_wrap_by_sentence(
+                    width=width, is_markdown=True, source_preserving=True
+                ) if semantic else line_wrap_to_width(width=width, is_markdown=False)
+            )
+            wrapped = wrapper(content, " " * (prefix_width + len(leading)), "")
+            wrapped = (
+                leading
+                + wrapped[prefix_width + len(leading) :]
+                + ("\n" if old.endswith("\n") else "")
+            ).translate(_SHOW)
+            if wrapped != old:
+                edits.append(SourceEdit(start, end, wrapped))
+            continue
         if prefix_width:
             paragraph_lines = lines[first.line - 1 : end_line]
             first_prefix = paragraph_lines[0][:prefix_width]
             if "\t" in first_prefix:
                 continue
+            quote_prefix = ""
             if is_quote:
-                if ">" not in first_prefix or any(
-                    character not in " >" for character in first_prefix
-                ) or any(
-                    not line.startswith(first_prefix)
-                    for line in paragraph_lines[1:]
-                ):
+                quote_end = first_prefix.rfind(">")
+                if quote_end < 0:
                     continue
-                continuation = first_prefix
+                quote_prefix = first_prefix[: quote_end + 1]
+                if any(not line.startswith(quote_prefix) for line in paragraph_lines[1:]):
+                    continue
+                continuation = (
+                    quote_prefix + " " * (len(first_prefix) - len(quote_prefix))
+                    if is_list else first_prefix
+                )
             else:
                 if any(
                     line[:prefix_width].strip()
@@ -229,10 +328,16 @@ def _propose_paragraph_edits(
                 ):
                     continue
                 continuation = " " * prefix_width
-            content = "".join(
-                line[prefix_width:]
-                for line in protected.splitlines(keepends=True)
-            )
+            protected_lines = protected.splitlines(keepends=True)
+            if is_quote and is_list:
+                content = protected_lines[0][prefix_width:] + "".join(
+                    line[len(quote_prefix) :].lstrip(" ")
+                    for line in protected_lines[1:]
+                )
+            else:
+                content = "".join(
+                    line[prefix_width:] for line in protected_lines
+                )
             if line_wrapper is not None:
                 wrapped = line_wrapper(content, first_prefix, continuation) + "\n"
             elif semantic:
@@ -462,6 +567,15 @@ def set_sourced_list_spacing(
             continue
         quoted = "BlockQuote" in located.ancestors
         noted = "Note" in located.ancestors
+        nested = any(
+            ancestor in {"BulletList", "OrderedList"}
+            for ancestor in located.ancestors
+        )
+        if loose and nested:
+            line_index = located.source_range.start.line - 1
+            if 0 < line_index < len(lines) and lines[line_index - 1].strip():
+                blank = ">\n" if quoted else "\n"
+                edits.append(SourceEdit(starts[line_index], starts[line_index], blank))
         content = located.node.get("c")
         if not isinstance(content, list):
             continue
@@ -494,11 +608,172 @@ def set_sourced_list_spacing(
             gap_end = starts[line_index]
             if loose and gap_start == gap_end:
                 edits.append(SourceEdit(gap_end, gap_end, blank))
+            elif loose and gap_end - gap_start > len(blank):
+                edits.append(SourceEdit(gap_start, gap_end, blank))
             elif not loose and gap_start != gap_end:
                 edits.append(SourceEdit(gap_start, gap_end, ""))
 
     result = source
     for edit in sorted(set(edits), key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if verify and result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
+def normalize_sourced_list_indentation(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
+    """Use Pandoc-safe indentation for nested lists."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    shifts: dict[int, tuple[int, int]] = {}
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        if located.node.get("t") not in {"BulletList", "OrderedList"}:
+            continue
+        if any(ancestor in {"BlockQuote", "Note"} for ancestor in located.ancestors):
+            continue
+        depth = sum(
+            ancestor in {"BulletList", "OrderedList"}
+            for ancestor in located.ancestors
+        )
+        if depth == 0:
+            continue
+        first = located.source_range.start.line - 1
+        last = min(located.source_range.end.line - 1, len(lines))
+        if not (0 <= first < len(lines)):
+            continue
+        indent = len(lines[first]) - len(lines[first].lstrip(" "))
+        delta = indent - 4 * depth
+        if delta <= 0:
+            continue
+        for index in range(first, last):
+            if index not in shifts or depth > shifts[index][0]:
+                shifts[index] = (depth, delta)
+    edits: list[SourceEdit] = []
+    for index, (_depth, delta) in shifts.items():
+        if lines[index].startswith(" " * delta):
+            edits.append(SourceEdit(starts[index], starts[index] + delta, ""))
+    result = source
+    for edit in sorted(edits, key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if verify and result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
+def normalize_sourced_indented_code(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
+    """Write Pandoc indented code blocks with safe backtick fences."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    edits: list[SourceEdit] = []
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        if located.node.get("t") != "CodeBlock" or located.ancestors:
+            continue
+        first = located.source_range.start.line - 1
+        last = located.source_range.end.line - 1
+        if not (0 <= first < len(lines) and first < last <= len(lines)):
+            continue
+        if not lines[first].startswith("    "):
+            continue
+        content = located.node.get("c")
+        if not isinstance(content, list) or len(content) != 2:
+            continue
+        code = content[1]
+        if not isinstance(code, str):
+            continue
+        longest = max(
+            (len(run.group(0)) for run in re.finditer(r"`+", code)),
+            default=0,
+        )
+        fence = "`" * max(3, longest + 1)
+        old = source[starts[first] : starts[last]]
+        suffix = "\n\n" if old.endswith("\n\n") else "\n"
+        replacement = f"{fence}\n{code}\n{fence}{suffix}"
+        edits.append(SourceEdit(starts[first], starts[last], replacement))
+    result = source
+    for edit in sorted(edits, key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if verify and result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
+def normalize_sourced_blank_gaps(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
+    """Keep one empty separator line between authored blocks."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    protected: set[int] = set()
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        if located.node.get("t") not in {"CodeBlock", "RawBlock", "Math"}:
+            continue
+        first = located.source_range.start.line - 1
+        last = min(located.source_range.end.line - 1, len(lines))
+        while last > first and not lines[last - 1].strip():
+            last -= 1
+        protected.update(
+            range(first, last)
+        )
+    edits: list[SourceEdit] = []
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() or index in protected:
+            index += 1
+            continue
+        start = index
+        while index < len(lines) and not lines[index].strip() and index not in protected:
+            index += 1
+        if index - start > 1:
+            edits.append(SourceEdit(starts[start], starts[index], "\n"))
+    result = source
+    for edit in sorted(edits, key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if verify and result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
+def normalize_sourced_quote_blank_lines(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
+    """Write a space after the marker of an empty blockquote line."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    edits: set[SourceEdit] = set()
+    nodes = located_nodes(read_source_ast(source, pandoc_exe))
+    list_lines = {
+        index
+        for node in nodes
+        if node.node.get("t") in {"BulletList", "OrderedList"}
+        and "BlockQuote" in node.ancestors
+        for index in range(
+            node.source_range.start.line - 1,
+            min(node.source_range.end.line - 1, len(lines)),
+        )
+    }
+    for located in nodes:
+        if located.node.get("t") != "BlockQuote":
+            continue
+        first = located.source_range.start.line - 1
+        last = min(located.source_range.end.line - 1, len(lines))
+        for index in range(first, last):
+            raw = lines[index].rstrip("\r\n")
+            if index not in list_lines and re.fullmatch(r"[ >]*>", raw):
+                edits.add(SourceEdit(starts[index] + len(raw), starts[index] + len(raw), " "))
+    result = source
+    for edit in sorted(edits, key=lambda item: item.start, reverse=True):
         result = result[: edit.start] + edit.replacement + result[edit.end :]
     if verify and result != source:
         check_meaning_preserved(source, result)
@@ -654,7 +929,7 @@ def format_sourced_markdown(
 ) -> tuple[str, int]:
     """Run the supported formatting edits through one Pandoc source map."""
     result = normalize_sourced_spelling(source, pandoc_exe)
-    result = preprocess_tag_block_spacing(result)
+    result = normalize_sourced_html_block_layout(result, pandoc_exe, verify=False)
     joined = 0
     if cleanups:
         result = unbold_sourced_headings(result, pandoc_exe, verify=False)
@@ -671,6 +946,10 @@ def format_sourced_markdown(
         result = set_sourced_list_spacing(
             result, pandoc_exe, loose=list_spacing is ListSpacing.loose, verify=False
         )
+        result = normalize_sourced_list_indentation(result, pandoc_exe, verify=False)
+    result = normalize_sourced_indented_code(result, pandoc_exe, verify=False)
+    result = normalize_sourced_blank_gaps(result, pandoc_exe, verify=False)
+    result = normalize_sourced_quote_blank_lines(result, pandoc_exe, verify=False)
     result = set_sourced_heading_spacing(result, pandoc_exe, verify=False)
     if verify and result != source:
         check_meaning_preserved(source, result)

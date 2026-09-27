@@ -128,18 +128,18 @@ A second paragraph.
 
 - This is another list item
 
-  - A sub item
+    - A sub item
 
-    - A sub sub item
+        - A sub sub item
 
 - This is a third list item with many words and words and words and words and words and
   words and words and words
 
-  - A sub item
+    - A sub item
 
-  - Another sub item
+    - Another sub item
 
-  - Another sub item (after a line break)
+    - Another sub item (after a line break)
 
 - This is a nice
   [Markdown auto-formatter](https://github.com/jlevy/kmd/blob/main/kmd/text_formatting/markdown_normalization.py),
