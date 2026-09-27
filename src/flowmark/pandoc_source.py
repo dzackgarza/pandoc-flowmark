@@ -20,6 +20,7 @@ from flowmark.pandoc_verify import (
     check_meaning_preserved,
 )
 from flowmark.typography.smartquotes import smart_quotes
+from flowmark.typography.ellipses import ellipses
 
 
 @dataclass(frozen=True)
@@ -510,3 +511,51 @@ def apply_sourced_smart_quotes(source: str, pandoc_exe: str) -> str:
     if formatted != source:
         check_meaning_preserved(source, formatted)
     return formatted
+
+
+def apply_sourced_ellipses(source: str, pandoc_exe: str) -> str:
+    """Style ellipses only where Pandoc decoded literal prose to an ellipsis."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+
+    edits: list[SourceEdit] = []
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        if located.node.get("t") != "Str" or "…" not in str(
+            located.node.get("c", "")
+        ):
+            continue
+        begin = located.source_range.start
+        finish = located.source_range.end
+        if begin.line > len(lines) or finish.line > len(lines):
+            continue
+        start = starts[begin.line - 1] + begin.column - 1
+        end = starts[finish.line - 1] + finish.column - 1
+        if not (0 <= start < end <= len(source)) or "..." not in source[start:end]:
+            continue
+        left = start
+        while left > 0 and source[left - 1] in " \t":
+            left -= 1
+        if left > 0 and source[left - 1] not in "\r\n":
+            left -= 1
+        right = end
+        while right < len(source) and source[right] == ".":
+            right += 1
+        while right < len(source) and source[right] in " \t":
+            right += 1
+        if right < len(source) and source[right] not in "\r\n":
+            right += 1
+        prefix, suffix = source[left:start], source[end:right]
+        styled = ellipses(source[left:right])
+        if styled.startswith(prefix) and styled.endswith(suffix):
+            replacement = styled[len(prefix) : len(styled) - len(suffix) or None]
+            if replacement != source[start:end]:
+                edits.append(SourceEdit(start, end, replacement))
+
+    result = source
+    for edit in sorted(set(edits), key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if result != source:
+        check_meaning_preserved(source, result)
+    return result

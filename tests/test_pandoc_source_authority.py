@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from flowmark.pandoc_source import (
+    apply_sourced_ellipses,
     apply_sourced_smart_quotes,
     join_sourced_hyphen_breaks,
     set_sourced_list_spacing,
@@ -294,3 +295,17 @@ def test_pandoc_smart_quotes_edit_only_sourced_prose() -> None:
     assert '“hello” and I’m' in formatted
     assert '`x="a"`' in formatted
     assert '(https://example.org "title")' in formatted
+
+
+def test_pandoc_ellipses_edit_only_sourced_prose() -> None:
+    source = (
+        'First...second, word..... and `code...text` with '
+        '[a link](https://example.org "title...").\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = apply_sourced_ellipses(source, pandoc)
+
+    assert 'First … second' in formatted
+    assert 'word.....' in formatted
+    assert '`code...text`' in formatted
+    assert '(https://example.org "title...")' in formatted
