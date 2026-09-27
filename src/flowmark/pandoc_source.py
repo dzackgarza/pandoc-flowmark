@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import cast
 
+from flowmark.linewrapping.line_wrappers import line_wrap_by_sentence
 from flowmark.linewrapping.text_wrapping import (
     simple_word_splitter,
     wrap_paragraph_lines,
@@ -120,7 +121,9 @@ def located_nodes(value: PandocJson) -> list[LocatedNode]:
     return nodes
 
 
-def _propose_paragraph_edits(source: str, width: int, pandoc_exe: str) -> str:
+def _propose_paragraph_edits(
+    source: str, width: int, pandoc_exe: str, semantic: bool = False
+) -> str:
     """Return sourced paragraph edits for full-document verification."""
     if any(marker in source for marker in (_SPACE, _TAB, _NEWLINE)):
         raise ValueError("The source contains reserved formatter characters")
@@ -161,6 +164,8 @@ def _propose_paragraph_edits(source: str, width: int, pandoc_exe: str) -> str:
         start = starts[first.line - 1]
         end = starts[end_line]
         old = source[start:end]
+        if semantic and any(tag in old for tag in ("{%", "{#", "{{", "<!--")):
+            continue
         protected = old
         inline_spans: list[tuple[int, int]] = []
         for inline in located_nodes(located.node):
@@ -214,31 +219,47 @@ def _propose_paragraph_edits(source: str, width: int, pandoc_exe: str) -> str:
                 line[prefix_width:]
                 for line in protected.splitlines(keepends=True)
             )
-            wrapped_lines = wrap_paragraph_lines(
-                content,
-                width=width,
-                initial_column=prefix_width,
-                subsequent_offset=prefix_width,
-                splitter=simple_word_splitter,
-                is_markdown=True,
-            )
-            wrapped = (
-                first_prefix
-                + wrapped_lines[0]
-                + "".join("\n" + continuation + line for line in wrapped_lines[1:])
-                + "\n"
-            ).translate(_SHOW)
+            if semantic:
+                wrapped = line_wrap_by_sentence(
+                    width=width, is_markdown=True, source_preserving=True
+                )(
+                    content, first_prefix, continuation
+                ) + "\n"
+            else:
+                wrapped_lines = wrap_paragraph_lines(
+                    content,
+                    width=width,
+                    initial_column=prefix_width,
+                    subsequent_offset=prefix_width,
+                    splitter=simple_word_splitter,
+                    is_markdown=True,
+                )
+                wrapped = (
+                    first_prefix
+                    + wrapped_lines[0]
+                    + "".join("\n" + continuation + line for line in wrapped_lines[1:])
+                    + "\n"
+                )
+            wrapped = wrapped.translate(_SHOW)
             if wrapped != old:
                 edits.append(SourceEdit(start, end, wrapped))
             continue
-        wrapped = "\n".join(
-            wrap_paragraph_lines(
-                protected,
-                width=width,
-                splitter=simple_word_splitter,
-                is_markdown=True,
+        if semantic:
+            wrapped = line_wrap_by_sentence(
+                width=width, is_markdown=True, source_preserving=True
+            )(
+                protected, "", ""
             )
-        ).translate(_SHOW) + "\n"
+        else:
+            wrapped = "\n".join(
+                wrap_paragraph_lines(
+                    protected,
+                    width=width,
+                    splitter=simple_word_splitter,
+                    is_markdown=True,
+                )
+            )
+        wrapped = wrapped.translate(_SHOW) + "\n"
         if wrapped != old:
             edits.append(SourceEdit(start, end, wrapped))
 
@@ -248,9 +269,11 @@ def _propose_paragraph_edits(source: str, width: int, pandoc_exe: str) -> str:
     return result
 
 
-def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
+def wrap_plain_paragraphs(
+    source: str, width: int, pandoc_exe: str, semantic: bool = False
+) -> str:
     """Wrap sourced paragraphs and preserve Pandoc inline source atoms."""
-    result = _propose_paragraph_edits(source, width, pandoc_exe)
+    result = _propose_paragraph_edits(source, width, pandoc_exe, semantic)
     if result != source:
         check_meaning_preserved(source, result)
     return result

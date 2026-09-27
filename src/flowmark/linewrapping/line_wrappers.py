@@ -132,6 +132,7 @@ def line_wrap_by_sentence(
     min_line_len: int = DEFAULT_MIN_LINE_LEN,
     len_fn: Callable[[str], int] = DEFAULT_LEN_FUNCTION,
     is_markdown: bool = False,
+    source_preserving: bool = False,
 ) -> LineWrapper:
     """
     Wrap lines of text to a given width but also keep sentences on their own lines.
@@ -210,7 +211,7 @@ def line_wrap_by_sentence(
         # Restore original adjacency for paired tags (remove spaces added during tokenization)
         return denormalize_adjacent_tags(result)
 
-    if is_markdown:
+    if is_markdown and not source_preserving:
         # Apply tag newline handling first, then hard break handling
         enhanced = add_tag_newline_handling(line_wrapper)
         return _add_markdown_hard_break_handling(enhanced)

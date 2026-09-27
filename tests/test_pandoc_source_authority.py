@@ -160,3 +160,27 @@ def test_pandoc_edit_preserves_hard_break_source() -> None:
     assert formatted != source
     assert 'break.  \nAnd' in formatted
     assert wrap_plain_paragraphs(formatted, 40, pandoc) == formatted
+
+
+def test_pandoc_edit_wraps_at_sentence_boundaries() -> None:
+    source = (
+        'A first sentence has enough words to occupy a line. '
+        'A second sentence has enough words to occupy the next line.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = wrap_plain_paragraphs(source, 60, pandoc, semantic=True)
+
+    assert 'line.\nA second sentence' in formatted
+    assert wrap_plain_paragraphs(formatted, 60, pandoc, semantic=True) == formatted
+
+
+def test_pandoc_edit_preserves_template_owned_lines() -> None:
+    source = (
+        '{% field kind="select" %}\n'
+        '- [ ] First option {% first %}\n'
+        '- [ ] Second option {% second %}\n'
+        '{% /field %}\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+
+    assert wrap_plain_paragraphs(source, 40, pandoc, semantic=True) == source
