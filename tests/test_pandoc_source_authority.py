@@ -184,3 +184,30 @@ def test_pandoc_edit_preserves_template_owned_lines() -> None:
     pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
 
     assert wrap_plain_paragraphs(source, 40, pandoc, semantic=True) == source
+
+
+def test_pandoc_edit_wraps_both_levels_of_a_nested_list() -> None:
+    source = (
+        '- A first list item has enough words to need a line wrap in this outer level.\n'
+        '  - A nested list item also has enough words to need a line wrap at this level.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = wrap_plain_paragraphs(source, 42, pandoc)
+
+    assert formatted.startswith('- A first list item has enough words to\n  ')
+    assert '  - A nested list item also has enough\n    ' in formatted
+    assert wrap_plain_paragraphs(formatted, 42, pandoc) == formatted
+
+
+def test_pandoc_edit_keeps_nested_marker_after_outer_item() -> None:
+    source = (
+        '* An outer list item has enough words to need a line wrap at this width.\n'
+        '\n'
+        '  + The inner list item follows after a blank line and must stay nested.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = wrap_plain_paragraphs(source, 42, pandoc)
+
+    assert formatted.startswith('* An outer list item has enough words to\n  ')
+    assert '\n\n  + The inner list item follows' in formatted
+    assert wrap_plain_paragraphs(formatted, 42, pandoc) == formatted

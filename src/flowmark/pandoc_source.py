@@ -153,7 +153,12 @@ def _propose_paragraph_edits(
         ):
             continue
         prefix_width = first.column - 1
-        end_line = min(located.source_range.end.line, len(lines) + 1) - 1
+        last = located.source_range.end
+        end_line = min(last.line, len(lines))
+        if last.line <= len(lines) and last.column < len(
+            lines[last.line - 1].rstrip("\r\n")
+        ) + 1:
+            end_line -= 1
         while end_line >= first.line and not lines[end_line - 1][
             prefix_width:
         ].strip():
