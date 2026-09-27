@@ -110,3 +110,29 @@ def test_pandoc_edit_keeps_multiline_code_source() -> None:
 
     assert '`first line\nsecond line`' in formatted
     assert wrap_plain_paragraphs(formatted, 48, pandoc) == formatted
+
+
+def test_pandoc_edit_wraps_list_item_under_its_marker() -> None:
+    source = (
+        '- A long first item has enough words to need a line wrap inside the list.\n'
+        '\n'
+        '- A second item stays separate.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = wrap_plain_paragraphs(source, 40, pandoc)
+
+    assert formatted.startswith('- A long first item has enough words to\n  ')
+    assert '\n- A second item stays separate.\n' in formatted
+    assert wrap_plain_paragraphs(formatted, 40, pandoc) == formatted
+
+
+def test_pandoc_edit_wraps_quote_under_its_marker() -> None:
+    source = (
+        '> A quoted sentence has enough words to need a line wrap within the '
+        'same block quote.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = wrap_plain_paragraphs(source, 40, pandoc)
+
+    assert formatted.startswith('> A quoted sentence has enough words to\n> ')
+    assert wrap_plain_paragraphs(formatted, 40, pandoc) == formatted

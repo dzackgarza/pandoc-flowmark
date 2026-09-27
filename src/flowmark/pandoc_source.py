@@ -35,6 +35,7 @@ class SourceRange:
 class LocatedNode:
     source_range: SourceRange
     node: dict[str, PandocJson]
+    ancestors: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -96,22 +97,26 @@ def located_nodes(value: PandocJson) -> list[LocatedNode]:
     """Return source annotated blocks and inlines in document order."""
     nodes: list[LocatedNode] = []
 
-    def visit(item: PandocJson) -> None:
+    def visit(item: PandocJson, ancestors: tuple[str, ...]) -> None:
         position = _position(item)
         if position is not None:
             wrapper = cast(dict[str, PandocJson], item)
             content = cast(list[PandocJson], wrapper["c"])
             children = cast(list[PandocJson], content[1])
             if len(children) == 1 and isinstance(children[0], dict):
-                nodes.append(LocatedNode(position, children[0]))
+                nodes.append(LocatedNode(position, children[0], ancestors))
         if isinstance(item, dict):
+            node_type = item.get("t")
+            nested_ancestors = (
+                ancestors + (node_type,) if isinstance(node_type, str) else ancestors
+            )
             for child in item.values():
-                visit(child)
+                visit(child, nested_ancestors)
         elif isinstance(item, list):
             for child in item:
-                visit(child)
+                visit(child, ancestors)
 
-    visit(value)
+    visit(value, ())
     return nodes
 
 
@@ -126,10 +131,23 @@ def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
 
     edits: list[SourceEdit] = []
     for located in located_nodes(read_source_ast(source, pandoc_exe)):
-        if located.node.get("t") != "Para":
+        is_list = any(
+            ancestor in {"BulletList", "OrderedList"}
+            for ancestor in located.ancestors
+        )
+        is_quote = "BlockQuote" in located.ancestors
+        if located.node.get("t") not in {"Para", "Plain"}:
+            continue
+        if located.node.get("t") == "Plain" and not is_list:
             continue
         first = located.source_range.start
-        if first.column != 1 or first.line > len(lines):
+        if first.line > len(lines):
+            continue
+        if first.column != 1 and (
+            not (is_list or is_quote)
+            or (is_list and is_quote)
+            or "Note" in located.ancestors
+        ):
             continue
         end_line = min(located.source_range.end.line, len(lines) + 1) - 1
         while end_line >= first.line and not lines[end_line - 1].strip():
@@ -140,6 +158,49 @@ def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
         start = starts[first.line - 1]
         end = starts[end_line]
         old = source[start:end]
+        prefix_width = first.column - 1
+        if prefix_width:
+            paragraph_lines = lines[first.line - 1 : end_line]
+            first_prefix = paragraph_lines[0][:prefix_width]
+            if (
+                "\t" in first_prefix
+                or located_nodes(located.node)
+            ):
+                continue
+            if is_quote:
+                if ">" not in first_prefix or any(
+                    character not in " >" for character in first_prefix
+                ) or any(
+                    not line.startswith(first_prefix)
+                    for line in paragraph_lines[1:]
+                ):
+                    continue
+                continuation = first_prefix
+            else:
+                if any(
+                    line[:prefix_width].strip()
+                    for line in paragraph_lines[1:]
+                ):
+                    continue
+                continuation = " " * prefix_width
+            content = "".join(line[prefix_width:] for line in paragraph_lines)
+            wrapped_lines = wrap_paragraph_lines(
+                content,
+                width=width,
+                initial_column=prefix_width,
+                subsequent_offset=prefix_width,
+                splitter=simple_word_splitter,
+                is_markdown=True,
+            )
+            wrapped = (
+                first_prefix
+                + wrapped_lines[0]
+                + "".join("\n" + continuation + line for line in wrapped_lines[1:])
+                + "\n"
+            )
+            if wrapped != old:
+                edits.append(SourceEdit(start, end, wrapped))
+            continue
         protected = old
         inline_spans: list[tuple[int, int]] = []
         for inline in located_nodes(located.node):
