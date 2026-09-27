@@ -111,11 +111,12 @@ class MeaningChangedError(ValueError):
         self.block = block
 
 
-def _pandoc_exe() -> str:
-    pandoc_exe = shutil.which("pandoc")
+def pandoc_executable() -> str:
+    name = os.environ.get("FLOWMARK_PANDOC", "pandoc-flowmark")
+    pandoc_exe = shutil.which(name)
     if pandoc_exe is None:
         raise PandocUnavailableError(
-            "Verification requires the `pandoc` binary on PATH. Install pandoc (https://pandoc.org/installing.html) or drop --verify."
+            f"Flowmark requires the source-position Pandoc reader `{name}`."
         )
     return pandoc_exe
 
@@ -154,7 +155,7 @@ def pandoc_ast(markdown_text: str) -> list[PandocJson]:
         PandocUnavailableError: if the pandoc binary is not on PATH.
         PandocParseError: if pandoc ran but could not parse the document.
     """
-    return _collect_blocks(_spawn_pandoc(_pandoc_exe()), markdown_text)
+    return _collect_blocks(_spawn_pandoc(pandoc_executable()), markdown_text)
 
 
 def block_indices(markdown_text: str, lines: list[int]) -> list[int]:
@@ -166,7 +167,7 @@ def block_indices(markdown_text: str, lines: list[int]) -> list[int]:
     the last block of that prefix. The prefixes parse concurrently, a few at a time.
     """
     text_lines = markdown_text.split("\n")
-    pandoc_exe = _pandoc_exe()
+    pandoc_exe = pandoc_executable()
     batch = os.cpu_count() or 1
     indices: list[int] = []
     for start in range(0, len(lines), batch):
@@ -187,7 +188,7 @@ def _pandoc_ast_pair(
     A comparison always needs both trees, and pandoc's startup dominates the
     cost, so overlapping the two runs roughly halves verification latency.
     """
-    pandoc_exe = _pandoc_exe()
+    pandoc_exe = pandoc_executable()
     source_proc = _spawn_pandoc(pandoc_exe)
     result_proc = _spawn_pandoc(pandoc_exe)
     try:

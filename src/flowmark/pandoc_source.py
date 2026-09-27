@@ -7,7 +7,9 @@ import subprocess
 from dataclasses import dataclass
 from typing import cast
 
+from flowmark.formats.flowmark_markdown import ListSpacing
 from flowmark.linewrapping.line_wrappers import line_wrap_by_sentence
+from flowmark.linewrapping.protocols import LineWrapper
 from flowmark.linewrapping.text_wrapping import (
     simple_word_splitter,
     wrap_paragraph_lines,
@@ -125,7 +127,11 @@ def located_nodes(value: PandocJson) -> list[LocatedNode]:
 
 
 def _propose_paragraph_edits(
-    source: str, width: int, pandoc_exe: str, semantic: bool = False
+    source: str,
+    width: int,
+    pandoc_exe: str,
+    semantic: bool = False,
+    line_wrapper: LineWrapper | None = None,
 ) -> str:
     """Return sourced paragraph edits for full-document verification."""
     if any(marker in source for marker in (_SPACE, _TAB, _NEWLINE)):
@@ -176,7 +182,15 @@ def _propose_paragraph_edits(
             continue
         protected = old
         inline_spans: list[tuple[int, int]] = []
-        for inline in located_nodes(located.node):
+        paragraph_inlines = located_nodes(located.node)
+        has_hard_break = any(
+            inline.node.get("t") == "LineBreak" for inline in paragraph_inlines
+        )
+        if has_hard_break and any(
+            inline.node.get("t") == "SoftBreak" for inline in paragraph_inlines
+        ):
+            continue
+        for inline in paragraph_inlines:
             if inline.node.get("t") in {"Str", "Space", "SoftBreak"}:
                 continue
             begin = inline.source_range.start
@@ -229,7 +243,9 @@ def _propose_paragraph_edits(
                 line[prefix_width:]
                 for line in protected.splitlines(keepends=True)
             )
-            if semantic:
+            if line_wrapper is not None:
+                wrapped = line_wrapper(content, first_prefix, continuation) + "\n"
+            elif semantic:
                 wrapped = line_wrap_by_sentence(
                     width=width, is_markdown=True, source_preserving=True
                 )(
@@ -254,7 +270,9 @@ def _propose_paragraph_edits(
             if wrapped != old:
                 edits.append(SourceEdit(start, end, wrapped))
             continue
-        if semantic:
+        if line_wrapper is not None:
+            wrapped = line_wrapper(protected, "", "")
+        elif semantic:
             wrapped = line_wrap_by_sentence(
                 width=width, is_markdown=True, source_preserving=True
             )(
@@ -280,10 +298,16 @@ def _propose_paragraph_edits(
 
 
 def wrap_plain_paragraphs(
-    source: str, width: int, pandoc_exe: str, semantic: bool = False
+    source: str,
+    width: int,
+    pandoc_exe: str,
+    semantic: bool = False,
+    line_wrapper: LineWrapper | None = None,
 ) -> str:
     """Wrap sourced paragraphs and preserve Pandoc inline source atoms."""
-    result = _propose_paragraph_edits(source, width, pandoc_exe, semantic)
+    result = _propose_paragraph_edits(
+        source, width, pandoc_exe, semantic, line_wrapper
+    )
     if result != source:
         check_meaning_preserved(source, result)
     return result
@@ -559,3 +583,79 @@ def apply_sourced_ellipses(source: str, pandoc_exe: str) -> str:
     if result != source:
         check_meaning_preserved(source, result)
     return result
+
+
+def set_sourced_heading_spacing(source: str, pandoc_exe: str) -> str:
+    """Separate Pandoc headings from the next authored block."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+
+    edits: list[SourceEdit] = []
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        if located.node.get("t") != "Header":
+            continue
+        next_line = located.source_range.end.line
+        if not (1 < next_line <= len(lines)):
+            continue
+        previous = lines[next_line - 2].rstrip("\r\n")
+        if not previous.strip():
+            continue
+        if previous.endswith("\\") or previous.endswith("  "):
+            continue
+        if not lines[next_line - 1].strip():
+            continue
+        prefix = lines[next_line - 1][: located.source_range.end.column - 1]
+        if "BlockQuote" in located.ancestors and ">" in prefix:
+            blank = prefix[: prefix.rfind(">") + 1] + "\n"
+        elif any(
+            ancestor in {"BulletList", "OrderedList", "Note"}
+            for ancestor in located.ancestors
+        ):
+            blank = prefix[: len(prefix) - len(prefix.lstrip(" \t"))] + "\n"
+        else:
+            blank = "\n"
+        offset = starts[next_line - 1]
+        edits.append(SourceEdit(offset, offset, blank))
+
+    result = source
+    for edit in sorted(set(edits), key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
+def format_sourced_markdown(
+    source: str,
+    pandoc_exe: str,
+    *,
+    width: int,
+    semantic: bool,
+    cleanups: bool,
+    smartquotes: bool,
+    ellipses: bool,
+    list_spacing: ListSpacing,
+    line_wrapper: LineWrapper | None = None,
+) -> tuple[str, int]:
+    """Run the supported formatting edits through one Pandoc source map."""
+    result = source
+    joined = 0
+    if cleanups:
+        result = unbold_sourced_headings(result, pandoc_exe)
+        result, joined = join_sourced_hyphen_breaks(result, pandoc_exe)
+    if smartquotes:
+        result = apply_sourced_smart_quotes(result, pandoc_exe)
+    if ellipses:
+        result = apply_sourced_ellipses(result, pandoc_exe)
+    if width > 0 or semantic or line_wrapper is not None:
+        result = wrap_plain_paragraphs(
+            result, width, pandoc_exe, semantic, line_wrapper
+        )
+    if list_spacing is not ListSpacing.preserve:
+        result = set_sourced_list_spacing(
+            result, pandoc_exe, loose=list_spacing is ListSpacing.loose
+        )
+    result = set_sourced_heading_spacing(result, pandoc_exe)
+    return result, joined

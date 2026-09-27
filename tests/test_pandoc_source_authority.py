@@ -5,6 +5,7 @@ import os
 from flowmark.pandoc_source import (
     apply_sourced_ellipses,
     apply_sourced_smart_quotes,
+    format_sourced_markdown,
     join_sourced_hyphen_breaks,
     set_sourced_list_spacing,
     unbold_sourced_headings,
@@ -13,6 +14,7 @@ from flowmark.pandoc_source import (
     wrap_plain_paragraphs,
 )
 from flowmark.pandoc_verify import pandoc_ast
+from flowmark.formats.flowmark_markdown import ListSpacing
 from flowmark.reformat_api import reformat_text
 
 
@@ -309,3 +311,29 @@ def test_pandoc_ellipses_edit_only_sourced_prose() -> None:
     assert 'word.....' in formatted
     assert '`code...text`' in formatted
     assert '(https://example.org "title...")' in formatted
+
+
+def test_pandoc_source_formatter_combines_style_options() -> None:
+    source = (
+        '# **A bold heading**\n\n'
+        'She said "hello" about the degree-\n2 locus... and enough other words '
+        'to need a line wrap here.\n\n'
+        '- First item.\n- Second item.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted, joins = format_sourced_markdown(
+        source,
+        pandoc,
+        width=50,
+        semantic=False,
+        cleanups=True,
+        smartquotes=True,
+        ellipses=True,
+        list_spacing=ListSpacing.loose,
+    )
+
+    assert joins == 1
+    assert '# A bold heading\n' in formatted
+    assert '“hello”' in formatted
+    assert 'degree-2 locus …' in formatted
+    assert '- First item.\n\n- Second item.\n' in formatted
