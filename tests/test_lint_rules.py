@@ -197,8 +197,6 @@ def test_tex_notation_outside_math_mode_is_reported() -> None:
         "^n",
         "^n",
         "\\mu",
-        # Pandoc's `markdown` reads `\[` as an escaped bracket, not display math.
-        "_i",
     ]
 
 
@@ -206,17 +204,21 @@ def test_unicode_math_symbols_outside_math_mode_are_reported() -> None:
     assert _findings(MATH_IN_PROSE, "math/unicode-symbol") == ["⊗", "→", "≅", "∈"]
 
 
-def test_an_unmatched_backtick_does_not_unprotect_later_code_spans() -> None:
+def test_unmatched_backtick_uses_pandoc_table_cell_parsing() -> None:
     """
-    A code span cannot cross a blank line or a table row, so a stray backtick in
-    one block must not pair with the first backtick of the next and turn every
-    later code span inside out.
+    Pandoc can parse a code span across pipe table rows. A later, closed code
+    span in prose still protects its contents from the math-notation rule.
     """
     source = (
         "| a | b |\n| --- | --- |\n| stray ` | y |\n| `x_0` | `R^n` |\n\n"
         "A stray ` backtick.\n\nThen `x_0 in R^n` in code.\n"
     )
-    assert "math/outside-math-mode" not in rule_ids(source)
+    math_findings = [
+        diagnostic for diagnostic in lint_text(source)
+        if diagnostic.rule == "math/outside-math-mode"
+    ]
+    assert math_findings
+    assert all(diagnostic.line < 8 for diagnostic in math_findings)
 
 
 def test_unicode_math_symbols_are_reported_in_code_and_math_too() -> None:
@@ -272,15 +274,14 @@ def test_emphasis_padding_ignores_bullets_and_adjacent_strong_spans() -> None:
     assert "emphasis/padding" not in rule_ids(source)
 
 
-def test_backslash_delimiters_are_prose_to_pandoc() -> None:
+def test_backslash_math_delimiters_follow_house_source_style() -> None:
     """
-    Pandoc's `markdown` leaves `tex_math_single_backslash` off, so `\\(x_i\\)` reads
-    as the text `(x_i)` and a `\\[ ... \\]` block as `[ ... ]`. The delimiters are
-    reported, and what they enclose is checked as the prose it is.
+    The house Pandoc dialect reads both forms as math. The linter reports the
+    delimiter style, while the math content stays outside prose checks.
     """
     source = "Inline \\(x_i\\) here.\n\n\\[\ny^n\n\\]\n"
     assert _findings(source, "math/backslash-delimiter") == ["\\(", "\\)", "\\[", "\\]"]
-    assert _findings(source, "math/outside-math-mode") == ["_i", "^n"]
+    assert _findings(source, "math/outside-math-mode") == []
 
 
 def test_escaped_list_markers_are_not_math_delimiters() -> None:

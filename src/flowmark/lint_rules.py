@@ -23,7 +23,6 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from flowmark.atomic_spans import (
-    INLINE_CODE_SPAN,
     PAIRED_HTML_COMMENT,
     PAIRED_JINJA_COMMENT,
     PAIRED_JINJA_TAG,
@@ -34,17 +33,12 @@ from flowmark.atomic_spans import (
     SINGLE_JINJA_VAR,
     iter_atomic_spans,
 )
-from flowmark.formats.flowmark_parser import CustomRawInlineTex
-from flowmark.linewrapping.atomic_patterns import DOLLAR_MATH, AtomicPattern
+from flowmark.linewrapping.atomic_patterns import DOLLAR_MATH
 from flowmark.markdown_ast import stringify_inlines
-from flowmark.pandoc_source import located_nodes, read_source_ast
-from flowmark.pandoc_verify import pandoc_executable
+from flowmark.pandoc_reader import located_nodes, pandoc_executable, read_source_ast
 
 # Math as pandoc's `markdown` reads it: `$...$` and `$$...$$` only. It leaves
 # `tex_math_single_backslash` off, so `\(...\)` and `\[...\]` are prose.
-_DOLLAR_MATH_SPAN = AtomicPattern(name="dollar_math", pattern=DOLLAR_MATH)
-
-
 class StyleRule(StrEnum):
     """Opt-in policies that are valid Markdown but may violate house style."""
 
@@ -181,8 +175,6 @@ _UNORDERED_MARKER = re.compile(r"^(?P<indent> *)(?P<marker>[*+-])[ \t]+")
 _TOP_LEVEL_YAML_KEY = re.compile(r"^(?P<key>[A-Za-z0-9_.-]+)[ \t]*:")
 
 _PROTECTED_INLINE_PATTERNS = (
-    INLINE_CODE_SPAN,
-    _DOLLAR_MATH_SPAN,
     SINGLE_HTML_COMMENT,
     PAIRED_HTML_COMMENT,
     SINGLE_JINJA_TAG,
@@ -347,10 +339,26 @@ def _build_protected_map(
             if span.is_atomic:
                 _mark(protected, block.start() + span.start, block.start() + span.end)
 
-    raw_tex_pattern = CustomRawInlineTex.pattern
-    if isinstance(raw_tex_pattern, re.Pattern):
-        for match in raw_tex_pattern.finditer(text):
-            _mark(protected, match.start(), match.end())
+    if frontmatter is not None and frontmatter.closing is None:
+        return protected
+    body_start = frontmatter.closing.raw_end if frontmatter and frontmatter.closing else 0
+    body = text[body_start:]
+    starts = [body_start]
+    for line in body.splitlines(keepends=True):
+        starts.append(starts[-1] + len(line))
+    for located in located_nodes(read_source_ast(body, pandoc_executable())):
+        kind = located.node.get("t")
+        if kind not in {"Code", "Math", "RawInline", "CodeBlock", "RawBlock"}:
+            continue
+        begin, finish = located.source_range.start, located.source_range.end
+        if begin.line >= len(starts) or finish.line >= len(starts):
+            continue
+        start = starts[begin.line - 1] + begin.column - 1
+        end = starts[finish.line - 1] + finish.column - 1
+        if kind == "RawInline" and "{" not in text[start:end]:
+            continue
+        if 0 <= start < end <= len(text):
+            _mark(protected, start, end)
     return protected
 
 
@@ -1044,7 +1052,9 @@ def _unclosed_construct_findings(
     return findings
 
 
-def _malformed_inline_findings(text: str, protected: bytearray) -> list[RuleFinding]:
+def _malformed_inline_findings(
+    text: str, protected: bytearray, frontmatter: _Frontmatter | None
+) -> list[RuleFinding]:
     findings: list[RuleFinding] = []
     for regex, rule, message in (
         (
@@ -1082,25 +1092,42 @@ def _malformed_inline_findings(text: str, protected: bytearray) -> list[RuleFind
                 RuleFinding(rule, "warning", message, match.start(), match.end())
             )
 
-    # Pandoc's `markdown` reads `\(` as a literal parenthesis and `\[` as a literal
-    # bracket. A lone escape is ordinary: `\[1\]` is a literal bracket, and the
-    # wrapper writes `1\)`, `A\)` and `\(1)` so a line does not start a list. So a
-    # delimiter counts only as a pair, within one block, around TeX-looking text.
+    # The house Pandoc dialect reads paired backslash delimiters as Math. This
+    # rule asks authors to use dollar delimiters for a consistent source style.
+    body_start = frontmatter.closing.raw_end if frontmatter and frontmatter.closing else 0
+    body = text[body_start:]
+    starts = [body_start]
+    for line in body.splitlines(keepends=True):
+        starts.append(starts[-1] + len(line))
+    math_ranges: set[tuple[int, int]] = set()
+    if frontmatter is None or frontmatter.closing is not None:
+        for located in located_nodes(read_source_ast(body, pandoc_executable())):
+            if located.node.get("t") != "Math":
+                continue
+            begin, finish = located.source_range.start, located.source_range.end
+            if begin.line >= len(starts) or finish.line >= len(starts):
+                continue
+            math_ranges.add(
+                (
+                    starts[begin.line - 1] + begin.column - 1,
+                    starts[finish.line - 1] + finish.column - 1,
+                )
+            )
     delimiters: list[int] = []
     for pair in _BACKSLASH_DELIMITER_PAIRS:
         for match in pair.finditer(text):
             if re.search(r"[\\^_]", match.group("body")):
+                if match.span() not in math_ranges and _overlaps(
+                    protected, match.start(), match.end()
+                ):
+                    continue
                 delimiters += [match.start(), match.end() - 2]
     for start in sorted(delimiters):
-        if _overlaps(protected, start, start + 2):
-            continue
         findings.append(
             RuleFinding(
                 "math/backslash-delimiter",
                 "warning",
-                f"Pandoc's markdown reads {text[start : start + 2]!r} as a literal "
-                f"{text[start + 1]!r}, not a math delimiter; write math as `$...$` "
-                "or `$$...$$`.",
+                "Use `$...$` or `$$...$$` for math instead of a backslash delimiter.",
                 start,
                 start + 2,
             )
@@ -1509,7 +1536,7 @@ def lint_rule_findings(
         *_explicit_identifier_findings(text, protected),
         *_attribute_findings(lines, protected),
         *_unclosed_construct_findings(lines, protected),
-        *_malformed_inline_findings(text, protected),
+        *_malformed_inline_findings(text, protected, frontmatter),
         *_math_notation_findings(text, protected, fences),
         *_link_findings(text, headings, definitions, styles, source_path, frontmatter),
         *_table_boundary_findings(lines, protected),

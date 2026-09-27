@@ -14,15 +14,22 @@ with a following ``(...)`` (becoming an inline link) or a following ``[...]``
 The collapsed reference form ``[label][]`` is used instead, which is unambiguous.
 """
 
-import marko
+import subprocess
 
 from flowmark.formats.flowmark_markdown import flowmark_markdown
+from flowmark.pandoc_reader import PANDOC_FORMAT, pandoc_executable
 
 
 def _html(src: str) -> str:
-    """Render markdown to HTML with stock marko, for semantic equivalence checks."""
-    parser = marko.Markdown()
-    return parser.render(parser.parse(src)).strip()
+    """Render through the same Pandoc dialect used by the formatter."""
+    result = subprocess.run(
+        [pandoc_executable(), "-f", PANDOC_FORMAT, "-t", "html", "--wrap=none"],
+        input=src,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
 
 
 def test_full_reference_with_distinct_label_preserved() -> None:

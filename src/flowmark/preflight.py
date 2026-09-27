@@ -27,8 +27,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from flowmark.formats.flowmark_parser import split_pipe_table_row
-from flowmark.linewrapping.atomic_patterns import DOLLAR_MATH
+from flowmark.linewrapping.atomic_patterns import DOLLAR_MATH, INLINE_CODE_SPAN
 
 
 class MalformedInputError(ValueError):
@@ -48,6 +47,25 @@ class Finding:
 # demanding both keeps prose containing a bar from being read as a table.
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 _DELIMITER_ROW = re.compile(r"^\s*\|(\s*:?-+:?\s*\|)+\s*$")
+
+# Pandoc's pipeTableCell reader consumes code and math spans before it uses a
+# pipe as a cell separator (Text.Pandoc.Readers.Markdown). This scan only counts
+# source cells for the malformed-row diagnostic; Pandoc owns valid table parsing.
+_PIPE_ROW_TOKEN = re.compile(
+    rf"{INLINE_CODE_SPAN.pattern}|{DOLLAR_MATH}|\\.|(?P<bar>\|)"
+)
+
+
+def split_pipe_table_row(line: str) -> list[str]:
+    stripped = line.strip()
+    bars = [match.start() for match in _PIPE_ROW_TOKEN.finditer(stripped) if match.group("bar")]
+    edges = [-1, *bars, len(stripped)]
+    cells = [stripped[start + 1 : end].strip() for start, end in zip(edges, edges[1:])]
+    if cells and stripped.startswith("|"):
+        cells.pop(0)
+    if cells and not cells[-1] and stripped.endswith("|"):
+        cells.pop()
+    return cells
 
 _FENCE = re.compile(r"^ {,3}(`{3,}|~{3,})(.*)$")
 

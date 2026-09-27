@@ -67,7 +67,10 @@ def read_source_ast(source: str, pandoc_exe: str) -> PandocJson:
     )
     if result.returncode:
         raise PandocParseError(result.stderr.strip())
-    return cast(PandocJson, json.loads(result.stdout))
+    ast = cast(PandocJson, json.loads(result.stdout))
+    parts = source.split("\n")
+    _clamp_ranges(ast, SourcePoint(len(parts), len(parts[-1]) + 1))
+    return ast
 
 
 def _point(value: str) -> SourcePoint:
@@ -95,6 +98,28 @@ def source_position(value: PandocJson) -> SourceRange | None:
         return None
     start, end = raw.split("-", maxsplit=1)
     return SourceRange(_point(start), _point(end))
+
+
+def _clamp_ranges(value: PandocJson, eof: SourcePoint) -> None:
+    position = source_position(value)
+    if (
+        position is not None
+        and (position.start.line, position.start.column) <= (eof.line, eof.column)
+        and (position.end.line, position.end.column) > (eof.line, eof.column)
+        and isinstance(value, dict)
+    ):
+        content = cast(list[PandocJson], value["c"])
+        attributes = cast(list[PandocJson], cast(list[PandocJson], content[0])[2])
+        entry = cast(list[PandocJson], attributes[0])
+        entry[1] = (
+            f"{position.start.line}:{position.start.column}-{eof.line}:{eof.column}"
+        )
+    if isinstance(value, dict):
+        for child in value.values():
+            _clamp_ranges(child, eof)
+    elif isinstance(value, list):
+        for child in value:
+            _clamp_ranges(child, eof)
 
 
 def located_nodes(value: PandocJson) -> list[LocatedNode]:

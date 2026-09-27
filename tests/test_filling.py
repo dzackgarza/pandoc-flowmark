@@ -1,7 +1,5 @@
 from textwrap import dedent
 
-import marko
-
 from flowmark.formats.flowmark_markdown import ListSpacing
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
@@ -224,19 +222,9 @@ Complex should be possible.*” —Alan Kay </p>
 
 
 def test_normalize_markdown() -> None:
-    parsed = marko.parse(_original_doc)
-    print("---Parsed")
-    print(parsed)
-
     normalized_doc = fill_markdown(
         _original_doc, semantic=True, list_spacing=ListSpacing.loose
     )
-
-    print("---Before")
-    print(_original_doc)
-    print("---After")
-    print(normalized_doc)
-
     assert normalized_doc == _expected_doc
 
 
