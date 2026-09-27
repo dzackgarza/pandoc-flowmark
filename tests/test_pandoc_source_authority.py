@@ -23,7 +23,7 @@ def test_formatting_preserves_pandoc_div_attributes_and_raw_tex() -> None:
     assert 'title="A source-position theorem"' in formatted
     assert '#thm:source-position' in formatted
     assert '\\begin{align*}\na &= b\n\\end{align*}' in formatted
-    assert 'A long sentence explains the result and\n' in formatted
+    assert 'A long sentence explains the result and should\n' in formatted
     div = pandoc_ast(formatted)[0]
     assert div["t"] == "Div"
     assert div["c"][0] == [
