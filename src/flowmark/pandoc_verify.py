@@ -69,13 +69,11 @@ PandocJson = (
 )
 """One node of pandoc's JSON AST, exactly as `json.loads` produces it."""
 
-PANDOC_FORMAT = "markdown"
-"""Pandoc's own markdown dialect -- the one these documents are written in.
-
-Deliberately not `commonmark_x`, which is the only dialect that can emit source
-positions but which parses fenced divs differently: it terminates a div at a
-`:::` inside a fenced code block, where `markdown` does not.
-"""
+PANDOC_FORMAT = (
+    "markdown+fenced_divs+raw_tex+tex_math_dollars"
+    "+tex_math_single_backslash+wikilinks_title_after_pipe"
+)
+"""The Pandoc Markdown dialect used by the document writing pipeline."""
 
 
 class PandocUnavailableError(RuntimeError):
