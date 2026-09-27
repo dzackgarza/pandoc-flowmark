@@ -4,6 +4,7 @@ import os
 
 from flowmark.pandoc_source import (
     join_sourced_hyphen_breaks,
+    set_sourced_list_spacing,
     unbold_sourced_headings,
     located_nodes,
     read_source_ast,
@@ -248,3 +249,34 @@ def test_pandoc_cleanup_joins_sourced_hyphen_breaks() -> None:
     assert 'pre-\nand' in formatted
     assert '**semi-log-canonical**' in formatted
     assert 'degree-$4$' in formatted
+
+
+def test_pandoc_list_spacing_uses_list_item_ranges() -> None:
+    source = '- First list item.\n- Second list item.\n'
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    loose = set_sourced_list_spacing(source, pandoc, loose=True)
+
+    assert loose == '- First list item.\n\n- Second list item.\n'
+    assert set_sourced_list_spacing(loose, pandoc, loose=False) == source
+
+
+def test_pandoc_list_spacing_retains_quote_scope() -> None:
+    source = '> - First quoted item.\n> - Second quoted item.\n'
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    loose = set_sourced_list_spacing(source, pandoc, loose=True)
+
+    assert loose == '> - First quoted item.\n>\n> - Second quoted item.\n'
+    assert set_sourced_list_spacing(loose, pandoc, loose=False) == source
+
+
+def test_pandoc_list_spacing_retains_footnote_scope() -> None:
+    source = (
+        'A note.[^x]\n\n[^x]:\n'
+        '    - First item.\n'
+        '    - Second item.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    loose = set_sourced_list_spacing(source, pandoc, loose=True)
+
+    assert '    - First item.\n    \n    - Second item.' in loose
+    assert set_sourced_list_spacing(loose, pandoc, loose=False) == source

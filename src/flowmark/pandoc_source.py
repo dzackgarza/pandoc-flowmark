@@ -414,3 +414,60 @@ def join_sourced_hyphen_breaks(source: str, pandoc_exe: str) -> tuple[str, int]:
     if result != source:
         check_meaning_preserved(source, result)
     return result, len(edits)
+
+
+def set_sourced_list_spacing(source: str, pandoc_exe: str, *, loose: bool) -> str:
+    """Change gaps between items identified by Pandoc list nodes."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+
+    edits: list[SourceEdit] = []
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        kind = located.node.get("t")
+        if kind not in {"BulletList", "OrderedList"}:
+            continue
+        quoted = "BlockQuote" in located.ancestors
+        noted = "Note" in located.ancestors
+        content = located.node.get("c")
+        if not isinstance(content, list):
+            continue
+        items = content if kind == "BulletList" else content[1]
+        if not isinstance(items, list):
+            continue
+        for item in items[1:]:
+            if not isinstance(item, list) or not item:
+                continue
+            position = _position(item[0])
+            if position is None or not (1 < position.start.line <= len(lines)):
+                continue
+            line_index = position.start.line - 1
+            blank = "\n"
+            if quoted:
+                marker_prefix = lines[line_index][: position.start.column - 1]
+                quote_end = marker_prefix.rfind(">")
+                if quote_end < 0:
+                    continue
+                blank = marker_prefix[: quote_end + 1] + "\n"
+            elif noted:
+                marker_prefix = lines[line_index][: position.start.column - 1]
+                blank = marker_prefix[: len(marker_prefix) - len(marker_prefix.lstrip(" \t"))] + "\n"
+            previous = line_index - 1
+            while previous >= 0 and not lines[previous].strip(
+                " \t\r\n>" if quoted else " \t\r\n"
+            ):
+                previous -= 1
+            gap_start = starts[previous + 1]
+            gap_end = starts[line_index]
+            if loose and gap_start == gap_end:
+                edits.append(SourceEdit(gap_end, gap_end, blank))
+            elif not loose and gap_start != gap_end:
+                edits.append(SourceEdit(gap_start, gap_end, ""))
+
+    result = source
+    for edit in sorted(set(edits), key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if result != source:
+        check_meaning_preserved(source, result)
+    return result
