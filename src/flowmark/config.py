@@ -12,7 +12,7 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-from flowmark.formats.flowmark_markdown import ListSpacing
+from flowmark.formats.options import ListSpacing
 
 ConfigValue = int | bool | str | list[str]
 

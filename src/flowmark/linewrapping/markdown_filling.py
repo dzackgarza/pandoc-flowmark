@@ -14,12 +14,12 @@ from __future__ import annotations
 import sys
 from textwrap import dedent
 
-from flowmark.formats.flowmark_markdown import ListSpacing
+from flowmark.formats.options import ListSpacing
 from flowmark.formats.frontmatter import split_frontmatter
 from flowmark.linewrapping.protocols import LineWrapper
 from flowmark.linewrapping.text_filling import DEFAULT_WRAP_WIDTH
 from flowmark.pandoc_source import format_sourced_markdown
-from flowmark.pandoc_verify import pandoc_executable
+from flowmark.pandoc_reader import pandoc_executable
 
 
 def _strip_blank_edges(text: str) -> str:

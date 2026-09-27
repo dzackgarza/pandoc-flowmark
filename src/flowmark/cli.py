@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from flowmark.config import ConfigError, find_config_file, load_config
-from flowmark.formats.flowmark_markdown import ListSpacing
+from flowmark.formats.options import ListSpacing
 from flowmark.linewrapping.line_wrappers import DEFAULT_MIN_LINE_LEN
 from flowmark.linewrapping.text_filling import DEFAULT_WRAP_WIDTH
 from flowmark.reformat_api import reformat_files

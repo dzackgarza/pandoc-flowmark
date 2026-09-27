@@ -3,7 +3,7 @@ from pathlib import Path
 
 from strif import atomic_output_file
 
-from flowmark.formats.flowmark_markdown import ListSpacing
+from flowmark.formats.options import ListSpacing
 from flowmark.linewrapping.markdown_filling import fill_markdown
 from flowmark.linewrapping.text_filling import Wrap, fill_text
 from flowmark.linewrapping.text_wrapping import get_html_md_word_splitter

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from flowmark.file_resolver import FileResolver, FileResolverConfig
-from flowmark.formats.flowmark_markdown import ListSpacing
+from flowmark.formats.options import ListSpacing
 from flowmark.lint import LintOptions, StyleRule, lint_text
 
 

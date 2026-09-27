@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import cast
 
-from flowmark.formats.flowmark_markdown import ListSpacing
+from flowmark.formats.options import ListSpacing
 from flowmark.linewrapping.line_wrappers import (
     line_wrap_by_sentence,
     line_wrap_to_width,
@@ -28,6 +29,7 @@ from flowmark.pandoc_reader import (
 )
 from flowmark.pandoc_verify import (
     _SUSPENSION_WORDS,  # pyright: ignore[reportPrivateUsage]
+    MeaningChangedError,
     check_meaning_preserved,
 )
 from flowmark.typography.smartquotes import smart_quotes
@@ -46,6 +48,68 @@ _TAB = "\ufdd1"
 _NEWLINE = "\ufdd2"
 _HIDE = str.maketrans({" ": _SPACE, "\t": _TAB, "\n": _NEWLINE})
 _SHOW = str.maketrans({_SPACE: " ", _TAB: "\t", _NEWLINE: "\n"})
+_ESCAPED_PERIOD = re.compile(r"(?<!\\)\\\.")
+_SIMPLE_REFERENCE = re.compile(r"\[([^\[\]\\]+)\](?:\[([^\[\]\\]*)\])?")
+
+
+def normalize_sourced_spelling(source: str, pandoc_exe: str) -> str:
+    """Apply source spelling changes only where Pandoc validates the edit."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    edits: list[SourceEdit] = []
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        begin = located.source_range.start
+        finish = located.source_range.end
+        if begin.line >= len(starts):
+            continue
+        start = starts[begin.line - 1] + begin.column - 1
+        kind = located.node.get("t")
+        if kind == "Div":
+            opener = lines[begin.line - 1][begin.column - 1 :]
+            match = re.match(r"^:{3,}(?=\{)", opener)
+            if match is not None:
+                edits.append(SourceEdit(start + match.end(), start + match.end(), " "))
+            continue
+        if finish.line >= len(starts):
+            continue
+        end = starts[finish.line - 1] + finish.column - 1
+        if not (0 <= start < end <= len(source)):
+            continue
+        raw = source[start:end]
+        if kind == "Link":
+            match = _SIMPLE_REFERENCE.fullmatch(raw)
+            if match is not None:
+                label, reference = match.groups()
+                if reference is None or not reference.strip() or (
+                    " ".join(label.split()).casefold()
+                    == " ".join(reference.split()).casefold()
+                ):
+                    replacement = f"[{label}][]"
+                    if replacement != raw:
+                        edits.append(SourceEdit(start, end, replacement))
+        elif kind == "Math" and raw.startswith("$") and not raw.startswith("$$"):
+            replacement = raw.replace("\n", " ")
+            if replacement != raw:
+                edits.append(SourceEdit(start, end, replacement))
+    result = source
+    for edit in sorted(edits, key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if result != source:
+        check_meaning_preserved(source, result)
+
+    # A backslash before a period can be removed only when Pandoc still reads
+    # the same document. In particular, a period at a wrapped line start can
+    # otherwise open a list. The lexical match proposes an edit; Pandoc decides.
+    for match in reversed(list(_ESCAPED_PERIOD.finditer(result))):
+        candidate = result[: match.start()] + result[match.start() + 1 :]
+        try:
+            check_meaning_preserved(result, candidate)
+        except MeaningChangedError:
+            continue
+        result = candidate
+    return result
 
 
 def _propose_paragraph_edits(
@@ -100,6 +164,8 @@ def _propose_paragraph_edits(
         start = starts[first.line - 1]
         end = starts[end_line]
         old = source[start:end]
+        if any(line.strip() == ":::" for line in old.splitlines()):
+            continue
         if semantic and any(tag in old for tag in ("{%", "{#", "{{", "<!--")):
             continue
         protected = old
@@ -113,6 +179,8 @@ def _propose_paragraph_edits(
         ):
             continue
         for inline in paragraph_inlines:
+            if "Note" in inline.ancestors:
+                continue
             if inline.node.get("t") in {"Str", "Space", "SoftBreak"}:
                 continue
             begin = inline.source_range.start
@@ -585,7 +653,8 @@ def format_sourced_markdown(
     verify: bool = True,
 ) -> tuple[str, int]:
     """Run the supported formatting edits through one Pandoc source map."""
-    result = preprocess_tag_block_spacing(source)
+    result = normalize_sourced_spelling(source, pandoc_exe)
+    result = preprocess_tag_block_spacing(result)
     joined = 0
     if cleanups:
         result = unbold_sourced_headings(result, pandoc_exe, verify=False)

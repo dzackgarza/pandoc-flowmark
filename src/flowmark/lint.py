@@ -30,7 +30,7 @@ from difflib import SequenceMatcher
 from enum import StrEnum
 from pathlib import Path
 
-from flowmark.formats.flowmark_markdown import ListSpacing
+from flowmark.formats.options import ListSpacing
 from flowmark.lint_rules import StyleRule, lint_rule_findings
 from flowmark.preflight import preflight
 from flowmark.reformat_api import reformat_text
