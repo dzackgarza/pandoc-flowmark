@@ -44,6 +44,13 @@ class SourceEdit:
     replacement: str
 
 
+_SPACE = "\ufdd0"
+_TAB = "\ufdd1"
+_NEWLINE = "\ufdd2"
+_HIDE = str.maketrans({" ": _SPACE, "\t": _TAB, "\n": _NEWLINE})
+_SHOW = str.maketrans({_SPACE: " ", _TAB: "\t", _NEWLINE: "\n"})
+
+
 def read_source_ast(source: str, pandoc_exe: str) -> PandocJson:
     """Parse with the selected Pandoc Markdown reader and its position extension."""
     result = subprocess.run(
@@ -109,7 +116,9 @@ def located_nodes(value: PandocJson) -> list[LocatedNode]:
 
 
 def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
-    """Wrap sourced prose paragraphs and preserve all other authored bytes."""
+    """Wrap sourced paragraphs and preserve Pandoc inline source atoms."""
+    if any(marker in source for marker in (_SPACE, _TAB, _NEWLINE)):
+        raise ValueError("The source contains reserved formatter characters")
     lines = source.splitlines(keepends=True)
     starts = [0]
     for line in lines:
@@ -118,13 +127,6 @@ def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
     edits: list[SourceEdit] = []
     for located in located_nodes(read_source_ast(source, pandoc_exe)):
         if located.node.get("t") != "Para":
-            continue
-        inlines = located.node.get("c")
-        if not isinstance(inlines, list) or any(
-            not isinstance(inline, dict)
-            or inline.get("t") not in {"Str", "Space", "SoftBreak"}
-            for inline in inlines
-        ):
             continue
         first = located.source_range.start
         if first.column != 1 or first.line > len(lines):
@@ -138,14 +140,38 @@ def wrap_plain_paragraphs(source: str, width: int, pandoc_exe: str) -> str:
         start = starts[first.line - 1]
         end = starts[end_line]
         old = source[start:end]
+        protected = old
+        inline_spans: list[tuple[int, int]] = []
+        for inline in located_nodes(located.node):
+            begin = inline.source_range.start
+            finish = inline.source_range.end
+            if (
+                begin.line > len(lines)
+                or finish.line > len(lines) + 1
+                or begin.column < 1
+                or finish.column < 1
+            ):
+                raise ValueError("Pandoc returned an invalid inline source range")
+            begin_offset = starts[begin.line - 1] + begin.column - 1
+            finish_offset = starts[finish.line - 1] + finish.column - 1
+            # A Note contains blocks sourced from its definition elsewhere.
+            if not (start <= begin_offset < finish_offset <= end):
+                continue
+            inline_spans.append((begin_offset - start, finish_offset - start))
+        for begin, finish in sorted(inline_spans, reverse=True):
+            protected = (
+                protected[:begin]
+                + protected[begin:finish].translate(_HIDE)
+                + protected[finish:]
+            )
         wrapped = "\n".join(
             wrap_paragraph_lines(
-                old,
+                protected,
                 width=width,
                 splitter=simple_word_splitter,
                 is_markdown=True,
             )
-        ) + "\n"
+        ).translate(_SHOW) + "\n"
         if wrapped != old:
             edits.append(SourceEdit(start, end, wrapped))
 

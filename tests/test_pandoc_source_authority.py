@@ -83,3 +83,30 @@ def test_pandoc_edit_wraps_inside_multiline_div_without_rewriting_raw_source() -
     assert '#thm:source-position\n' in formatted
     assert '\\begin{align*}\na &= b\n\\end{align*}' in formatted
     assert wrap_plain_paragraphs(formatted, 48, pandoc) == formatted
+
+
+def test_pandoc_edit_keeps_inline_constructs_atomic() -> None:
+    source = (
+        'Several words introduce [a linked phrase](https://example.org) and '
+        'the value \\(x+y\\) beside `code with spaces` in this sentence.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = wrap_plain_paragraphs(source, 48, pandoc)
+
+    assert formatted != source
+    assert '[a linked phrase](https://example.org)' in formatted
+    assert '\\(x+y\\)' in formatted
+    assert '`code with spaces`' in formatted
+    assert wrap_plain_paragraphs(formatted, 48, pandoc) == formatted
+
+
+def test_pandoc_edit_keeps_multiline_code_source() -> None:
+    source = (
+        'Words before a code span `first line\n'
+        'second line` and enough words after it to wrap the paragraph.\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = wrap_plain_paragraphs(source, 48, pandoc)
+
+    assert '`first line\nsecond line`' in formatted
+    assert wrap_plain_paragraphs(formatted, 48, pandoc) == formatted
