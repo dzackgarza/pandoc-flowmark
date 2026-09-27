@@ -6,8 +6,13 @@ import re
 from collections.abc import Iterator
 from typing import NamedTuple
 
-from flowmark.pandoc_source import SourceRange, located_nodes, read_source_ast
-from flowmark.pandoc_verify import PandocJson, pandoc_executable
+from flowmark.pandoc_reader import (
+    PandocJson,
+    SourceRange,
+    located_nodes,
+    pandoc_executable,
+    read_source_ast,
+)
 
 
 class Link(NamedTuple):

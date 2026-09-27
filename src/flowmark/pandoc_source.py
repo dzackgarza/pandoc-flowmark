@@ -2,46 +2,36 @@
 
 from __future__ import annotations
 
-import json
-import subprocess
 from dataclasses import dataclass
 from typing import cast
 
 from flowmark.formats.flowmark_markdown import ListSpacing
-from flowmark.linewrapping.line_wrappers import line_wrap_by_sentence
+from flowmark.linewrapping.line_wrappers import (
+    line_wrap_by_sentence,
+    line_wrap_to_width,
+)
 from flowmark.linewrapping.protocols import LineWrapper
+from flowmark.linewrapping.tag_handling import (
+    add_tag_newline_handling,
+    is_tag_only_line,
+    preprocess_tag_block_spacing,
+)
 from flowmark.linewrapping.text_wrapping import (
     simple_word_splitter,
     wrap_paragraph_lines,
 )
-from flowmark.pandoc_verify import (
-    PANDOC_FORMAT,
+from flowmark.pandoc_reader import (
     PandocJson,
-    PandocParseError,
+    located_nodes,
+    read_source_ast,
+    source_position,
+)
+from flowmark.pandoc_verify import (
     _SUSPENSION_WORDS,  # pyright: ignore[reportPrivateUsage]
     check_meaning_preserved,
 )
 from flowmark.typography.smartquotes import smart_quotes
 from flowmark.typography.ellipses import ellipses
-
-
-@dataclass(frozen=True)
-class SourcePoint:
-    line: int
-    column: int
-
-
-@dataclass(frozen=True)
-class SourceRange:
-    start: SourcePoint
-    end: SourcePoint
-
-
-@dataclass(frozen=True)
-class LocatedNode:
-    source_range: SourceRange
-    node: dict[str, PandocJson]
-    ancestors: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -56,74 +46,6 @@ _TAB = "\ufdd1"
 _NEWLINE = "\ufdd2"
 _HIDE = str.maketrans({" ": _SPACE, "\t": _TAB, "\n": _NEWLINE})
 _SHOW = str.maketrans({_SPACE: " ", _TAB: "\t", _NEWLINE: "\n"})
-
-
-def read_source_ast(source: str, pandoc_exe: str) -> PandocJson:
-    """Parse with the selected Pandoc Markdown reader and its position extension."""
-    result = subprocess.run(
-        [pandoc_exe, "-f", PANDOC_FORMAT + "+sourcepos", "-t", "json"],
-        input=source,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        raise PandocParseError(result.stderr.strip())
-    return cast(PandocJson, json.loads(result.stdout))
-
-
-def _point(value: str) -> SourcePoint:
-    line, column = value.split(":", maxsplit=1)
-    return SourcePoint(int(line), int(column))
-
-
-def _position(value: PandocJson) -> SourceRange | None:
-    if not isinstance(value, dict) or value.get("t") not in {"Div", "Span"}:
-        return None
-    content = value.get("c")
-    if not isinstance(content, list) or len(content) != 2:
-        return None
-    attr = content[0]
-    if not isinstance(attr, list) or len(attr) != 3:
-        return None
-    attributes = attr[2]
-    if not isinstance(attributes, list) or len(attributes) != 1:
-        return None
-    entry = attributes[0]
-    if not isinstance(entry, list) or len(entry) != 2 or entry[0] != "data-pos":
-        return None
-    raw = entry[1]
-    if not isinstance(raw, str):
-        return None
-    start, end = raw.split("-", maxsplit=1)
-    return SourceRange(_point(start), _point(end))
-
-
-def located_nodes(value: PandocJson) -> list[LocatedNode]:
-    """Return source annotated blocks and inlines in document order."""
-    nodes: list[LocatedNode] = []
-
-    def visit(item: PandocJson, ancestors: tuple[str, ...]) -> None:
-        position = _position(item)
-        if position is not None:
-            wrapper = cast(dict[str, PandocJson], item)
-            content = cast(list[PandocJson], wrapper["c"])
-            children = cast(list[PandocJson], content[1])
-            if len(children) == 1 and isinstance(children[0], dict):
-                nodes.append(LocatedNode(position, children[0], ancestors))
-        if isinstance(item, dict):
-            node_type = item.get("t")
-            nested_ancestors = (
-                ancestors + (node_type,) if isinstance(node_type, str) else ancestors
-            )
-            for child in item.values():
-                visit(child, nested_ancestors)
-        elif isinstance(item, list):
-            for child in item:
-                visit(child, ancestors)
-
-    visit(value, ())
-    return nodes
 
 
 def _propose_paragraph_edits(
@@ -272,6 +194,15 @@ def _propose_paragraph_edits(
             continue
         if line_wrapper is not None:
             wrapped = line_wrapper(protected, "", "")
+        elif any(is_tag_only_line(line) for line in old.splitlines()):
+            base_wrapper = (
+                line_wrap_by_sentence(
+                    width=width, is_markdown=True, source_preserving=True
+                )
+                if semantic
+                else line_wrap_to_width(width=width, is_markdown=False)
+            )
+            wrapped = add_tag_newline_handling(base_wrapper)(protected, "", "")
         elif semantic:
             wrapped = line_wrap_by_sentence(
                 width=width, is_markdown=True, source_preserving=True
@@ -334,7 +265,7 @@ def unbold_sourced_headings(
         if not isinstance(inlines, list) or len(inlines) != 1:
             continue
         inline = inlines[0]
-        position = _position(inline)
+        position = source_position(inline)
         if position is None or not isinstance(inline, dict):
             continue
         wrapper_content = inline.get("c")
@@ -401,7 +332,7 @@ def join_sourced_hyphen_breaks(
     def visit(value: PandocJson) -> None:
         if isinstance(value, list):
             for index, item in enumerate(value):
-                position = _position(item)
+                position = source_position(item)
                 if position is not None and 0 < index < len(value) - 1:
                     wrapper = cast(dict[str, PandocJson], item)
                     content = cast(list[PandocJson], wrapper["c"])
@@ -472,7 +403,7 @@ def set_sourced_list_spacing(
         for item in items[1:]:
             if not isinstance(item, list) or not item:
                 continue
-            position = _position(item[0])
+            position = source_position(item[0])
             if position is None or not (1 < position.start.line <= len(lines)):
                 continue
             line_index = position.start.line - 1
@@ -654,7 +585,7 @@ def format_sourced_markdown(
     verify: bool = True,
 ) -> tuple[str, int]:
     """Run the supported formatting edits through one Pandoc source map."""
-    result = source
+    result = preprocess_tag_block_spacing(source)
     joined = 0
     if cleanups:
         result = unbold_sourced_headings(result, pandoc_exe, verify=False)

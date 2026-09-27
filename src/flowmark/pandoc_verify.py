@@ -55,7 +55,6 @@ degrades when pandoc is missing: callers asking to verify get an error.
 import json
 import os
 import re
-import shutil
 import subprocess
 from collections.abc import Callable
 from itertools import combinations
@@ -63,31 +62,13 @@ from typing import cast
 
 from flowmark.formats.frontmatter import split_frontmatter
 from flowmark.linewrapping.tag_handling import is_tag_only_line
-
-PandocJson = (
-    str | int | float | bool | None | list["PandocJson"] | dict[str, "PandocJson"]
+from flowmark.pandoc_reader import (
+    PANDOC_FORMAT,
+    PandocJson,
+    PandocParseError,
+    PandocUnavailableError as PandocUnavailableError,
+    pandoc_executable,
 )
-"""One node of pandoc's JSON AST, exactly as `json.loads` produces it."""
-
-PANDOC_FORMAT = (
-    "markdown+fenced_divs+raw_tex+tex_math_dollars"
-    "+tex_math_single_backslash+wikilinks_title_after_pipe+autolink_bare_uris"
-)
-"""The Pandoc Markdown dialect used by the document writing pipeline."""
-
-
-class PandocUnavailableError(RuntimeError):
-    """Raised when verification is requested but the pandoc binary is not on PATH."""
-
-
-class PandocParseError(ValueError):
-    """
-    Raised when pandoc is present but rejects the document.
-
-    Distinct from `PandocUnavailableError`: pandoc ran and did its job.  Conflating
-    the two would report a malformed document as a missing install.
-    """
-
 
 class MeaningChangedError(ValueError):
     """
@@ -109,16 +90,6 @@ class MeaningChangedError(ValueError):
         super().__init__(message)
         self.detail = detail
         self.block = block
-
-
-def pandoc_executable() -> str:
-    name = os.environ.get("FLOWMARK_PANDOC", "pandoc-flowmark")
-    pandoc_exe = shutil.which(name)
-    if pandoc_exe is None:
-        raise PandocUnavailableError(
-            f"Flowmark requires the source-position Pandoc reader `{name}`."
-        )
-    return pandoc_exe
 
 
 def _spawn_pandoc(pandoc_exe: str) -> subprocess.Popen[str]:
@@ -437,14 +408,15 @@ def _flatten_list_into_paragraph(
         return []
     candidates: list[list[PandocJson]] = []
     for bullet in _BULLET_MARKERS:
-        flat = _flatten_list(list_block, bullet)
-        if flat is not None and [*para_inlines, *flat] not in candidates:
-            candidates.append([*para_inlines, *flat])
+        for checked in (None, "[x]", "[X]"):
+            flat = _flatten_list(list_block, bullet, checked)
+            if flat is not None and [*para_inlines, *flat] not in candidates:
+                candidates.append([*para_inlines, *flat])
     return candidates
 
 
 def _flatten_list(
-    list_block: dict[str, PandocJson], bullet: str
+    list_block: dict[str, PandocJson], bullet: str, checked: str | None = None
 ) -> list[PandocJson] | None:
     """`list_block` spelled as the inlines of lazy paragraph lines, or None."""
     items, marker_candidates = _list_items_and_markers(list_block)
@@ -467,9 +439,19 @@ def _flatten_list(
             inner_inlines = inner.get("c")
             if inner.get("t") in _PARAGRAPH_BLOCKS and isinstance(inner_inlines, list):
                 flat.append({"t": "Space"})
-                flat.extend(inner_inlines)
+                for index, inline in enumerate(inner_inlines):
+                    if checked is not None and index == 0 and isinstance(inline, dict):
+                        text = inline.get("c")
+                        if inline.get("t") == "Str" and isinstance(text, str):
+                            if text.startswith("☐"):
+                                flat.append({"t": "Str", "c": "[ ]" + text[1:]})
+                                continue
+                            elif text.startswith("☒"):
+                                flat.append({"t": "Str", "c": checked + text[1:]})
+                                continue
+                    flat.append(inline)
                 continue
-            nested = _flatten_list(inner, bullet)
+            nested = _flatten_list(inner, bullet, checked)
             if nested is None:
                 return None
             flat += nested

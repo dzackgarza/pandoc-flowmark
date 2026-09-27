@@ -14,15 +14,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from enum import Enum
-from functools import cache
-from typing import NamedTuple, cast
-
-from marko import block
-from marko.ext.gfm import elements as gfm_elements
-from marko.parser import Parser
-from marko.source import Source
-
-from flowmark.formats.flowmark_parser import flowmark_parser
+from typing import NamedTuple
 from flowmark.linewrapping.atomic_patterns import (
     PAIRED_HTML_COMMENT,
     PAIRED_JINJA_COMMENT,
@@ -34,6 +26,12 @@ from flowmark.linewrapping.atomic_patterns import (
     SINGLE_JINJA_VAR,
 )
 from flowmark.linewrapping.protocols import LineWrapper
+from flowmark.pandoc_reader import (
+    PandocJson,
+    located_nodes,
+    pandoc_executable,
+    read_source_ast,
+)
 
 # Pattern to match complete template tags (for protecting content inside tags).
 # Uses the single tag patterns from atomic_patterns.
@@ -154,32 +152,24 @@ def is_tag_only_line(line: str) -> bool:
     return starts_tag and ends_tag
 
 
-@cache
-def _parser() -> Parser:
-    """flowmark's Markdown parser, built once."""
-    return flowmark_parser()
+def _blocks(lines: Sequence[str]) -> list[dict[str, PandocJson]]:
+    """Top-level blocks from Flowmark's Pandoc reader."""
+    source = "\n".join(lines) + "\n"
+    return [
+        node.node
+        for node in located_nodes(read_source_ast(source, pandoc_executable()))
+        if not node.ancestors
+    ]
 
 
-def _blocks(lines: Sequence[str]) -> list[block.BlockElement]:
-    """The top-level blocks flowmark's parser reads in `lines`."""
-    # marko's `Parser.parse` (marko/parser.py, marko 2.2.2) without its inline
-    # pass: only block types are asked about here, and inline parsing is most of
-    # a parse's cost.
-    parser = _parser()
-    source = Source("\n".join(lines) + "\n")
-    source.parser = parser
-    document = cast("block.Document", parser.block_elements["Document"]())
-    with source.under_state(document):
-        return parser.parse_source(source)
-
-
-def _is_list_or_table(element: block.BlockElement) -> bool:
-    return isinstance(element, (block.List, gfm_elements.Table))
+def _is_list_or_table(element: dict[str, PandocJson]) -> bool:
+    return element.get("t") in {"BulletList", "OrderedList", "Table"}
 
 
 def _is_list_item_line(line: str) -> bool:
     """Whether the parser reads `line`, on its own, as the start of a list."""
-    return isinstance(_blocks([line])[0], block.List)
+    blocks = _blocks([line])
+    return bool(blocks and blocks[0].get("t") in {"BulletList", "OrderedList"})
 
 
 def _table_length(lines: Sequence[str]) -> int:
@@ -189,12 +179,23 @@ def _table_length(lines: Sequence[str]) -> int:
     """
     # The header and delimiter rows alone decide whether a table opens here, so the
     # whole run is parsed only when one does.
-    if not isinstance(_blocks(lines[:2])[0], gfm_elements.Table):
+    first = _blocks(lines[:2])
+    if not first or first[0].get("t") != "Table":
         return 0
-    table = _blocks(lines)[0]
-    assert isinstance(table, gfm_elements.Table)
-    # Every row is a child of the table; the delimiter row is not.
-    return len(table.children) + 1
+    blocks = _blocks(lines)
+    if not blocks or blocks[0].get("t") != "Table":
+        return 0
+    content = blocks[0].get("c")
+    if not isinstance(content, list) or len(content) < 5:
+        return 0
+    bodies = content[4]
+    if not isinstance(bodies, list):
+        return 0
+    rows = 0
+    for body in bodies:
+        if isinstance(body, list) and len(body) == 4 and isinstance(body[3], list):
+            rows += len(body[3])
+    return rows + 2
 
 
 def _run_between_tags(lines: Sequence[str], start: int, step: int) -> list[str]:
