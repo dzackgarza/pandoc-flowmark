@@ -19,6 +19,7 @@ from flowmark.pandoc_verify import (
     _SUSPENSION_WORDS,  # pyright: ignore[reportPrivateUsage]
     check_meaning_preserved,
 )
+from flowmark.typography.smartquotes import smart_quotes
 
 
 @dataclass(frozen=True)
@@ -175,7 +176,7 @@ def _propose_paragraph_edits(
         protected = old
         inline_spans: list[tuple[int, int]] = []
         for inline in located_nodes(located.node):
-            if inline.node.get("t") == "SoftBreak":
+            if inline.node.get("t") in {"Str", "Space", "SoftBreak"}:
                 continue
             begin = inline.source_range.start
             finish = inline.source_range.end
@@ -471,3 +472,41 @@ def set_sourced_list_spacing(source: str, pandoc_exe: str, *, loose: bool) -> st
     if result != source:
         check_meaning_preserved(source, result)
     return result
+
+
+def apply_sourced_smart_quotes(source: str, pandoc_exe: str) -> str:
+    """Apply prose quote style only at inline text owned by Pandoc."""
+    styled = smart_quotes(source)
+    if len(styled) != len(source):
+        raise ValueError("Smart quote conversion changed source length")
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+
+    eligible: set[int] = set()
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        kind = located.node.get("t")
+        if kind not in {"Str", "Quoted"}:
+            continue
+        begin = located.source_range.start
+        finish = located.source_range.end
+        if begin.line > len(lines) or finish.line > len(lines):
+            continue
+        start = starts[begin.line - 1] + begin.column - 1
+        end = starts[finish.line - 1] + finish.column - 1
+        if not (0 <= start < end <= len(source)):
+            continue
+        if kind == "Str":
+            eligible.update(range(start, end))
+        elif source[start] in "'\"" and source[end - 1] == source[start]:
+            eligible.update((start, end - 1))
+
+    result = list(source)
+    for index in eligible:
+        if source[index] in "'\"" and styled[index] in "‘’“”":
+            result[index] = styled[index]
+    formatted = "".join(result)
+    if formatted != source:
+        check_meaning_preserved(source, formatted)
+    return formatted

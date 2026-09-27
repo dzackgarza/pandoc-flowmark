@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from flowmark.pandoc_source import (
+    apply_sourced_smart_quotes,
     join_sourced_hyphen_breaks,
     set_sourced_list_spacing,
     unbold_sourced_headings,
@@ -280,3 +281,16 @@ def test_pandoc_list_spacing_retains_footnote_scope() -> None:
 
     assert '    - First item.\n    \n    - Second item.' in loose
     assert set_sourced_list_spacing(loose, pandoc, loose=False) == source
+
+
+def test_pandoc_smart_quotes_edit_only_sourced_prose() -> None:
+    source = (
+        'He said "hello" and I\'m here with `x="a"` and '
+        '[a link](https://example.org "title").\n'
+    )
+    pandoc = os.environ.get("PANDOC_SOURCEPOS_EXE", "pandoc")
+    formatted = apply_sourced_smart_quotes(source, pandoc)
+
+    assert '“hello” and I’m' in formatted
+    assert '`x="a"`' in formatted
+    assert '(https://example.org "title")' in formatted
