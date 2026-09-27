@@ -27,6 +27,7 @@ from flowmark.pandoc_verify import (
     MeaningChangedError,
     PandocUnavailableError,
     check_meaning_preserved,
+    pandoc_ast,
 )
 from flowmark.reformat_api import reformat_file, reformat_text
 from flowmark.typography.ellipses import ellipses
@@ -34,6 +35,13 @@ from flowmark.typography.ellipses import ellipses
 pandocless = pytest.mark.skipif(
     shutil.which("pandoc") is None, reason="requires the pandoc binary on PATH"
 )
+
+
+@pandocless
+def test_oracle_reads_house_math_dialect() -> None:
+    blocks = pandoc_ast(r"A value \(x + y\) is fixed.")
+    inlines = blocks[0]["c"]
+    assert any(inline["t"] == "Math" for inline in inlines)
 
 
 def _no_pandoc(_cmd: str) -> None:
