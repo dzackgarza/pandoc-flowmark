@@ -303,17 +303,20 @@ def wrap_plain_paragraphs(
     pandoc_exe: str,
     semantic: bool = False,
     line_wrapper: LineWrapper | None = None,
+    verify: bool = True,
 ) -> str:
     """Wrap sourced paragraphs and preserve Pandoc inline source atoms."""
     result = _propose_paragraph_edits(
         source, width, pandoc_exe, semantic, line_wrapper
     )
-    if result != source:
+    if verify and result != source:
         check_meaning_preserved(source, result)
     return result
 
 
-def unbold_sourced_headings(source: str, pandoc_exe: str) -> str:
+def unbold_sourced_headings(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
     """Remove strong markup when it contains a heading's entire inline content."""
     lines = source.splitlines(keepends=True)
     starts = [0]
@@ -358,7 +361,7 @@ def unbold_sourced_headings(source: str, pandoc_exe: str) -> str:
     result = source
     for edit in sorted(edits, key=lambda item: item.start, reverse=True):
         result = result[: edit.start] + edit.replacement + result[edit.end :]
-    if result != source:
+    if verify and result != source:
         check_meaning_preserved(source, result)
     return result
 
@@ -384,7 +387,9 @@ def _inline_edge_text(value: PandocJson, *, last: bool) -> str:
     return ""
 
 
-def join_sourced_hyphen_breaks(source: str, pandoc_exe: str) -> tuple[str, int]:
+def join_sourced_hyphen_breaks(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> tuple[str, int]:
     """Close soft breaks after a hyphen when the following Pandoc inline joins it."""
     lines = source.splitlines(keepends=True)
     starts = [0]
@@ -437,12 +442,14 @@ def join_sourced_hyphen_breaks(source: str, pandoc_exe: str) -> tuple[str, int]:
     result = source
     for edit in sorted(edits, key=lambda item: item.start, reverse=True):
         result = result[: edit.start] + edit.replacement + result[edit.end :]
-    if result != source:
+    if verify and result != source:
         check_meaning_preserved(source, result)
     return result, len(edits)
 
 
-def set_sourced_list_spacing(source: str, pandoc_exe: str, *, loose: bool) -> str:
+def set_sourced_list_spacing(
+    source: str, pandoc_exe: str, *, loose: bool, verify: bool = True
+) -> str:
     """Change gaps between items identified by Pandoc list nodes."""
     lines = source.splitlines(keepends=True)
     starts = [0]
@@ -494,12 +501,14 @@ def set_sourced_list_spacing(source: str, pandoc_exe: str, *, loose: bool) -> st
     result = source
     for edit in sorted(set(edits), key=lambda item: item.start, reverse=True):
         result = result[: edit.start] + edit.replacement + result[edit.end :]
-    if result != source:
+    if verify and result != source:
         check_meaning_preserved(source, result)
     return result
 
 
-def apply_sourced_smart_quotes(source: str, pandoc_exe: str) -> str:
+def apply_sourced_smart_quotes(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
     """Apply prose quote style only at inline text owned by Pandoc."""
     styled = smart_quotes(source)
     if len(styled) != len(source):
@@ -532,12 +541,14 @@ def apply_sourced_smart_quotes(source: str, pandoc_exe: str) -> str:
         if source[index] in "'\"" and styled[index] in "‘’“”":
             result[index] = styled[index]
     formatted = "".join(result)
-    if formatted != source:
+    if verify and formatted != source:
         check_meaning_preserved(source, formatted)
     return formatted
 
 
-def apply_sourced_ellipses(source: str, pandoc_exe: str) -> str:
+def apply_sourced_ellipses(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
     """Style ellipses only where Pandoc decoded literal prose to an ellipsis."""
     lines = source.splitlines(keepends=True)
     starts = [0]
@@ -580,12 +591,14 @@ def apply_sourced_ellipses(source: str, pandoc_exe: str) -> str:
     result = source
     for edit in sorted(set(edits), key=lambda item: item.start, reverse=True):
         result = result[: edit.start] + edit.replacement + result[edit.end :]
-    if result != source:
+    if verify and result != source:
         check_meaning_preserved(source, result)
     return result
 
 
-def set_sourced_heading_spacing(source: str, pandoc_exe: str) -> str:
+def set_sourced_heading_spacing(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
     """Separate Pandoc headings from the next authored block."""
     lines = source.splitlines(keepends=True)
     starts = [0]
@@ -622,7 +635,7 @@ def set_sourced_heading_spacing(source: str, pandoc_exe: str) -> str:
     result = source
     for edit in sorted(set(edits), key=lambda item: item.start, reverse=True):
         result = result[: edit.start] + edit.replacement + result[edit.end :]
-    if result != source:
+    if verify and result != source:
         check_meaning_preserved(source, result)
     return result
 
@@ -638,24 +651,27 @@ def format_sourced_markdown(
     ellipses: bool,
     list_spacing: ListSpacing,
     line_wrapper: LineWrapper | None = None,
+    verify: bool = True,
 ) -> tuple[str, int]:
     """Run the supported formatting edits through one Pandoc source map."""
     result = source
     joined = 0
     if cleanups:
-        result = unbold_sourced_headings(result, pandoc_exe)
-        result, joined = join_sourced_hyphen_breaks(result, pandoc_exe)
+        result = unbold_sourced_headings(result, pandoc_exe, verify=False)
+        result, joined = join_sourced_hyphen_breaks(result, pandoc_exe, verify=False)
     if smartquotes:
-        result = apply_sourced_smart_quotes(result, pandoc_exe)
+        result = apply_sourced_smart_quotes(result, pandoc_exe, verify=False)
     if ellipses:
-        result = apply_sourced_ellipses(result, pandoc_exe)
+        result = apply_sourced_ellipses(result, pandoc_exe, verify=False)
     if width > 0 or semantic or line_wrapper is not None:
         result = wrap_plain_paragraphs(
-            result, width, pandoc_exe, semantic, line_wrapper
+            result, width, pandoc_exe, semantic, line_wrapper, verify=False
         )
     if list_spacing is not ListSpacing.preserve:
         result = set_sourced_list_spacing(
-            result, pandoc_exe, loose=list_spacing is ListSpacing.loose
+            result, pandoc_exe, loose=list_spacing is ListSpacing.loose, verify=False
         )
-    result = set_sourced_heading_spacing(result, pandoc_exe)
+    result = set_sourced_heading_spacing(result, pandoc_exe, verify=False)
+    if verify and result != source:
+        check_meaning_preserved(source, result)
     return result, joined

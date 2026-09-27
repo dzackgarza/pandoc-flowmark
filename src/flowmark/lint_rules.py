@@ -36,6 +36,9 @@ from flowmark.atomic_spans import (
 )
 from flowmark.formats.flowmark_parser import CustomRawInlineTex
 from flowmark.linewrapping.atomic_patterns import DOLLAR_MATH, AtomicPattern
+from flowmark.markdown_ast import stringify_inlines
+from flowmark.pandoc_source import located_nodes, read_source_ast
+from flowmark.pandoc_verify import pandoc_executable
 
 # Math as pandoc's `markdown` reads it: `$...$` and `$$...$$` only. It leaves
 # `tex_math_single_backslash` off, so `\(...\)` and `\[...\]` are prose.
@@ -119,14 +122,9 @@ class _Frontmatter:
     body: tuple[_Line, ...]
 
 
-_ATX_HEADING = re.compile(
-    r"^(?P<indent> {0,3})(?P<marks>#{1,6})(?:[ \t]+|$)(?P<body>.*)$"
-)
-_SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?P<marks>=+|-+)[ \t]*$")
 _HEADING_NO_SPACE = re.compile(r"^ {0,3}#{1,6}[^#\s]")
 _HEADING_TOO_DEEP = re.compile(r"^ {0,3}#{7,}(?:[ \t]+|$)")
 _ATTR_BLOCK = re.compile(r"\{(?P<body>[^{}\n]*)\}")
-_ATTR_ID = re.compile(r"(?:^|\s)#(?P<id>[A-Za-z][A-Za-z0-9_.:-]*)")
 _REF_DEFINITION = re.compile(
     r"^ {0,3}\[(?P<label>[^\]^\n]+)\]:[ \t]*(?P<dest><[^>\n]*>|\S+)(?:[ \t]+.*)?$"
 )
@@ -158,7 +156,6 @@ _FENCED_DIV_OPEN = re.compile(r"^ {0,3}(?P<fence>:{3,})(?P<attrs>[ \t]+.*)?$")
 _LATEX_BEGIN = re.compile(r"\\begin\{(?P<name>[A-Za-z*]+)\}")
 _LATEX_END_TEMPLATE = r"\\end\{%s\}"
 _EXPLICIT_ID = re.compile(r"\{[^{}\n]*#(?P<id>[A-Za-z][A-Za-z0-9_.:-]*)[^{}\n]*\}")
-_BARE_URL = re.compile(r"(?<![<\w])(https?://[^\s<>]+)")
 # One block for inline scanning: a table row or heading line alone, or a run of
 # other non-blank lines.
 _INLINE_BLOCK = re.compile(
@@ -367,82 +364,45 @@ def _normalize_reference_label(label: str) -> str:
     return " ".join(label.split()).casefold()
 
 
-def _strip_heading_attributes(text: str) -> tuple[str, str | None]:
-    stripped = text.strip()
-    explicit_id: str | None = None
-    match = re.search(r"[ \t]+\{(?P<body>[^{}\n]*)\}[ \t]*$", stripped)
-    if match is not None:
-        id_match = _ATTR_ID.search(match.group("body"))
-        if id_match is not None:
-            explicit_id = id_match.group("id")
-        stripped = stripped[: match.start()].rstrip()
-    # ATX closing sequence is syntax only when preceded by whitespace.
-    stripped = re.sub(r"[ \t]+#+[ \t]*$", "", stripped).rstrip()
-    return stripped, explicit_id
-
-
 def _headings(
-    lines: list[_Line], protected: bytearray, frontmatter: _Frontmatter | None
+    text: str, lines: list[_Line], frontmatter: _Frontmatter | None
 ) -> list[_Heading]:
     result: list[_Heading] = []
-    frontmatter_lines: set[int] = set()
-    if frontmatter is not None:
-        end = (
-            frontmatter.closing.number
-            if frontmatter.closing is not None
-            else lines[-1].number
-        )
-        frontmatter_lines.update(range(frontmatter.opening.number, end + 1))
-
-    consumed_setext_underlines: set[int] = set()
-    for index, line in enumerate(lines):
-        # A line inside a fence or math block is protected from its first
-        # character. A heading that merely contains `$...$` or a code span is
-        # protected only in the middle, and is still a heading.
-        if line.number in frontmatter_lines or _overlaps(
-            protected, line.start, line.start + 1
-        ):
+    if frontmatter is not None and frontmatter.closing is None:
+        return result
+    body_start = (
+        frontmatter.closing.raw_end
+        if frontmatter is not None and frontmatter.closing is not None
+        else 0
+    )
+    line_offset = frontmatter.closing.number if frontmatter and frontmatter.closing else 0
+    for located in located_nodes(read_source_ast(text[body_start:], pandoc_executable())):
+        if located.node.get("t") != "Header":
             continue
-        match = _ATX_HEADING.match(line.text)
-        if match is not None:
-            body, explicit_id = _strip_heading_attributes(match.group("body"))
-            result.append(
-                _Heading(
-                    line=line,
-                    level=len(match.group("marks")),
-                    text=body,
-                    start=line.start + match.start("marks"),
-                    end=line.end,
-                    explicit_id=explicit_id,
-                )
-            )
+        content = located.node.get("c")
+        if not isinstance(content, list) or len(content) != 3:
             continue
-        if index + 1 >= len(lines):
+        level, attrs, inlines = content
+        if not isinstance(level, int) or not isinstance(attrs, list) or not attrs:
             continue
-        underline = lines[index + 1]
-        if underline.number in frontmatter_lines or _overlaps(
-            protected, underline.start, underline.start + 1
-        ):
+        original_line = located.source_range.start.line + line_offset
+        if not (1 <= original_line <= len(lines)):
             continue
-        underline_match = _SETEXT_UNDERLINE.match(underline.text)
-        if underline_match is None or not line.text.strip():
-            continue
-        # Setext headings only arise from paragraph-ish source.  Exclude obvious
-        # block openers so an HR below a list/fence is not reclassified here.
-        if re.match(r"^ {0,3}(?:>|[*+] |\d+[.)] |```|~~~|:::)", line.text):
-            continue
-        body, explicit_id = _strip_heading_attributes(line.text)
+        last_line = min(located.source_range.end.line + line_offset - 1, len(lines))
+        while last_line > original_line and not lines[last_line - 1].text.strip():
+            last_line -= 1
+        identifier = attrs[0] if isinstance(attrs[0], str) else None
+        line = lines[original_line - 1]
         result.append(
             _Heading(
                 line=line,
-                level=1 if underline_match.group("marks")[0] == "=" else 2,
-                text=body,
-                start=line.start,
-                end=underline.end,
-                explicit_id=explicit_id,
+                level=level,
+                text=stringify_inlines(inlines),
+                start=line.start + located.source_range.start.column - 1,
+                end=lines[last_line - 1].end,
+                explicit_id=identifier,
             )
         )
-        consumed_setext_underlines.add(underline.number)
     return result
 
 
@@ -474,39 +434,12 @@ def _strip_inline_markup(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
 
 
-def _pandoc_auto_identifier(text: str) -> str:
-    """Implement Pandoc's documented automatic heading identifier algorithm."""
-    plain = _plain_inline_text(re.sub(r"\[\^[^\]]+\]", "", text))
-    chars: list[str] = []
-    for char in plain:
-        if char.isspace():
-            chars.append("-")
-        elif char in "_-." or char.isalnum():
-            chars.append(char.lower())
-        elif unicodedata.category(char).startswith("L"):
-            chars.append(char.lower())
-    identifier = re.sub(r"-+", "-", "".join(chars))
-    first_letter = next(
-        (index for index, char in enumerate(identifier) if char.isalpha()), None
-    )
-    if first_letter is None:
-        return "section"
-    return identifier[first_letter:]
-
-
 def _heading_identifiers(headings: list[_Heading]) -> set[str]:
-    identifiers: set[str] = set()
-    counts: dict[str, int] = {}
-    for heading in headings:
-        if heading.explicit_id is not None:
-            identifier = heading.explicit_id
-        else:
-            base = _pandoc_auto_identifier(heading.text)
-            count = counts.get(base, 0)
-            identifier = base if count == 0 else f"{base}-{count}"
-            counts[base] = count + 1
-        identifiers.add(identifier)
-    return identifiers
+    return {
+        heading.explicit_id
+        for heading in headings
+        if heading.explicit_id is not None
+    }
 
 
 def _definitions(lines: list[_Line], protected: bytearray) -> list[_Definition]:
@@ -1258,21 +1191,7 @@ def _target_heading_ids(path: Path) -> set[str] | None:
         return None
     target_lines = _lines(target_text)
     target_frontmatter = _frontmatter(target_lines)
-    frontmatter_lines: set[int] = set()
-    if target_frontmatter is not None:
-        last = (
-            target_frontmatter.closing.number
-            if target_frontmatter.closing is not None
-            else target_lines[-1].number
-        )
-        frontmatter_lines.update(range(target_frontmatter.opening.number, last + 1))
-    target_fences = _fences(target_lines, frontmatter_lines)
-    target_protected = _build_protected_map(
-        target_text, target_lines, target_frontmatter, target_fences
-    )
-    return _heading_identifiers(
-        _headings(target_lines, target_protected, target_frontmatter)
-    )
+    return _heading_identifiers(_headings(target_text, target_lines, target_frontmatter))
 
 
 def _local_destination_finding(
@@ -1317,51 +1236,76 @@ def _link_findings(
     text: str,
     headings: list[_Heading],
     definitions: list[_Definition],
-    protected: bytearray,
     styles: frozenset[StyleRule],
     source_path: Path | None,
+    frontmatter: _Frontmatter | None,
 ) -> list[RuleFinding]:
     findings: list[RuleFinding] = []
     heading_ids = _heading_identifiers(headings)
+    if frontmatter is not None and frontmatter.closing is None:
+        body_start = len(text)
+    else:
+        body_start = frontmatter.closing.raw_end if frontmatter and frontmatter.closing else 0
+    body = text[body_start:]
+    starts = [body_start]
+    for line in body.splitlines(keepends=True):
+        starts.append(starts[-1] + len(line))
 
-    for match in _EMPTY_LINK.finditer(text):
-        if _overlaps(protected, match.start(), match.end()):
+    for located in located_nodes(read_source_ast(body, pandoc_executable())):
+        kind = located.node.get("t")
+        if kind not in {"Link", "Image"}:
             continue
-        kind = "image" if match.group("image") else "link"
-        findings.append(
-            RuleFinding(
-                "link/empty-destination",
-                "warning",
-                f"{kind.capitalize()} has an empty destination.",
-                match.start(),
-                match.end(),
+        content = located.node.get("c")
+        if not isinstance(content, list) or len(content) != 3:
+            continue
+        attributes, inlines, target = content
+        if not isinstance(attributes, list) or len(attributes) != 3:
+            continue
+        if not isinstance(target, list) or len(target) != 2:
+            continue
+        destination = target[0]
+        if not isinstance(destination, str):
+            continue
+        begin, finish = located.source_range.start, located.source_range.end
+        if begin.line >= len(starts) or finish.line >= len(starts):
+            continue
+        start = starts[begin.line - 1] + begin.column - 1
+        end = starts[finish.line - 1] + finish.column - 1
+        if not (0 <= start < end <= len(text)):
+            continue
+        raw = text[start:end]
+        is_image = kind == "Image"
+        text_content = stringify_inlines(inlines).strip()
+        if not destination:
+            findings.append(
+                RuleFinding(
+                    "link/empty-destination",
+                    "warning",
+                    f"{'Image' if is_image else 'Link'} has an empty destination.",
+                    start,
+                    end,
+                )
             )
-        )
-
-    for match in _INLINE_LINK.finditer(text):
-        if _overlaps(protected, match.start(), match.end()):
-            continue
-        is_image = bool(match.group("image"))
-        text_content = _plain_inline_text(match.group("text"))
-        destination = match.group("dest").strip("<>")
         if is_image and not text_content:
             findings.append(
                 RuleFinding(
                     "accessibility/image-alt",
                     "warning",
                     "Image has empty alternative text.",
-                    match.start("text"),
-                    match.end("text"),
+                    start,
+                    end,
                 )
             )
-        if not is_image and text_content.casefold() in _NON_DESCRIPTIVE_LINK_TEXT:
+        classes = attributes[1]
+        autolink = isinstance(classes, list) and "uri" in classes
+        if not is_image and not autolink and text_content.casefold() in _NON_DESCRIPTIVE_LINK_TEXT:
             findings.append(
                 RuleFinding(
                     "link/non-descriptive-text",
                     "warning",
                     f"Link text {text_content!r} does not describe its destination.",
-                    match.start("text"),
-                    match.end("text"),
+                    start,
+                    end,
                 )
             )
         if not is_image and destination.startswith("#"):
@@ -1372,15 +1316,29 @@ def _link_findings(
                         "link/invalid-fragment",
                         "warning",
                         f"Local fragment '#{fragment}' does not match a heading identifier in this document.",
-                        match.start("dest"),
-                        match.end("dest"),
+                        start,
+                        end,
                     )
                 )
         local_finding = _local_destination_finding(
-            destination, match.start("dest"), match.end("dest"), source_path
+            destination, start, end, source_path
         )
         if local_finding is not None:
             findings.append(local_finding)
+        if (
+            StyleRule.BARE_URL in styles
+            and autolink
+            and raw.startswith(("http://", "https://"))
+        ):
+            findings.append(
+                RuleFinding(
+                    "style/bare-url",
+                    "warning",
+                    "Bare URL is used in prose; use a descriptive Markdown link.",
+                    start,
+                    end,
+                )
+            )
 
     # Reference-definition destinations can also be same-document fragments.
     for definition in definitions:
@@ -1405,39 +1363,6 @@ def _link_findings(
         if local_finding is not None:
             findings.append(local_finding)
 
-    # Reference images: the alternative text is the first bracket payload.
-    for match in _FULL_REFERENCE.finditer(text):
-        if not match.group("image") or _overlaps(protected, match.start(), match.end()):
-            continue
-        if not _plain_inline_text(match.group("text")):
-            findings.append(
-                RuleFinding(
-                    "accessibility/image-alt",
-                    "warning",
-                    "Image has empty alternative text.",
-                    match.start("text"),
-                    match.end("text"),
-                )
-            )
-
-    if StyleRule.BARE_URL in styles:
-        for match in _BARE_URL.finditer(text):
-            if _overlaps(protected, match.start(), match.end()):
-                continue
-            # URLs inside an inline link destination or angle-bracket autolink
-            # are not literal prose URLs.
-            before = text[max(0, match.start() - 2) : match.start()]
-            if "<" in before or "](" in text[max(0, match.start() - 3) : match.start()]:
-                continue
-            findings.append(
-                RuleFinding(
-                    "style/bare-url",
-                    "warning",
-                    "Bare URL is used in prose; use a descriptive Markdown link.",
-                    match.start(),
-                    match.end(),
-                )
-            )
     return findings
 
 
@@ -1572,7 +1497,7 @@ def lint_rule_findings(
         )
     fences = _fences(lines, frontmatter_line_numbers)
     protected = _build_protected_map(text, lines, frontmatter, fences)
-    headings = _headings(lines, protected, frontmatter)
+    headings = _headings(text, lines, frontmatter)
     definitions = _definitions(lines, protected)
 
     findings = [
@@ -1586,7 +1511,7 @@ def lint_rule_findings(
         *_unclosed_construct_findings(lines, protected),
         *_malformed_inline_findings(text, protected),
         *_math_notation_findings(text, protected, fences),
-        *_link_findings(text, headings, definitions, protected, styles, source_path),
+        *_link_findings(text, headings, definitions, styles, source_path, frontmatter),
         *_table_boundary_findings(lines, protected),
         *_style_findings(text, lines, protected, styles, max_line_length),
     ]

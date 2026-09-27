@@ -77,6 +77,7 @@ def reformat_text(
             smartquotes=smartquotes,
             ellipses=ellipses,
             list_spacing=list_spacing,
+            verify=False,
         )
         if verify and result != text:
             # An unchanged document trivially preserves meaning, so only a real

@@ -49,6 +49,7 @@ def fill_markdown(
     ellipses: bool = False,
     line_wrapper: LineWrapper | None = None,
     list_spacing: ListSpacing = ListSpacing.loose,
+    verify: bool = True,
 ) -> str:
     """
     Normalize and wrap Markdown text filling paragraphs to the full width.
@@ -94,6 +95,7 @@ def fill_markdown(
         ellipses=ellipses,
         list_spacing=list_spacing,
         line_wrapper=line_wrapper,
+        verify=verify,
     )
     if joined:
         print(

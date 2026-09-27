@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from marko.block import Document
+import json
 
-from flowmark import Link, extract_links, flowmark_markdown
+from flowmark import Link, extract_links
 from flowmark.atomic_spans import (
     ATOMIC_PATTERNS,
     AUTOLINK,
@@ -20,10 +20,12 @@ from flowmark.atomic_spans import (
     split_sentences_with_spans,
 )
 from flowmark.markdown_ast import walk_elements
+from flowmark.pandoc_source import read_source_ast
+from flowmark.pandoc_verify import pandoc_executable
 
 
-def _parse(text: str) -> Document:
-    return flowmark_markdown().parse(text)
+def _parse(text: str) -> str:
+    return text
 
 
 def test_atomic_pattern_constructs_with_name_and_pattern_only() -> None:
@@ -164,20 +166,17 @@ def test_link_syntax_inside_code_span_is_not_a_link() -> None:
 
 
 def test_walk_elements_yields_code_block_text_but_extract_links_excludes_it() -> None:
-    from marko import block
-
-    doc = _parse("```\n[notalink](x)\n```\n")
-    # The generic walk reaches the fenced code block...
-    assert any(isinstance(el, block.FencedCode) for el in walk_elements(doc))
-    # ...but no link is extracted from code-block content.
-    assert extract_links(doc) == []
+    source = "```\n[notalink](x)\n```\n"
+    ast = read_source_ast(source, pandoc_executable())
+    assert any(node.get("t") == "CodeBlock" for node in walk_elements(ast))
+    assert extract_links(source) == []
 
 
 def test_walk_elements_is_read_only() -> None:
-    doc = _parse("a [b](http://x.com) c\n")
-    before = flowmark_markdown().render(doc)
-    list(walk_elements(doc))
-    assert flowmark_markdown().render(doc) == before
+    ast = read_source_ast("a [b](http://x.com) c\n", pandoc_executable())
+    before = json.dumps(ast, sort_keys=True)
+    list(walk_elements(ast))
+    assert json.dumps(ast, sort_keys=True) == before
 
 
 def test_iter_atomic_spans_round_trip_and_offsets() -> None:

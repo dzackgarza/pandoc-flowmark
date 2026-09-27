@@ -1,105 +1,111 @@
-"""
-Public, read-only helpers for walking a parsed Markdown AST and extracting inline
-structure (currently links).
-
-Parse documents with :func:`flowmark.flowmark_markdown` (GFM + footnote), then use these
-helpers instead of re-implementing marko tree walks that must track GFM/footnote element
-types.
-
-**Identity, not spans.** A *span* here means a slice of source text plus its
-`[start, end)` character offsets. marko does not record source offsets for inline
-elements, so :func:`extract_links` returns link *text/url/title* but no span. Recovering
-one is a source-mapping problem the consumer owns: duplicate link text, reference links,
-escaped text, and nested inline markup mean it is not simply "find the link text" — it
-must be reconciled against the original source.
-"""
+"""Read-only Pandoc Markdown AST helpers."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
-from typing import NamedTuple, cast
+from typing import NamedTuple
 
-from marko import inline
-from marko.block import Document
-from marko.element import Element
+from flowmark.pandoc_source import SourceRange, located_nodes, read_source_ast
+from flowmark.pandoc_verify import PandocJson, pandoc_executable
 
 
 class Link(NamedTuple):
-    """
-    A link found in a Markdown document.
-
-    `text` is the rendered link text (empty for autolinks/bare URLs, where the URL is the
-    text). `url` is the destination. `title` is the optional link title. There is no
-    source span (no `[start, end)` offsets): marko does not position inline elements, so a
-    consumer that needs offsets recovers them itself (see module docstring).
-    """
-
     text: str
     url: str
     title: str | None
 
 
-def walk_elements(element: Element) -> Iterator[Element]:
-    """
-    Depth-first iteration over all descendant elements of `element`, in document order.
-
-    Read-only: yields each child/descendant element without modifying the tree. The root
-    `element` itself is not yielded. This is a generic tree walk — it yields block
-    elements, inline elements, and the raw text inside code blocks alike, so callers
-    filter by element type.
-    """
-    children = getattr(element, "children", None)
-    if isinstance(children, list):
-        for child in cast("list[Element]", children):
-            yield child
+def walk_elements(value: PandocJson) -> Iterator[dict[str, PandocJson]]:
+    """Visit every Pandoc node in document order without changing it."""
+    if isinstance(value, dict):
+        if isinstance(value.get("t"), str):
+            yield value
+        for child in value.values():
+            yield from walk_elements(child)
+    elif isinstance(value, list):
+        for child in value:
             yield from walk_elements(child)
 
 
-def _inline_text(element: Element) -> str:
-    """Concatenate the plain text content of an element's inline subtree."""
-    children = getattr(element, "children", None)
-    if isinstance(children, str):
-        return children
-    if isinstance(children, list):
-        return "".join(_inline_text(child) for child in cast("list[Element]", children))
-    return ""
+def stringify_inlines(value: PandocJson) -> str:
+    if isinstance(value, list):
+        return "".join(stringify_inlines(child) for child in value)
+    if not isinstance(value, dict):
+        return ""
+    kind = value.get("t")
+    content = value.get("c")
+    if kind == "Str" and isinstance(content, str):
+        return content
+    if kind in {"Space", "SoftBreak", "LineBreak"}:
+        return " "
+    if kind in {"Code", "Math", "RawInline"} and isinstance(content, list):
+        return content[1] if len(content) == 2 and isinstance(content[1], str) else ""
+    if kind in {"Span", "Link", "Image", "Quoted", "Cite"}:
+        if isinstance(content, list) and len(content) >= 2:
+            return stringify_inlines(content[1])
+        return ""
+    return stringify_inlines(content)
+
+
+_EMPTY_TITLE = re.compile(r"\s(?:\"\"|''|\(\))\)$")
+
+
+def _raw_source(
+    source: str, starts: list[int], position: SourceRange | None
+) -> str:
+    if position is None or position.end.line >= len(starts):
+        return ""
+    start = starts[position.start.line - 1] + position.start.column - 1
+    end = starts[position.end.line - 1] + position.end.column - 1
+    return source[start:end] if 0 <= start < end <= len(source) else ""
 
 
 def extract_links(
-    doc: Document,
+    markdown_text: str,
     *,
     include_autolinks: bool = True,
     include_images: bool = False,
 ) -> list[Link]:
-    """
-    Extract all links from a parsed Markdown document, in document order.
+    """Extract links as the configured Pandoc Markdown reader parses them."""
+    ast = read_source_ast(markdown_text, pandoc_executable())
+    positions = {
+        id(located.node): located.source_range for located in located_nodes(ast)
+    }
+    starts = [0]
+    for line in markdown_text.splitlines(keepends=True):
+        starts.append(starts[-1] + len(line))
 
-    Reflects what Markdown actually treats as a link (reference links resolved, escapes
-    honored), unlike the regex patterns in :mod:`flowmark.atomic_spans`.
-
-    :param include_autolinks: include ``<url>`` autolinks and GFM bare-URL autolinks
-        (their `text` equals the URL). GFM bare URLs (`gfm_elements.Url`) subclass
-        `inline.AutoLink`, so both are covered by the one autolink case.
-    :param include_images: include images (``![alt](url)``); off by default since images
-        are not navigable links.
-    """
     links: list[Link] = []
-    for element in walk_elements(doc):
-        if isinstance(element, inline.Link):
-            links.append(Link(_inline_text(element), element.dest, element.title))
-        elif isinstance(element, inline.Image):
-            if include_images:
-                links.append(Link(_inline_text(element), element.dest, element.title))
-        elif isinstance(element, inline.AutoLink):
-            if include_autolinks:
-                # `dest` carries the scheme (e.g. `mailto:` for `<user@example.com>`);
-                # the display text is the rendered link text. Autolinks have no title.
-                links.append(Link(_inline_text(element), element.dest, None))
+    for node in walk_elements(ast):
+        kind = node.get("t")
+        if kind not in {"Link", "Image"}:
+            continue
+        if kind == "Image" and not include_images:
+            continue
+        content = node.get("c")
+        if not isinstance(content, list) or len(content) != 3:
+            continue
+        attributes, inlines, target = content
+        if not isinstance(attributes, list) or len(attributes) != 3:
+            continue
+        classes = attributes[1]
+        if (
+            kind == "Link"
+            and not include_autolinks
+            and isinstance(classes, list)
+            and "uri" in classes
+        ):
+            continue
+        if not isinstance(target, list) or len(target) != 2:
+            continue
+        url, raw_title = target
+        if not isinstance(url, str) or not isinstance(raw_title, str):
+            continue
+        raw = _raw_source(markdown_text, starts, positions.get(id(node)))
+        title = raw_title if raw_title or _EMPTY_TITLE.search(raw) else None
+        links.append(Link(stringify_inlines(inlines), url, title))
     return links
 
 
-__all__ = (
-    "Link",
-    "walk_elements",
-    "extract_links",
-)
+__all__ = ("Link", "walk_elements", "stringify_inlines", "extract_links")
