@@ -54,7 +54,11 @@ _ESCAPED_PERIOD = re.compile(r"(?<!\\)\\\.")
 _SIMPLE_REFERENCE = re.compile(r"\[([^\[\]\\]+)\](?:\[([^\[\]\\]*)\])?")
 _HTML_OPEN_LINE = re.compile(r"^<[A-Za-z][^<>]*>$")
 _HTML_CLOSE_LINE = re.compile(r"^</[A-Za-z][A-Za-z0-9-]*>$")
+# Measured with Pandoc 3.10: a pipe table line longer than this switches its
+# columns from default to relative widths.
+_PANDOC_TABLE_COLUMNS = 72
 _PIPE_DELIMITER_ROW = re.compile(r"\|?(\s*:?-+:?\s*\|)+\s*:?-*:?\s*")
+_TRAILING_SPACE = re.compile(r"[ \t]+(?=\n)")
 _CODE_BREAK = re.compile(r"\n[ \t]*")
 _QUOTED_CODE_BREAK = re.compile(r"\n[ \t>]*")
 _ALERT_MARKER = re.compile(r"\[!([A-Za-z][\w-]*)\][+-]?(?:[ \t][^\n]*)?\n")
@@ -169,6 +173,34 @@ def normalize_sourced_html_block_layout(
     return result
 
 
+def _span_kind(node: dict[str, PandocJson]) -> str:
+    """How the wrapper treats an inline atom: `code`, `display` math, or `other`."""
+    if node.get("t") == "Code":
+        return "code"
+    content = node.get("c")
+    if (
+        node.get("t") == "Math"
+        and isinstance(content, list)
+        and isinstance(content[0], dict)
+        and content[0].get("t") == "DisplayMath"
+    ):
+        return "display"
+    return "other"
+
+
+def _set_off_display_math(wrapped: str, display_math: list[str], indent: str) -> str:
+    """
+    Start each multi-line display math span on its own line and end the line
+    after it.
+
+    Breaking a wrapped line only shortens lines, so the width still holds.
+    """
+    for hidden in display_math:
+        wrapped = wrapped.replace(" " + hidden, "\n" + indent + hidden)
+        wrapped = wrapped.replace(hidden + " ", hidden + "\n" + indent)
+    return wrapped
+
+
 def _propose_paragraph_edits(
     source: str,
     width: int,
@@ -258,7 +290,7 @@ def _propose_paragraph_edits(
         if semantic and any(tag in old for tag in ("{%", "{#", "{{")):
             continue
         protected = old
-        inline_spans: list[tuple[int, int, bool]] = []
+        inline_spans: list[tuple[int, int, str]] = []
         paragraph_inlines = located_nodes(located.node)
         has_hard_break = any(
             inline.node.get("t") == "LineBreak" for inline in paragraph_inlines
@@ -287,26 +319,29 @@ def _propose_paragraph_edits(
             if not (start <= begin_offset < finish_offset <= end):
                 continue
             inline_spans.append(
-                (
-                    begin_offset - start,
-                    finish_offset - start,
-                    inline.node.get("t") == "Code",
-                )
+                (begin_offset - start, finish_offset - start, _span_kind(inline.node))
             )
         if prefix_width and any(
-            "\n" in old[begin:finish] and not is_code
-            for begin, finish, is_code in inline_spans
+            "\n" in old[begin:finish] and kind == "other"
+            for begin, finish, kind in inline_spans
         ):
             continue
         # Pandoc reads a line break in a code span, with the next line's
         # indentation and quote markers, as one space; writing the space keeps
         # the span on one line.
         code_break = _QUOTED_CODE_BREAK if is_quote else _CODE_BREAK
-        for begin, finish, is_code in sorted(inline_spans, reverse=True):
+        display_math: list[str] = []
+        for begin, finish, kind in sorted(inline_spans, reverse=True):
             span = protected[begin:finish]
-            if is_code:
+            if kind == "code":
                 span = code_break.sub(" ", span)
-            protected = protected[:begin] + span.translate(_HIDE) + protected[finish:]
+            hidden = span.translate(_HIDE)
+            if kind == "display" and "\n" in span:
+                # Display math written over several lines keeps its authored
+                # lines, less trailing spaces, and is set off from the prose.
+                hidden = _TRAILING_SPACE.sub("", span).translate(_HIDE)
+                display_math.append(hidden)
+            protected = protected[:begin] + hidden + protected[finish:]
         if inline_prefix:
             leading = " " if protected.startswith(" ") else ""
             content = protected.lstrip(" ")
@@ -405,6 +440,7 @@ def _propose_paragraph_edits(
                 )
             if content.strip():
                 wrapped = alert_header + wrapped
+            wrapped = _set_off_display_math(wrapped, display_math, continuation)
             wrapped = wrapped.translate(_SHOW)
             if wrapped != old:
                 edits.append(SourceEdit(start, end, wrapped))
@@ -433,6 +469,7 @@ def _propose_paragraph_edits(
                     is_markdown=True,
                 )
             )
+        wrapped = _set_off_display_math(wrapped, display_math, "")
         wrapped = wrapped.translate(_SHOW) + "\n"
         if wrapped != old:
             edits.append(SourceEdit(start, end, wrapped))
@@ -810,21 +847,36 @@ def normalize_sourced_pipe_tables(
         last = min(located.source_range.end.line - 1, len(lines))
         while last > first and not lines[last - 1].strip():
             last -= 1
+        authored: list[str] = []
         for index in range(first - 1, last):
             raw = lines[index].rstrip("\r\n")
             if "|" not in raw:
                 break
+            authored.append(raw)
+        # Past Pandoc's column limit, the delimiter row's dash counts set the
+        # relative column widths (Pandoc manual, "pipe_tables"), so it stays as
+        # written; a table the rewrite would move across the limit stays whole.
+        wide = any(len(raw) > _PANDOC_TABLE_COLUMNS for raw in authored)
+        rows: list[str] = []
+        for offset, raw in enumerate(authored):
             cells = split_pipe_table_row(raw)
-            if index == first:
+            if offset == 1 and wide:
+                rows.append(raw)
+                continue
+            if offset == 1:
                 cells = [
                     (":" if cell.startswith(":") else "")
                     + "---"
                     + (":" if cell.endswith(":") else "")
                     for cell in cells
                 ]
-            row = "| " + " | ".join(cells) + " |"
+            rows.append("| " + " | ".join(cells) + " |")
+        if wide != any(len(row) > _PANDOC_TABLE_COLUMNS for row in rows):
+            continue
+        for offset, (raw, row) in enumerate(zip(authored, rows, strict=True)):
             if row != raw:
-                edits.append(SourceEdit(starts[index], starts[index] + len(raw), row))
+                begin = starts[first - 1 + offset]
+                edits.append(SourceEdit(begin, begin + len(raw), row))
     result = source
     for edit in sorted(edits, key=lambda item: item.start, reverse=True):
         result = result[: edit.start] + edit.replacement + result[edit.end :]
@@ -915,6 +967,9 @@ def apply_sourced_smart_quotes(
         starts.append(starts[-1] + len(line))
 
     eligible: set[int] = set()
+    # Pandoc's `Quoted` node is the quote pair it read, so its marks are curled
+    # whatever surrounds them.
+    quoted: dict[int, str] = {}
     for located in located_nodes(read_source_ast(source, pandoc_exe)):
         kind = located.node.get("t")
         if kind not in {"Str", "Quoted"}:
@@ -930,12 +985,16 @@ def apply_sourced_smart_quotes(
         if kind == "Str":
             eligible.update(range(start, end))
         elif source[start] in "'\"" and source[end - 1] == source[start]:
-            eligible.update((start, end - 1))
+            opening, closing = "“”" if source[start] == '"' else "‘’"
+            quoted[start] = opening
+            quoted[end - 1] = closing
 
     result = list(source)
     for index in eligible:
         if source[index] in "'\"" and styled[index] in "‘’“”":
             result[index] = styled[index]
+    for index, mark in quoted.items():
+        result[index] = mark
     formatted = "".join(result)
     if verify and formatted != source:
         check_meaning_preserved(source, formatted)

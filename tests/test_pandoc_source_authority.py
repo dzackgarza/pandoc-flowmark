@@ -108,7 +108,7 @@ def test_pandoc_edit_keeps_inline_constructs_atomic() -> None:
     assert wrap_plain_paragraphs(formatted, 48, pandoc) == formatted
 
 
-def test_pandoc_edit_keeps_multiline_code_source() -> None:
+def test_pandoc_edit_joins_multiline_code_source() -> None:
     source = (
         "Words before a code span `first line\n"
         "second line` and enough words after it to wrap the paragraph.\n"
@@ -116,7 +116,7 @@ def test_pandoc_edit_keeps_multiline_code_source() -> None:
     pandoc = pandoc_executable()
     formatted = wrap_plain_paragraphs(source, 48, pandoc)
 
-    assert "`first line\nsecond line`" in formatted
+    assert "`first line second line`" in formatted
     assert wrap_plain_paragraphs(formatted, 48, pandoc) == formatted
 
 
