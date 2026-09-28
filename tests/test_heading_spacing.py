@@ -7,7 +7,7 @@ including the corner case where headings end with hard breaks.
 
 from textwrap import dedent
 
-from flowmark.formats.flowmark_markdown import ListSpacing
+from flowmark.formats.options import ListSpacing
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
 

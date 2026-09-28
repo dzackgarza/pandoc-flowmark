@@ -34,8 +34,20 @@ from flowmark.typography.ellipses import ellipses
 
 def test_oracle_reads_house_math_dialect() -> None:
     blocks = pandoc_ast(r"A value \(x + y\) is fixed.")
-    inlines = blocks[0]["c"]
-    assert any(inline["t"] == "Math" for inline in inlines)
+    assert blocks[0] == {
+        "t": "Para",
+        "c": [
+            {"t": "Str", "c": "A"},
+            {"t": "Space"},
+            {"t": "Str", "c": "value"},
+            {"t": "Space"},
+            {"t": "Math", "c": [{"t": "InlineMath"}, "x + y"]},
+            {"t": "Space"},
+            {"t": "Str", "c": "is"},
+            {"t": "Space"},
+            {"t": "Str", "c": "fixed."},
+        ],
+    }
 
 
 def _no_pandoc(_cmd: str) -> None:

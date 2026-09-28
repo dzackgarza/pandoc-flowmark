@@ -56,9 +56,7 @@ def stringify_inlines(value: PandocJson) -> str:
 _EMPTY_TITLE = re.compile(r"\s(?:\"\"|''|\(\))\)$")
 
 
-def _raw_source(
-    source: str, starts: list[int], position: SourceRange | None
-) -> str:
+def _raw_source(source: str, starts: list[int], position: SourceRange | None) -> str:
     if position is None or position.end.line >= len(starts):
         return ""
     start = starts[position.start.line - 1] + position.start.column - 1

@@ -136,7 +136,8 @@ reportImplicitStringConcatenation = false
 [tool.codespell]
 # Add here as needed:
 # ignore-words-list = "foo,bar"
-skip = "tests/testdocs/*.md"
+# The TeXstudio command index is generated data of TeX command names.
+skip = "tests/testdocs/*.md,src/flowmark/data/texstudio-command-index.json"
 
 [tool.pytest.ini_options]
 python_files = ["*.py"]

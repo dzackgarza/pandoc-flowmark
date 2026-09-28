@@ -19,6 +19,7 @@ type JsonValue = (
 
 SENTINEL = "FLOWMARK-PANDOC-MATH-CASE-"
 
+
 def _collect_math(value: JsonValue) -> list[tuple[bool, str]]:
     result: list[tuple[bool, str]] = []
     if isinstance(value, list):

@@ -20,8 +20,7 @@ from flowmark.atomic_spans import (
     split_sentences_with_spans,
 )
 from flowmark.markdown_ast import walk_elements
-from flowmark.pandoc_source import read_source_ast
-from flowmark.pandoc_verify import pandoc_executable
+from flowmark.pandoc_reader import pandoc_executable, read_source_ast
 
 
 def _parse(text: str) -> str:

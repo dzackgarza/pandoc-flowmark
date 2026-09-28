@@ -60,8 +60,8 @@ from itertools import combinations
 from typing import cast
 
 from flowmark.formats.frontmatter import split_frontmatter
+from flowmark.pandoc_dialect import PANDOC_FORMAT
 from flowmark.pandoc_reader import (
-    PANDOC_FORMAT,
     PandocJson,
     PandocParseError,
     PandocUnavailableError as PandocUnavailableError,
@@ -148,10 +148,12 @@ def _pandoc_ast_pair(
     cost, so overlapping the two runs roughly halves verification latency.
     """
     pandoc_exe = pandoc_executable()
+
+    def blocks(text: str) -> list[PandocJson]:
+        return _body_blocks(pandoc_exe, text)
+
     with ThreadPoolExecutor(2) as pool:
-        source_blocks, result_blocks = pool.map(
-            lambda text: _body_blocks(pandoc_exe, text), (source, result)
-        )
+        source_blocks, result_blocks = pool.map(blocks, (source, result))
     return source_blocks, result_blocks
 
 

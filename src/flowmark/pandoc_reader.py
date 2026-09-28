@@ -17,7 +17,6 @@ PandocJson = (
 )
 
 
-
 class PandocUnavailableError(RuntimeError):
     """The required source-position Pandoc binary is unavailable."""
 

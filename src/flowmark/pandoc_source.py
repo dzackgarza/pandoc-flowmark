@@ -1530,9 +1530,7 @@ def _interrupting_list_lines(
     return list_starts
 
 
-def separate_sourced_lazy_lists(
-    source: str, pandoc_exe: str, *, verify: bool = True
-) -> str:
+def separate_sourced_lazy_lists(source: str, pandoc_exe: str) -> str:
     """
     Set off a list that the author wrote directly under a paragraph line.
 
@@ -1612,7 +1610,7 @@ def format_sourced_markdown(
     result = expand_sourced_leading_tabs(source, pandoc_exe, verify=False)
     result = normalize_sourced_spelling(result, pandoc_exe)
     result = set_sourced_tag_block_spacing(result, pandoc_exe, verify=False)
-    result = separate_sourced_lazy_lists(result, pandoc_exe, verify=False)
+    result = separate_sourced_lazy_lists(result, pandoc_exe)
     result = separate_sourced_note_definitions(result, pandoc_exe, verify=False)
     # Indentation settles before wrapping, which measures lines with it.
     result = normalize_sourced_marker_spacing(result, pandoc_exe, verify=False)

@@ -17,7 +17,8 @@ The collapsed reference form ``[label][]`` is used instead, which is unambiguous
 import subprocess
 
 from flowmark.formats.flowmark_markdown import flowmark_markdown
-from flowmark.pandoc_reader import PANDOC_FORMAT, pandoc_executable
+from flowmark.pandoc_dialect import PANDOC_FORMAT
+from flowmark.pandoc_reader import pandoc_executable
 
 
 def _html(src: str) -> str:

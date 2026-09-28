@@ -383,7 +383,9 @@ def _mark(protected: bytearray, start: int, end: int) -> None:
 # A TeX command with brace arguments, e.g. `\overline{ \mathcal{M}_{1} }`: Pandoc's
 # raw_tex reads such a run verbatim, so its underscores are TeX subscripts, not
 # emphasis. Arguments nest three deep; `re` cannot match arbitrary nesting.
-_RAW_TEX_COMMAND = re.compile(r"\\[a-zA-Z]+(?:\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})+")
+_RAW_TEX_COMMAND = re.compile(
+    r"\\[a-zA-Z]+(?:\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})+"
+)
 
 
 def _build_protected_map(
