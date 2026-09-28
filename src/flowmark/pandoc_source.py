@@ -78,6 +78,8 @@ _MARKER_SPACING = re.compile(r"( *)([-+*]|\(?(?:\d+|[A-Za-z]+|#)[.)])( {1,4})")
 _LINK_DEFINITION = re.compile(r" {0,3}\[(?!\^)[^\]]+\]:[ \t]")
 # A footnote definition's label and the whitespace after it.
 _NOTE_DEFINITION = re.compile(r"(\[\^[^\]\s]+\]:)[ \t]*")
+# A task-list box at the start of a list item's text, with the space after it.
+_TASK_BOX = re.compile(r"^\[[ xX]\] ")
 # A backslash before a space, not itself escaped.
 _ESCAPED_SPACE = re.compile(r"(?<!\\)((?:\\\\)*)\\ ")
 _TRAILING_SPACE = re.compile(r"[ \t]+(?=\n)")
@@ -594,6 +596,12 @@ def _propose_paragraph_edits(
                 content = protected_lines[0][prefix_width:] + "".join(
                     line.lstrip(" ") for line in protected_lines[1:]
                 )
+            # A task box is one only when a space follows it on its line, so it
+            # is kept together with the word after it.
+            if is_list:
+                content = _TASK_BOX.sub(
+                    lambda match: match.group(0).translate(_HIDE), content, count=1
+                )
             # A GFM alert or Obsidian callout marker keeps its own line; the
             # paragraph text below it wraps as usual.
             alert_header = ""
@@ -833,6 +841,10 @@ def set_sourced_list_spacing(
             if position is None or not (1 < position.start.line <= len(lines)):
                 continue
             line_index = position.start.line - 1
+            # An item whose text starts on the line after its marker has its
+            # marker on an earlier line; its gap is left as written.
+            if not lines[line_index][: position.start.column - 1].strip(" \t>"):
+                continue
             blank = "\n"
             if quoted:
                 marker_prefix = lines[line_index][: position.start.column - 1]
