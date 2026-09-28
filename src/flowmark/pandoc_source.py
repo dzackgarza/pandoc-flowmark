@@ -400,7 +400,7 @@ def wrap_plain_paragraphs(source: str, pandoc_exe: str, wrappers: ParagraphWrapp
             # Pandoc reads the space after an abbreviation such as `e.g.`, and an
             # escaped space, as a non-breaking space inside one `Str`; a line
             # break there would read as an ordinary space.
-            nonbreaking = inline.node.get("t") == "Str" and "\u00a0" in str(inline.node.get("c", ""))
+            nonbreaking = inline.node.get("t") == "Str" and "\u00a0" in str(inline.node["c"])
             if inline.node.get("t") not in _WRAP_ATOMS and not nonbreaking:
                 continue
             if any(ancestor in _NESTING_ATOMS for ancestor in inline.ancestors):

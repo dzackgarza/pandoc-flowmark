@@ -604,8 +604,8 @@ def _join_hyphens_toward(node: PandocJson, target: PandocJson) -> PandocJson:
     for index, (item, goal) in enumerate(zip(node, target, strict=True)):
         if isinstance(item, dict) and isinstance(goal, dict) and item.get("t") == goal.get("t") == "Str":
             text = _join_hyphen_text_toward(
-                str(item.get("c", "")),
-                str(goal.get("c", "")),
+                str(item["c"]),
+                str(goal["c"]),
                 node[index + 1] if index + 1 < len(node) else None,
             )
             out.append({"t": "Str", "c": text})
