@@ -9,7 +9,9 @@ could only ever ask the first one, so it blamed flowmark for the second -- which
 The Pandoc reader is a required runtime dependency.
 """
 
-from flowmark.preflight import preflight
+import pytest
+
+from flowmark.preflight import MalformedInputError, preflight
 from flowmark.reformat_api import reformat_text
 
 
@@ -65,11 +67,10 @@ def test_preflight_is_quiet_on_clean_input() -> None:
     assert preflight(clean) == []
 
 
-def test_unclosed_fence_follows_pandoc_paragraph_meaning() -> None:
+def test_unclosed_fence_is_refused() -> None:
     assert [finding.line for finding in preflight(AMBIGUOUS_FENCE)] == [3]
-    assert reformat_text(AMBIGUOUS_FENCE, semantic=True, verify=True) == (
-        "Intro.\n\n```python x = 1\n\nmore text here\n"
-    )
+    with pytest.raises(MalformedInputError, match="never closed"):
+        reformat_text(AMBIGUOUS_FENCE, semantic=True, verify=True)
 
 
 def test_preflight_accepts_inline_math_that_continues_on_the_next_line() -> None:

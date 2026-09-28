@@ -19,7 +19,12 @@ from flowmark.pandoc_verify import (
     check_meaning_preserved,
     describe,
 )
-from flowmark.preflight import MalformedInputError, preflight, rejected_math
+from flowmark.preflight import (
+    MalformedInputError,
+    preflight,
+    rejected_math,
+    unclosed_fences,
+)
 
 
 def reformat_text(
@@ -47,7 +52,8 @@ def reformat_text(
 
     Raises:
         MalformedInputError: in Markdown mode, if the document has `$...$` meant as
-            math that pandoc reads as text (`rejected_math`).
+            math that pandoc reads as text (`rejected_math`), or a fence that is
+            never closed (`unclosed_fences`).
     """
     if plaintext:
         # Plaintext mode
@@ -58,9 +64,12 @@ def reformat_text(
             word_splitter=get_html_md_word_splitter(),
         )
     else:
-        # Markdown mode. Math pandoc reads as text is an error in the document:
-        # formatting it would treat the author's TeX as prose.
-        rejected = rejected_math(text)
+        # Markdown mode. Math pandoc reads as text, or a fence never closed, is an
+        # error in the document: formatting it would treat the author's TeX or
+        # code as prose.
+        rejected = sorted(
+            [*rejected_math(text), *unclosed_fences(text)], key=lambda f: f.line
+        )
         if rejected:
             named = "; ".join(f"{verify_label}:{f.line}: {f.message}" for f in rejected)
             raise MalformedInputError(

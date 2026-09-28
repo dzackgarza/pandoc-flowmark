@@ -53,6 +53,8 @@ _ESCAPED_PERIOD = re.compile(r"(?<!\\)\\\.")
 _SIMPLE_REFERENCE = re.compile(r"\[([^\[\]\\]+)\](?:\[([^\[\]\\]*)\])?")
 _HTML_OPEN_LINE = re.compile(r"^<[A-Za-z][^<>]*>$")
 _HTML_CLOSE_LINE = re.compile(r"^</[A-Za-z][A-Za-z0-9-]*>$")
+_CODE_BREAK = re.compile(r"\n[ \t]*")
+_QUOTED_CODE_BREAK = re.compile(r"\n[ \t>]*")
 _ALERT_MARKER = re.compile(r"\[!([A-Za-z][\w-]*)\][+-]?(?:[ \t][^\n]*)?\n")
 
 
@@ -254,7 +256,7 @@ def _propose_paragraph_edits(
         if semantic and any(tag in old for tag in ("{%", "{#", "{{")):
             continue
         protected = old
-        inline_spans: list[tuple[int, int]] = []
+        inline_spans: list[tuple[int, int, bool]] = []
         paragraph_inlines = located_nodes(located.node)
         has_hard_break = any(
             inline.node.get("t") == "LineBreak" for inline in paragraph_inlines
@@ -282,17 +284,27 @@ def _propose_paragraph_edits(
             # A Note contains blocks sourced from its definition elsewhere.
             if not (start <= begin_offset < finish_offset <= end):
                 continue
-            inline_spans.append((begin_offset - start, finish_offset - start))
+            inline_spans.append(
+                (
+                    begin_offset - start,
+                    finish_offset - start,
+                    inline.node.get("t") == "Code",
+                )
+            )
         if prefix_width and any(
-            "\n" in old[begin:finish] for begin, finish in inline_spans
+            "\n" in old[begin:finish] and not is_code
+            for begin, finish, is_code in inline_spans
         ):
             continue
-        for begin, finish in sorted(inline_spans, reverse=True):
-            protected = (
-                protected[:begin]
-                + protected[begin:finish].translate(_HIDE)
-                + protected[finish:]
-            )
+        # Pandoc reads a line break in a code span, with the next line's
+        # indentation and quote markers, as one space; writing the space keeps
+        # the span on one line.
+        code_break = _QUOTED_CODE_BREAK if is_quote else _CODE_BREAK
+        for begin, finish, is_code in sorted(inline_spans, reverse=True):
+            span = protected[begin:finish]
+            if is_code:
+                span = code_break.sub(" ", span)
+            protected = protected[:begin] + span.translate(_HIDE) + protected[finish:]
         if inline_prefix:
             leading = " " if protected.startswith(" ") else ""
             content = protected.lstrip(" ")
@@ -333,8 +345,6 @@ def _propose_paragraph_edits(
                     else first_prefix
                 )
             else:
-                if any(line[:prefix_width].strip() for line in paragraph_lines[1:]):
-                    continue
                 continuation = " " * prefix_width
             protected_lines = protected.splitlines(keepends=True)
             if is_quote and is_list:
@@ -342,8 +352,14 @@ def _propose_paragraph_edits(
                     line[len(quote_prefix) :].lstrip(" ")
                     for line in protected_lines[1:]
                 )
-            else:
+            elif is_quote:
                 content = "".join(line[prefix_width:] for line in protected_lines)
+            else:
+                # Pandoc ignores a paragraph line's leading spaces, including a
+                # lazy continuation line's missing indentation.
+                content = protected_lines[0][prefix_width:] + "".join(
+                    line.lstrip(" ") for line in protected_lines[1:]
+                )
             # A GFM alert or Obsidian callout marker keeps its own line; the
             # paragraph text below it wraps as usual.
             alert_header = ""

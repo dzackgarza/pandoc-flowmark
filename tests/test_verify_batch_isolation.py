@@ -15,12 +15,12 @@ from textwrap import dedent
 
 import pytest
 
-from flowmark.pandoc_verify import MeaningChangedError
+from flowmark.preflight import MalformedInputError
 from flowmark.reformat_api import reformat_file, reformat_files
 
 # Ambiguous markdown: a fence opened and never closed. Pandoc does not start a code
-# block without its closing fence and reads the lines as paragraphs; flowmark
-# closes the fence, so verify correctly refuses.
+# block without its closing fence and reads the lines as paragraphs, while
+# CommonMark reads a code block; flowmark refuses the input.
 #
 # The fixture must be input that is wrong, not a live flowmark bug: a test pinned
 # to a live bug fails the day the bug is fixed.
@@ -60,6 +60,6 @@ def test_batch_skips_refused_file_and_formats_the_rest(
 def test_single_file_call_still_raises(tmp_path: Path) -> None:
     bad = tmp_path / "bad.md"
     bad.write_text(AMBIGUOUS)
-    with pytest.raises(MeaningChangedError):
+    with pytest.raises(MalformedInputError):
         reformat_file(str(bad), output=None, inplace=True, nobackup=True, semantic=True)
     assert bad.read_text() == AMBIGUOUS
