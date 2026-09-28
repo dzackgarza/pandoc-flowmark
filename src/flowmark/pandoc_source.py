@@ -33,6 +33,7 @@ from flowmark.pandoc_verify import (
     MeaningChangedError,
     check_meaning_preserved,
 )
+from flowmark.preflight import split_pipe_table_row
 from flowmark.typography.smartquotes import smart_quotes
 from flowmark.typography.ellipses import ellipses
 
@@ -53,6 +54,7 @@ _ESCAPED_PERIOD = re.compile(r"(?<!\\)\\\.")
 _SIMPLE_REFERENCE = re.compile(r"\[([^\[\]\\]+)\](?:\[([^\[\]\\]*)\])?")
 _HTML_OPEN_LINE = re.compile(r"^<[A-Za-z][^<>]*>$")
 _HTML_CLOSE_LINE = re.compile(r"^</[A-Za-z][A-Za-z0-9-]*>$")
+_PIPE_DELIMITER_ROW = re.compile(r"\|?(\s*:?-+:?\s*\|)+\s*:?-*:?\s*")
 _CODE_BREAK = re.compile(r"\n[ \t]*")
 _QUOTED_CODE_BREAK = re.compile(r"\n[ \t>]*")
 _ALERT_MARKER = re.compile(r"\[!([A-Za-z][\w-]*)\][+-]?(?:[ \t][^\n]*)?\n")
@@ -782,6 +784,84 @@ def normalize_sourced_blank_gaps(
     return result
 
 
+def normalize_sourced_pipe_tables(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
+    """
+    Write each row of a Pandoc pipe table as `| a | b |`, with a `| --- |` rule.
+
+    Pandoc locates the table. The row's cell boundaries are the ones its
+    pipeTableCell reader uses (`split_pipe_table_row`), so cells past the header's
+    width, which Pandoc drops, keep their text.
+    """
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    edits: list[SourceEdit] = []
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        if located.node.get("t") != "Table" or not set(located.ancestors) <= {"Div"}:
+            continue
+        first = located.source_range.start.line
+        if located.source_range.start.column != 1 or first + 1 > len(lines):
+            continue
+        if not _PIPE_DELIMITER_ROW.fullmatch(lines[first].strip()):
+            continue
+        last = min(located.source_range.end.line - 1, len(lines))
+        while last > first and not lines[last - 1].strip():
+            last -= 1
+        for index in range(first - 1, last):
+            raw = lines[index].rstrip("\r\n")
+            if "|" not in raw:
+                break
+            cells = split_pipe_table_row(raw)
+            if index == first:
+                cells = [
+                    (":" if cell.startswith(":") else "")
+                    + "---"
+                    + (":" if cell.endswith(":") else "")
+                    for cell in cells
+                ]
+            row = "| " + " | ".join(cells) + " |"
+            if row != raw:
+                edits.append(SourceEdit(starts[index], starts[index] + len(raw), row))
+    result = source
+    for edit in sorted(edits, key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if verify and result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
+def separate_sourced_note_definitions(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
+    """Write a blank line before a footnote definition that follows a text line."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    definition_lines = {
+        located.source_range.start.line
+        for located in located_nodes(read_source_ast(source, pandoc_exe))
+        if located.ancestors and located.ancestors[-1] == "Note"
+    }
+    blank_before = [
+        line_number
+        for line_number in definition_lines
+        if 1 < line_number <= len(lines)
+        and lines[line_number - 1].startswith("[^")
+        and lines[line_number - 2].strip()
+    ]
+    result = source
+    for line_number in sorted(blank_before, reverse=True):
+        offset = starts[line_number - 1]
+        result = result[:offset] + "\n" + result[offset:]
+    if verify and result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
 def normalize_sourced_quote_blank_lines(
     source: str, pandoc_exe: str, *, verify: bool = True
 ) -> str:
@@ -1118,6 +1198,8 @@ def format_sourced_markdown(
         )
         result = normalize_sourced_list_indentation(result, pandoc_exe, verify=False)
     result = normalize_sourced_indented_code(result, pandoc_exe, verify=False)
+    result = normalize_sourced_pipe_tables(result, pandoc_exe, verify=False)
+    result = separate_sourced_note_definitions(result, pandoc_exe, verify=False)
     result = normalize_sourced_blank_gaps(result, pandoc_exe, verify=False)
     result = set_sourced_heading_spacing(result, pandoc_exe, verify=False)
     result = normalize_sourced_quote_blank_lines(result, pandoc_exe, verify=False)
