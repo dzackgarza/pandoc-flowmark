@@ -25,7 +25,7 @@ She replied ‘goodbye’ quietly.
 
 It’s a beautiful day, and they don’t know it won’t last.
 
-“Nested 'single quotes' inside double quotes” are tricky.
+“Nested ‘single quotes’ inside double quotes” are tricky.
 
 The sentence trails off... and then continues.
 
@@ -38,6 +38,7 @@ This has “bold *emphasis* inside quotes” for testing.
 ### “Quoted Heading”
 
 Apostrophes: the cat’s meow, the '90s, rock 'n' roll.
+? 0
 ```
 
 ## T2: Ellipses only
@@ -79,7 +80,7 @@ She replied ‘goodbye’ quietly.
 
 It’s a beautiful day, and they don’t know it won’t last.
 
-“Nested 'single quotes' inside double quotes” are tricky.
+“Nested ‘single quotes’ inside double quotes” are tricky.
 
 The sentence trails off … and then continues.
 
@@ -92,6 +93,7 @@ This has “bold *emphasis* inside quotes” for testing.
 ### “Quoted Heading”
 
 Apostrophes: the cat’s meow, the '90s, rock 'n' roll.
+? 0
 ```
 
 ## T4: Smart quotes NOT converted in code blocks
