@@ -178,3 +178,17 @@ def test_fenced_div_body_may_define_a_footnote() -> None:
     source = "::: {.solution}\nThe argument is due to Oskar.[^credit]\n\n[^credit]: With thanks.\n:::\n"
 
     assert md(source) == source
+
+
+def test_an_opener_with_no_blank_line_before_it_is_never_joined_to_prose() -> None:
+    """
+    Pandoc reads a ``::: {.proof}`` line directly under a text line as more
+    paragraph text, not as a fence. Semantic reflow then joined the opener to the
+    next sentence (``::: {.proof} Let $x$ be given.``), which no reader accepts as
+    a fence: the div never opens and its closer ends the enclosing div. The
+    paragraph holding such a line is left as written, as one holding a bare
+    ``:::`` closer already is.
+    """
+    source = "::: {.solution}\n<1>1. A claim.\n::: {.proof}\nLet $x$ be given. Then it holds.\n:::\n:::\n"
+
+    assert fill_markdown(source, FormatOptions(Semantic())) == source
