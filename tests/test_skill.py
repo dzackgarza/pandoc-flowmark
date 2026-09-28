@@ -27,7 +27,7 @@ class TestGetSkillContent:
         """SKILL.md contains usage instructions."""
         content = get_skill_content()
         assert "# Flowmark" in content
-        assert "uvx flowmark" in content
+        assert "flowmark --auto" in content
 
     def test_skill_content_has_vscode_cursor_setup(self) -> None:
         """SKILL.md includes VS Code/Cursor run-on-save guidance."""

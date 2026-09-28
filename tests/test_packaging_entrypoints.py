@@ -11,14 +11,13 @@ else:
     import tomli as tomllib  # type: ignore[no-redef]  # pyright: ignore[reportUnreachable]
 
 
-def test_flowmark_py_alias_entrypoint() -> None:
-    """Both flowmark and flowmark-py should point to the same CLI entrypoint."""
+def test_cli_entrypoints() -> None:
+    """The package installs the formatter and linter commands."""
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
     data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
     scripts = data["project"]["scripts"]
 
     assert scripts["flowmark"] == "flowmark.cli:main"
-    assert scripts["flowmark-py"] == "flowmark.cli:main"
     assert scripts["flowmark-lint"] == "flowmark.lint_cli:main"
 
 
