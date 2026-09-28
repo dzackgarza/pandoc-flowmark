@@ -74,18 +74,20 @@ _LIST_LINE_PREFIX = re.compile(
 # The text before a list item's content: indentation, a marker, and one to four
 # spaces. Five or more spaces after a marker start indented code instead.
 _MARKER_SPACING = re.compile(r"( *)([-+*]|\(?(?:\d+|[A-Za-z]+|#)[.)])( {1,4})")
+# A footnote definition's label and the whitespace after it.
+_NOTE_DEFINITION = re.compile(r"(\[\^[^\]\s]+\]:)[ \t]*")
 _TRAILING_SPACE = re.compile(r"[ \t]+(?=\n)")
 _CODE_BREAK = re.compile(r"\n[ \t]*")
 _QUOTED_CODE_BREAK = re.compile(r"\n[ \t>]*")
 _ALERT_MARKER = re.compile(r"\[!([A-Za-z][\w-]*)\][+-]?(?:[ \t][^\n]*)?\n")
 
 
-def expand_sourced_list_tabs(
+def expand_sourced_leading_tabs(
     source: str, pandoc_exe: str, *, verify: bool = True
 ) -> str:
     """
-    Write tabs in the indentation and list markers of list and quote lines as
-    spaces, to Pandoc's tab stop of 4 columns.
+    Write tabs in a line's indentation, quote markers, and list marker as spaces,
+    to Pandoc's tab stop of 4 columns.
 
     Pandoc reports columns with tabs expanded, so the later edits need lines
     whose columns are character offsets. Code, raw, and math lines keep their
@@ -105,17 +107,11 @@ def expand_sourced_list_tabs(
             )
         }
 
-    containers = line_indices({"BulletList", "OrderedList", "BlockQuote"})
     kept = line_indices({"CodeBlock", "RawBlock", "Math"})
     result: list[str] = []
     for index, line in enumerate(lines):
         prefix = _LIST_LINE_PREFIX.match(line)
-        if (
-            index in containers
-            and index not in kept
-            and prefix is not None
-            and "\t" in prefix.group(0)
-        ):
+        if index not in kept and prefix is not None and "\t" in prefix.group(0):
             line = prefix.group(0).expandtabs(4) + line[prefix.end() :]
         result.append(line)
     expanded = "".join(result)
@@ -270,6 +266,78 @@ def _set_off_display_math(wrapped: str, display_math: list[str], indent: str) ->
     return wrapped
 
 
+def _wrap_segment(
+    text: str,
+    first_indent: str,
+    indent: str,
+    *,
+    width: int,
+    semantic: bool,
+    line_wrapper: LineWrapper | None,
+    tags: bool,
+) -> str:
+    """Wrap one run of paragraph text, without a final newline."""
+    if not text.strip():
+        # Consecutive hard breaks leave a line with nothing but its break.
+        return first_indent
+    if line_wrapper is not None:
+        return line_wrapper(text, first_indent, indent)
+    sentence_wrapper = line_wrap_by_sentence(
+        width=width, is_markdown=True, source_preserving=True
+    )
+    if tags:
+        base_wrapper = (
+            sentence_wrapper
+            if semantic
+            else line_wrap_to_width(width=width, is_markdown=False)
+        )
+        return add_tag_newline_handling(base_wrapper)(text, first_indent, indent)
+    if semantic:
+        return sentence_wrapper(text, first_indent, indent)
+    wrapped_lines = wrap_paragraph_lines(
+        text,
+        width=width,
+        initial_column=len(first_indent),
+        subsequent_offset=len(indent),
+        splitter=simple_word_splitter,
+        is_markdown=True,
+    )
+    return (
+        first_indent
+        + wrapped_lines[0]
+        + "".join("\n" + indent + line for line in wrapped_lines[1:])
+    )
+
+
+def _wrap_text(
+    text: str,
+    first_indent: str,
+    indent: str,
+    *,
+    width: int,
+    semantic: bool,
+    line_wrapper: LineWrapper | None,
+    tags: bool,
+) -> str:
+    """
+    Wrap paragraph text, without a final newline. A backslash hard break ends a
+    line, so the text between hard breaks wraps on its own.
+    """
+    segments = text.split("\\\n")
+    return "\\\n".join(
+        _wrap_segment(
+            segment,
+            first_indent if index == 0 else indent,
+            indent,
+            width=width,
+            semantic=semantic,
+            line_wrapper=line_wrapper,
+            tags=tags,
+        )
+        for index, segment in enumerate(segments)
+    )
+
+
 def _propose_paragraph_edits(
     source: str,
     width: int,
@@ -313,11 +381,19 @@ def _propose_paragraph_edits(
                 or _HTML_OPEN_LINE.fullmatch(physical_prefix) is not None
             )
         )
-        if first.column != 1 and not (is_list or is_quote or inline_prefix):
+        # A footnote definition's own blocks wrap under a four-space indent; a
+        # block nested deeper in a note, or an inline note, is left as written.
+        is_note = located.ancestors[-1:] == ("Note",)
+        if "Note" in located.ancestors and not is_note:
             continue
-        if "Note" in located.ancestors:
+        note_marker = _NOTE_DEFINITION.match(lines[first.line - 1]) if is_note else None
+        if is_note and note_marker is None and first.column != 5:
             continue
-        prefix_width = first.column - 1
+        if first.column != 1 and not (is_list or is_quote or inline_prefix or is_note):
+            continue
+        prefix_width = (
+            note_marker.end() if note_marker is not None else first.column - 1
+        )
         last = located.source_range.end
         end_line = min(last.line, len(lines))
         end_before_line = (
@@ -342,6 +418,11 @@ def _propose_paragraph_edits(
             ):
                 end_line = index
                 break
+        # A paragraph ends at a blank line, whatever range Pandoc reports.
+        for index in range(first.line, end_line):
+            if not lines[index].strip(" \t>\r\n"):
+                end_line = index
+                break
         while end_line >= first.line and not lines[end_line - 1][prefix_width:].strip():
             end_line -= 1
         if end_line < first.line:
@@ -361,13 +442,7 @@ def _propose_paragraph_edits(
         protected = old
         inline_spans: list[tuple[int, int, str]] = []
         paragraph_inlines = located_nodes(located.node)
-        has_hard_break = any(
-            inline.node.get("t") == "LineBreak" for inline in paragraph_inlines
-        )
-        if has_hard_break and any(
-            inline.node.get("t") == "SoftBreak" for inline in paragraph_inlines
-        ):
-            continue
+        tags = any(is_tag_only_line(line) for line in old.splitlines())
         for inline in paragraph_inlines:
             if "Note" in inline.ancestors:
                 continue
@@ -455,6 +530,9 @@ def _propose_paragraph_edits(
                     if is_list
                     else first_prefix
                 )
+            elif note_marker is not None:
+                first_prefix = note_marker.group(1) + " "
+                continuation = " " * 4
             else:
                 continuation = " " * prefix_width
             protected_lines = protected.splitlines(keepends=True)
@@ -486,63 +564,34 @@ def _propose_paragraph_edits(
                 )
                 content = content[marker.end() :]
                 first_prefix = continuation
-            if not content.strip():
-                wrapped = alert_header
-            elif line_wrapper is not None:
-                wrapped = line_wrapper(content, first_prefix, continuation) + "\n"
-            elif semantic:
-                wrapped = (
-                    line_wrap_by_sentence(
-                        width=width, is_markdown=True, source_preserving=True
-                    )(content, first_prefix, continuation)
-                    + "\n"
-                )
-            else:
-                wrapped_lines = wrap_paragraph_lines(
-                    content,
-                    width=width,
-                    initial_column=prefix_width,
-                    subsequent_offset=prefix_width,
-                    splitter=simple_word_splitter,
-                    is_markdown=True,
-                )
-                wrapped = (
-                    first_prefix
-                    + wrapped_lines[0]
-                    + "".join("\n" + continuation + line for line in wrapped_lines[1:])
-                    + "\n"
-                )
+            wrapped = alert_header
             if content.strip():
-                wrapped = alert_header + wrapped
+                wrapped += (
+                    _wrap_text(
+                        content,
+                        first_prefix,
+                        continuation,
+                        width=width,
+                        semantic=semantic,
+                        line_wrapper=line_wrapper,
+                        tags=tags,
+                    )
+                    + "\n"
+                )
             wrapped = _set_off_display_math(wrapped, display_math, continuation)
             wrapped = wrapped.translate(_SHOW)
             if wrapped != old:
                 edits.append(SourceEdit(start, end, wrapped))
             continue
-        if line_wrapper is not None:
-            wrapped = line_wrapper(protected, "", "")
-        elif any(is_tag_only_line(line) for line in old.splitlines()):
-            base_wrapper = (
-                line_wrap_by_sentence(
-                    width=width, is_markdown=True, source_preserving=True
-                )
-                if semantic
-                else line_wrap_to_width(width=width, is_markdown=False)
-            )
-            wrapped = add_tag_newline_handling(base_wrapper)(protected, "", "")
-        elif semantic:
-            wrapped = line_wrap_by_sentence(
-                width=width, is_markdown=True, source_preserving=True
-            )(protected, "", "")
-        else:
-            wrapped = "\n".join(
-                wrap_paragraph_lines(
-                    protected,
-                    width=width,
-                    splitter=simple_word_splitter,
-                    is_markdown=True,
-                )
-            )
+        wrapped = _wrap_text(
+            protected,
+            "",
+            "",
+            width=width,
+            semantic=semantic,
+            line_wrapper=line_wrapper,
+            tags=tags,
+        )
         wrapped = _set_off_display_math(wrapped, display_math, "")
         wrapped = wrapped.translate(_SHOW) + "\n"
         if wrapped != old:
@@ -1111,9 +1160,6 @@ def apply_sourced_smart_quotes(
         starts.append(starts[-1] + len(line))
 
     eligible: set[int] = set()
-    # Pandoc's `Quoted` node is the quote pair it read, so its marks are curled
-    # whatever surrounds them.
-    quoted: dict[int, str] = {}
     for located in located_nodes(read_source_ast(source, pandoc_exe)):
         kind = located.node.get("t")
         if kind not in {"Str", "Quoted"}:
@@ -1129,16 +1175,12 @@ def apply_sourced_smart_quotes(
         if kind == "Str":
             eligible.update(range(start, end))
         elif source[start] in "'\"" and source[end - 1] == source[start]:
-            opening, closing = "“”" if source[start] == '"' else "‘’"
-            quoted[start] = opening
-            quoted[end - 1] = closing
+            eligible.update((start, end - 1))
 
     result = list(source)
     for index in eligible:
         if source[index] in "'\"" and styled[index] in "‘’“”":
             result[index] = styled[index]
-    for index, mark in quoted.items():
-        result[index] = mark
     formatted = "".join(result)
     if verify and formatted != source:
         check_meaning_preserved(source, formatted)
@@ -1379,10 +1421,14 @@ def format_sourced_markdown(
     verify: bool = True,
 ) -> tuple[str, int]:
     """Run the supported formatting edits through one Pandoc source map."""
-    result = expand_sourced_list_tabs(source, pandoc_exe, verify=False)
+    result = expand_sourced_leading_tabs(source, pandoc_exe, verify=False)
     result = normalize_sourced_spelling(result, pandoc_exe)
     result = set_sourced_tag_block_spacing(result, pandoc_exe, verify=False)
     result = separate_sourced_lazy_lists(result, pandoc_exe, verify=False)
+    result = separate_sourced_note_definitions(result, pandoc_exe, verify=False)
+    # Indentation settles before wrapping, which measures lines with it.
+    result = normalize_sourced_marker_spacing(result, pandoc_exe, verify=False)
+    result = normalize_sourced_list_indentation(result, pandoc_exe, verify=False)
     result = normalize_sourced_html_block_layout(result, pandoc_exe, verify=False)
     joined = 0
     if cleanups:
@@ -1400,11 +1446,8 @@ def format_sourced_markdown(
         result = set_sourced_list_spacing(
             result, pandoc_exe, loose=list_spacing is ListSpacing.loose, verify=False
         )
-        result = normalize_sourced_marker_spacing(result, pandoc_exe, verify=False)
-        result = normalize_sourced_list_indentation(result, pandoc_exe, verify=False)
     result = normalize_sourced_indented_code(result, pandoc_exe, verify=False)
     result = normalize_sourced_pipe_tables(result, pandoc_exe, verify=False)
-    result = separate_sourced_note_definitions(result, pandoc_exe, verify=False)
     result = normalize_sourced_blank_gaps(result, pandoc_exe, verify=False)
     result = set_sourced_heading_spacing(result, pandoc_exe, verify=False)
     result = normalize_sourced_quote_blank_lines(result, pandoc_exe, verify=False)
