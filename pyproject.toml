@@ -38,6 +38,8 @@ classifiers = [
 
 dependencies = [
     "pathspec>=0.12.1",
+    "platformdirs>=4.2",
+    "rapidfuzz>=3.9",
     "regex>=2024.11.6",
     "strif>=3.0.1",
     "tomli>=2.0.0; python_version < '3.11'",

@@ -24,39 +24,36 @@ def rule_ids(
         ("# H1\n\n### H3\n", "heading/increment"),
         ("## Same\n\nText\n\n## Same\n", "heading/duplicate"),
         ("# A\n\n# B\n", "heading/multiple-h1"),
-        ("#Heading\n", "heading/malformed"),
-        ("####### Heading\n", "heading/malformed"),
-        ("[text][missing]\n", "reference/undefined"),
-        ("[unused]: /target\n", "reference/unused-definition"),
         ("[x]: /a\n[x]: /b\n\n[x][]\n", "reference/duplicate-definition"),
         ("[text]()\n", "link/empty-destination"),
-        ("(text)[https://example.com]\n", "link/reversed-syntax"),
-        ("[text](https://example.com]\n", "link/malformed-syntax"),
-        ("[ text ](https://example.com)\n", "link/text-padding"),
-        ("Use * text * here.\n", "emphasis/padding"),
         ("![](image.png)\n", "accessibility/image-alt"),
         ("[click here](https://example.com)\n", "link/non-descriptive-text"),
         ("# Heading\n\n[bad](#missing)\n", "link/invalid-fragment"),
-        ("Text[^missing].\n", "footnote/undefined"),
         ("[^unused]: note\n", "footnote/unused-definition"),
         ("Text[^x].\n\n[^x]: one\n[^x]: two\n", "footnote/duplicate-definition"),
         ("---\ntitle: A\ntitle: B\n---\n\nText\n", "frontmatter/duplicate-key"),
         ("---\ntitle: [oops\n---\n\nText\n", "frontmatter/malformed-flow"),
-        ("---\ntitle: A\n", "frontmatter/unclosed"),
         ("```\ncode\n```\n", "code/missing-language"),
-        ("```python\ncode\n", "code/unclosed-fence"),
         ("```python\n\tx=1\n```\n", "code/hard-tab"),
-        ("Text\n```python\nx=1\n```\nAfter\n", "code/surrounding-blank-lines"),
-        (
-            "Text\n| a | b |\n| --- | --- |\n| x | y |\nAfter\n",
-            "table/surrounding-blank-lines",
-        ),
         ("# A {#x}\n\n# B {#x}\n", "pandoc/duplicate-identifier"),
-        ("# A {#x .foo\n", "pandoc/malformed-attributes"),
         ("::: theorem\nText\n", "pandoc/unclosed-fenced-div"),
-        ("\\begin{align}\nx &= y\n", "tex/unclosed-environment"),
-        ("\\[\nx^2\n\\]\n", "math/backslash-delimiter"),
-        ("Inline \\(x^2\\) math.\n", "math/backslash-delimiter"),
+        (
+            "::: {.theorem}\n## Heading inside div\n:::\n",
+            "structure/heading-in-fenced-div",
+        ),
+        (
+            ":::: {.theorem}\n\n::: {.proof}\nText.\n:::\n::::\n",
+            "structure/nested-fenced-div",
+        ),
+        ("Inline $x_i_j$.\n", "math/repeated-subscript"),
+        ("Inline $x^2^3$.\n", "math/repeated-superscript"),
+        ("Inline $y^{2}^\\alpha$.\n", "math/repeated-superscript"),
+        ("Inline $x_{i$.\n", "math/unclosed-group"),
+        ("Inline $x_i}$.\n", "math/unmatched-group-close"),
+        ("Inline $\\left(x$.\n", "math/unclosed-left"),
+        ("Inline $x\\right)$.\n", "math/unmatched-right"),
+        ("Inline $Hom_R(M,N)$.\n", "math/bare-operator"),
+        ("$$\nSpec R \\to Proj S\n$$\n", "math/bare-operator"),
     ],
 )
 def test_default_rules_cover_common_structural_and_semantic_failures(
@@ -65,20 +62,145 @@ def test_default_rules_cover_common_structural_and_semantic_failures(
     assert expected in rule_ids(source)
 
 
-def test_canonical_format_rule_is_suppressed_when_specific_rule_owns_same_line() -> (
+def test_semantic_diagnostics_do_not_depend_on_formatter_spelling() -> None:
+    diagnostics = lint_text("Use _emphasis_.\n\n# Heading\n\n[bad](#missing)\n")
+    assert {d.rule for d in diagnostics} == {"link/invalid-fragment"}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "[text][missing]\n",
+        "[unused]: /target\n",
+        "Text[^missing].\n",
+        "---\ntitle: A\n",
+        "Text\n```python\nx=1\n```\nAfter\n",
+        "Text\n| a | b |\n| --- | --- |\n| x | y |\nAfter\n",
+    ],
+)
+def test_default_linter_does_not_invent_structure_pandoc_did_not_report(
+    source: str,
+) -> None:
+    assert lint_text(source) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "#Heading\n",
+        "(text)[https://example.com]\n",
+        "[text](https://example.com]\n",
+        "Use * text * here.\n",
+        "# A {#x .foo\n",
+        "```python\ncode\n",
+        "\\begin{align}\nx &= y\n",
+        "\\begin{align}\nx &= y\n\\end{equation}\n",
+        "\\end{align}\n",
+    ],
+)
+def test_pandoc_prose_is_not_reclassified_as_failed_syntax(source: str) -> None:
+    assert lint_text(source) == []
+
+
+def test_pandoc_allows_atx_heading_levels_above_six() -> None:
+    assert lint_text("####### Heading\n") == []
+
+
+def test_heading_inside_nested_fenced_div_is_structural_rule_at_any_level() -> None:
+    source = (
+        "# Outside\n\n::: {.definition}\n::: {.proof}\n####### Deep heading\n:::\n:::\n"
+    )
+    findings = [
+        diagnostic
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "structure/heading-in-fenced-div"
+    ]
+    assert len(findings) == 1
+    assert findings[0].line == 5
+
+
+def test_heading_lookalike_in_code_fence_inside_div_is_not_a_heading_rule() -> None:
+    source = "::: {.example}\n~~~markdown\n## Literal heading example\n~~~\n:::\n"
+    assert "structure/heading-in-fenced-div" not in rule_ids(source)
+
+
+def test_nested_fenced_div_warns_on_inner_opener() -> None:
+    source = ":::: {.definition}\nOuter.\n\n::: {.proof}\nInner.\n:::\n::::\n"
+    findings = [
+        diagnostic
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "structure/nested-fenced-div"
+    ]
+    assert len(findings) == 1
+    assert findings[0].line == 4
+    assert findings[0].column == 1
+
+
+def test_each_nested_div_beyond_top_level_warns() -> None:
+    source = (
+        "::::: {.outer}\n\n:::: {.middle}\n\n::: {.inner}\nText.\n:::\n::::\n:::::\n"
+    )
+    findings = [
+        diagnostic
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "structure/nested-fenced-div"
+    ]
+    assert [finding.line for finding in findings] == [3, 5]
+
+
+def test_sibling_fenced_divs_do_not_warn_as_nested() -> None:
+    source = "::: {.first}\nOne.\n:::\n\n::: {.second}\nTwo.\n:::\n"
+    assert "structure/nested-fenced-div" not in rule_ids(source)
+
+
+def test_div_fence_lookalike_inside_code_does_not_affect_nested_div_reconciliation() -> (
     None
 ):
-    diagnostics = lint_text("Text[^x].\n\n[^x]: one\n[^x]: two\n")
-    assert "footnote/duplicate-definition" in {d.rule for d in diagnostics}
-    assert not any(d.rule == "format/canonical" and d.line == 4 for d in diagnostics)
+    source = (
+        ":::: {.outer}\n\n"
+        "~~~markdown\n"
+        "::: {.not-a-div}\n"
+        "~~~\n\n"
+        "::: {.inner}\n"
+        "Text.\n"
+        ":::\n"
+        "::::\n"
+    )
+    findings = [
+        diagnostic
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "structure/nested-fenced-div"
+    ]
+    assert len(findings) == 1
+    assert findings[0].line == 7
+
+
+def test_nested_native_html_divs_are_not_fenced_div_diagnostics() -> None:
+    source = "<div>\n<div>\nText.\n</div>\n</div>\n"
+    assert "structure/nested-fenced-div" not in rule_ids(source)
+
+
+def test_padded_link_text_is_valid_pandoc_link_not_malformed_syntax() -> None:
+    assert "link/text-padding" not in rule_ids("[ text ](https://example.com)\n")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Inline $x_i with no closer.\n",
+        "Inline \\(x_i with no closer.\n",
+        "\\[\nx_i\n",
+    ],
+)
+def test_unparsed_math_openers_are_not_reclassified_as_math_errors(source: str) -> None:
+    # Pandoc leaves these as ordinary text because no Math node is formed. The
+    # linter may diagnose TeX *inside recognized Math*, but it must not invent a
+    # second delimiter grammar to infer attempted math from prose.
+    assert not any(rule.startswith("math/unclosed-") for rule in rule_ids(source))
 
 
 def test_math_code_and_raw_tex_are_opaque_to_markdown_rules() -> None:
-    source = (
-        "Math $[x][missing] * text * x_i$, $$y_j [bad](url]$$, "
-        "and \\underline{z_k}.\n\n"
-        "```text\n#Heading\n[text][missing]\nhttps://example.com\n```\n"
-    )
+    source = "Math $[x][missing] * text * x_i$, \\(y_j [bad](url]\\), and \\underline{z_k}.\n\n```text\n#Heading\n[text][missing]\nhttps://example.com\n```\n"
     diagnostics = lint_text(
         source,
         LintOptions(styles=frozenset({StyleRule.BARE_URL})),
@@ -86,14 +208,44 @@ def test_math_code_and_raw_tex_are_opaque_to_markdown_rules() -> None:
     assert diagnostics == []
 
 
-def test_valid_reference_footnote_fragment_and_image_are_quiet() -> None:
+def test_semantic_math_macros_and_braced_scripts_are_quiet() -> None:
     source = (
-        "# Target Heading\n\n"
-        "[reference][ref] and [fragment](#target-heading) and ![diagram](image.png).\n\n"
-        "Text[^note].\n\n"
-        "[ref]: https://example.com\n"
-        "[^note]: Footnote.\n"
+        r"$x_{i_j}, x_i^j, \Hom_R(M,N), \operatorname{Spec} R, \sin x$"
+        "\n"
+        r"\[ \mathrm{Hom}(M,N) \to \operatorname{Proj}(S) \]"
+        "\n"
     )
+    rules = rule_ids(source)
+    assert "math/repeated-subscript" not in rules
+    assert "math/repeated-superscript" not in rules
+    assert "math/bare-operator" not in rules
+
+
+def test_escaped_braces_and_tex_comments_do_not_corrupt_math_group_balance() -> None:
+    source = "$\\left\\{ x_{i} \\right\\}$\n\n$$\nx_{i} % a comment with unmatched } and \\right\n+ y_{j}\n$$\n"
+    rules = rule_ids(source)
+    assert not any(
+        rule
+        in {
+            "math/unclosed-group",
+            "math/unmatched-group-close",
+            "math/unclosed-left",
+            "math/unmatched-right",
+        }
+        for rule in rules
+    )
+
+
+def test_tex_and_math_examples_inside_code_fences_are_literal() -> None:
+    source = "```tex\n\\begin{align}\n$x_i_j = Hom(M,N)$\n\\end{equation}\n```\n"
+    rules = rule_ids(source)
+    assert "tex/mismatched-environment" not in rules
+    assert "math/repeated-subscript" not in rules
+    assert "math/bare-operator" not in rules
+
+
+def test_valid_reference_footnote_fragment_and_image_are_quiet() -> None:
+    source = "# Target Heading\n\n[reference][ref] and [fragment](#target-heading) and ![diagram](image.png).\n\nText[^note].\n\n[ref]: https://example.com\n[^note]: Footnote.\n"
     assert lint_text(source) == []
 
 
@@ -101,25 +253,14 @@ def test_local_file_and_cross_file_fragment_validation(tmp_path: Path) -> None:
     source_path = tmp_path / "source.md"
     target = tmp_path / "target.md"
     target.write_text("# Existing Heading\n")
-    source = (
-        "[ok](target.md#existing-heading) "
-        "[missing](absent.md) "
-        "[bad-fragment](target.md#missing-heading)\n"
-    )
+    source = "[ok](target.md#existing-heading) [missing](absent.md) [bad-fragment](target.md#missing-heading)\n"
     rules = rule_ids(source, source_path=source_path)
     assert "link/missing-local-target" in rules
     assert "link/invalid-fragment" in rules
 
 
 def test_opt_in_style_rules_are_not_default_policy() -> None:
-    source = (
-        "* one\n+ two\n\n"
-        "~~~python\nx=1\n~~~\n\n"
-        "```python\ny=2\n```\n\n"
-        "https://example.com\n\n"
-        "## Heading.\n\n"
-        "<span>html</span>\n"
-    )
+    source = "* one\n+ two\n\n~~~python\nx=1\n~~~\n\n```python\ny=2\n```\n\nhttps://example.com\n\n## Heading.\n\n<span>html</span>\n"
     default_rules = rule_ids(source)
     assert not any(rule.startswith("style/") for rule in default_rules)
 
@@ -165,7 +306,31 @@ def test_duplicate_ids_inside_math_or_code_are_not_pandoc_attribute_ids() -> Non
     assert "pandoc/duplicate-identifier" not in rule_ids(source)
 
 
-# Plain-text cells from a real research document, with no `$` anywhere.
+def test_missing_pandoc_frontmatter_resources_are_path_aware(tmp_path: Path) -> None:
+    source_path = tmp_path / "paper.md"
+    (tmp_path / "refs.bib").write_text("@book{ok, title={OK}}\n")
+    (tmp_path / "second.bib").write_text("@book{second, title={Second}}\n")
+    source = (
+        "---\n"
+        "bibliography: [refs.bib, missing-inline.bib]\n"
+        "include-in-header:\n"
+        "  - second.bib\n"
+        "  - headers/missing.tex\n"
+        "csl: styles/missing.csl\n"
+        "template: named-template\n"
+        "---\n\n"
+        "Text.\n"
+    )
+    diagnostics = lint_text(source, source_path=source_path)
+    missing = [d for d in diagnostics if d.rule == "pandoc/missing-resource"]
+    assert len(missing) == 3
+    assert {d.data["resource"] for d in missing} == {
+        "missing-inline.bib",
+        "headers/missing.tex",
+        "styles/missing.csl",
+    }
+
+
 MATH_IN_PROSE = (
     "Passage from bilinear form b: M⊗_R M→R on free M≅R^n to polynomial "
     "b(x,x)∈R[x_0..x_{n-1}]; Lambert series \\sum a_n q^n/(1-q^n) and "
@@ -197,28 +362,24 @@ def test_tex_notation_outside_math_mode_is_reported() -> None:
         "^n",
         "^n",
         "\\mu",
-    ]
+    ]  # `\[a_i\]` is math: the dialect enables `tex_math_single_backslash`.
 
 
 def test_unicode_math_symbols_outside_math_mode_are_reported() -> None:
     assert _findings(MATH_IN_PROSE, "math/unicode-symbol") == ["⊗", "→", "≅", "∈"]
 
 
-def test_unmatched_backtick_uses_pandoc_table_cell_parsing() -> None:
+def test_an_unmatched_backtick_does_not_unprotect_later_code_spans() -> None:
     """
-    Pandoc can parse a code span across pipe table rows. A later, closed code
-    span in prose still protects its contents from the math-notation rule.
+    A code span cannot cross a blank line or a table row, so a stray backtick in
+    one block must not pair with the first backtick of the next and turn every
+    later code span inside out.
     """
     source = (
         "| a | b |\n| --- | --- |\n| stray ` | y |\n| `x_0` | `R^n` |\n\n"
         "A stray ` backtick.\n\nThen `x_0 in R^n` in code.\n"
     )
-    math_findings = [
-        diagnostic for diagnostic in lint_text(source)
-        if diagnostic.rule == "math/outside-math-mode"
-    ]
-    assert math_findings
-    assert all(diagnostic.line < 8 for diagnostic in math_findings)
+    assert "math/outside-math-mode" not in rule_ids(source)
 
 
 def test_unicode_math_symbols_are_reported_in_code_and_math_too() -> None:
@@ -260,28 +421,6 @@ def test_a_fragment_after_bracketed_link_text_is_not_prose() -> None:
     source = "## Operators on $R[[t]]$ and $\\partial_t$\n\n"
     source += "- [Operators on $R[[t]]$](#operators-on-rt-and-partial_t)\n"
     assert "math/outside-math-mode" not in rule_ids(source)
-
-
-def test_emphasis_padding_ignores_bullets_and_adjacent_strong_spans() -> None:
-    """
-    A `*` bullet is not an emphasis opener, and the words between two bold spans
-    are not one padded span. Pandoc reads both lines' emphasis correctly.
-    """
-    source = (
-        "* A *topological group* is a group object in Top.\n\n"
-        "The **maximal elliptic** subdiagrams and **maximal parabolic** ones.\n"
-    )
-    assert "emphasis/padding" not in rule_ids(source)
-
-
-def test_backslash_math_delimiters_follow_house_source_style() -> None:
-    """
-    The house Pandoc dialect reads both forms as math. The linter reports the
-    delimiter style, while the math content stays outside prose checks.
-    """
-    source = "Inline \\(x_i\\) here.\n\n\\[\ny^n\n\\]\n"
-    assert _findings(source, "math/backslash-delimiter") == ["\\(", "\\)", "\\[", "\\]"]
-    assert _findings(source, "math/outside-math-mode") == []
 
 
 def test_escaped_list_markers_are_not_math_delimiters() -> None:

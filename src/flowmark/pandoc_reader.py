@@ -10,15 +10,12 @@ import subprocess
 from dataclasses import dataclass
 from typing import cast
 
+from flowmark.pandoc_dialect import PANDOC_FORMAT
+
 PandocJson = (
     str | int | float | bool | None | list["PandocJson"] | dict[str, "PandocJson"]
 )
 
-PANDOC_FORMAT = (
-    "markdown+fenced_divs+raw_tex+tex_math_dollars"
-    "+tex_math_single_backslash+wikilinks_title_after_pipe+autolink_bare_uris"
-    "+flowmark_tags"
-)
 
 
 class PandocUnavailableError(RuntimeError):

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from flowmark.cli import main
-from flowmark.config import find_config_file
+from flowmark.config import ConfigError, find_config_file, load_lint_config
 
 QUOTED = 'He said "hello" to them.\n'
 
@@ -163,3 +163,39 @@ def test_bad_config_fails_without_formatting(
     monkeypatch.chdir(tmp_path)
     assert main(["--inplace", "--smartquotes", "doc.md"]) == 1
     assert doc_path.read_text() == QUOTED
+
+
+def test_lint_table_is_read_by_the_linter_and_ignored_by_the_formatter(
+    tmp_path: Path,
+) -> None:
+    config_file = tmp_path / "flowmark.toml"
+    config_file.write_text(
+        "[formatting]\nwidth = 88\n\n"
+        "[lint]\n"
+        'plugins = ["example_plugin"]\n'
+        "max-line-length = 97\n"
+        "discover-plugins = false\n"
+        "\n"
+        "[lint.rules]\n"
+        '"heading/increment" = "off"\n'
+        '"custom/example" = { level = "error", threshold = 3 }\n'
+        "\n"
+        "[lint.context]\n"
+        'workspace = "/tmp/workspace"\n'
+    )
+    lint = load_lint_config(config_file)
+    assert lint.plugins == ("example_plugin",)
+    assert lint.max_line_length == 97
+    assert lint.discover_plugins is False
+    assert lint.rules == {
+        "heading/increment": "off",
+        "custom/example": {"level": "error", "threshold": 3},
+    }
+    assert lint.context == {"workspace": "/tmp/workspace"}
+
+
+def test_unknown_lint_key_is_rejected(tmp_path: Path) -> None:
+    config_file = tmp_path / "flowmark.toml"
+    config_file.write_text('[lint]\nplugin = ["typo"]\n')
+    with pytest.raises(ConfigError):
+        _ = load_lint_config(config_file)

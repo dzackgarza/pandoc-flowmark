@@ -5,12 +5,16 @@ Searches for `.flowmark.toml`, `flowmark.toml`, or `pyproject.toml [tool.flowmar
 in the current directory and then in each parent. A config key is the long name of a
 CLI flag (`list-spacing` for `--list-spacing`). The CLI applies the config as argparse
 defaults, so an explicit flag always overrides it.
+
+The `[lint]` table configures `flowmark-lint` instead; `load_lint_config` reads it.
 """
 
 from __future__ import annotations
 
 import tomllib
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from flowmark.formats.options import ListSpacing
 
@@ -39,6 +43,9 @@ CONFIG_KEYS: dict[str, type[ConfigValue]] = {
 
 # Tables that only group keys: their keys are read as top-level keys.
 _SECTIONS = ("formatting", "file-discovery")
+
+# The table read by flowmark-lint rather than the formatter.
+_LINT_TABLE = "lint"
 
 # Config file search order (first match wins within each directory level)
 _CONFIG_FILENAMES = [".flowmark.toml", "flowmark.toml", "pyproject.toml"]
@@ -75,6 +82,8 @@ def load_config(config_path: Path) -> dict[str, ConfigValue]:
 
     flat: TomlTable = {}
     for key, value in table.items():
+        if key == _LINT_TABLE:
+            continue
         if key in _SECTIONS and isinstance(value, dict):
             flat.update(value)
         else:
@@ -98,6 +107,66 @@ def load_config(config_path: Path) -> dict[str, ConfigValue]:
             )
         config[dest] = value
     return config
+
+
+def _empty_table() -> dict[str, object]:
+    return {}
+
+
+@dataclass(frozen=True)
+class LintConfig:
+    """The `[lint]` table of a config file."""
+
+    rules: dict[str, object] = field(default_factory=_empty_table)
+    plugins: tuple[str, ...] = ()
+    context: dict[str, object] = field(default_factory=_empty_table)
+    max_line_length: int | None = None
+    discover_plugins: bool | None = None
+
+
+def load_lint_config(config_path: Path) -> LintConfig:
+    """
+    Read the `[lint]` table of a config file. Raises `ConfigError`, naming the
+    file, for an unknown key or a value of the wrong type.
+    """
+    table = _flowmark_table(config_path)
+    if table is None:
+        raise ConfigError(f"{config_path}: no [tool.flowmark] table")
+    lint = table.get(_LINT_TABLE, {})
+    if not isinstance(lint, dict):
+        raise ConfigError(f"{config_path}: [lint] must be a table")
+    lint = {key.replace("_", "-"): value for key, value in lint.items()}
+
+    def typed[T](key: str, expected: type[T]) -> T | None:
+        value = lint.get(key)
+        if value is not None and not isinstance(value, expected):
+            raise ConfigError(
+                f"{config_path}: lint key '{key}' must be {expected.__name__}, "
+                f"not {type(value).__name__}"
+            )
+        return value
+
+    unknown = set(lint) - {
+        "rules",
+        "plugins",
+        "context",
+        "max-line-length",
+        "discover-plugins",
+    }
+    if unknown:
+        raise ConfigError(f"{config_path}: unknown lint key '{sorted(unknown)[0]}'")
+    plugins = cast(list[object], typed("plugins", list) or [])
+    if not all(isinstance(item, str) for item in plugins):
+        raise ConfigError(
+            f"{config_path}: lint key 'plugins' must be a list of strings"
+        )
+    return LintConfig(
+        rules=cast(dict[str, object], typed("rules", dict) or {}),
+        plugins=tuple(cast(list[str], plugins)),
+        context=cast(dict[str, object], typed("context", dict) or {}),
+        max_line_length=typed("max-line-length", int),
+        discover_plugins=typed("discover-plugins", bool),
+    )
 
 
 def _flowmark_table(path: Path) -> TomlTable | None:

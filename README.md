@@ -410,20 +410,118 @@ All of these are worth looking at, but none offer the more advanced line breakin
 
 ## Pandoc-aware linting
 
-Flowmark also ships a standalone linter over the same semantic Markdown parser used by the formatter.
-It understands Flowmark’s Pandoc-oriented constructs (including math, raw TeX, fenced divs, definition lists, tables, and footnotes) before applying style checks, so TeX underscores and asterisks are not reinterpreted as Markdown emphasis.
+Flowmark also ships a standalone linter whose Markdown syntax authority is the real
+Pandoc reader. Each lint pass parses the authored source with the canonical Pandoc
+dialect and uses that JSON AST and Pandoc's own warning/error stream to decide which
+constructs exist. Local scanners may locate an already-proven construct for source
+coordinates, but they do not create Markdown syntax independently.
 
 ```bash
 flowmark-lint README.md
 flowmark-lint --format json --exit-zero - < document.md
 ```
 
-The Python API is `flowmark.lint_text()`. Diagnostics use 1-based source coordinates and stable rule ids.
-The default rule layer checks structural/semantic failures that a formatter cannot safely infer away: heading hierarchy/duplicates, reference and footnote integrity, malformed or empty links, local fragments and local-file targets, image alt text, fenced-code language/tabs/boundaries, frontmatter integrity, duplicate Pandoc ids, malformed attributes, and unclosed fenced-div/math/TeX constructs.
-It also reports mathematics written outside `$...$`: `math/outside-math-mode` for TeX notation in prose (`x_0`, `R^n`, `\sum`), which pandoc reads as emphasis delimiters, plain text, or raw TeX that HTML output drops, and `math/unicode-symbol` for Unicode math symbols (`⊗`, `→`, `α`) anywhere except a fenced block that names its language.
-`math/backslash-delimiter` reports `\(...\)` and `\[...\]`, which pandoc’s `markdown` reads as a literal parenthesis or bracket, not math.
-`pandoc/ambiguous-input` adds the high-confidence ambiguity checks from Flowmark’s preflight, while `format/canonical` reports remaining source ranges that differ from Flowmark’s canonical rendering.
-The linter does not edit files.
+The Python API is `flowmark.lint_text()`. Diagnostics use 1-based source coordinates and
+stable rule ids. A diagnostic with a known fix carries `suggestions`: each has a short
+`title` ("Use `\sin`") and a `replacement` for the diagnostic's whole range. Text output
+prints them as indented `help:` lines. The default layer checks semantics only after Pandoc has established the
+relevant syntax: heading hierarchy/duplicates, actual links/images and fragments,
+fenced-code language/tabs, explicit Pandoc identifiers, Pandoc metadata resources, and
+TeX checks inside actual Pandoc `Math` nodes. Pandoc's own reader diagnostics are mapped
+directly for cases such as malformed YAML, duplicate link/note definitions, unused note
+definitions, duplicate YAML keys, and unclosed fenced divs. Source that merely resembles
+an unterminated link, footnote, code fence, TeX environment, math delimiter, attribute
+block, or YAML opener is not reclassified as failed syntax when Pandoc parsed it as
+ordinary prose.
+
+Math source positions come from a literal port of Pandoc 3.10.2
+`Text.Pandoc.Parsing.Math` (`mathInlineWith`/`mathDisplayWith`) and are reconciled against
+the actual Pandoc JSON `Math` sequence before any TeX-content diagnostic runs. The math
+scanner has a generated differential torture corpus against the real Pandoc AST, and the
+default linter has a separate adversarial corpus for parser-looking prose, literal
+regions, block-boundary interactions, and Pandoc warning/error mapping. Flowmark's
+formatter `preflight` heuristics are not lint diagnostics: they are
+verification-attribution helpers, not a Markdown grammar. Formatter normalization is
+likewise not a lint diagnostic; use the formatter itself when canonical source spelling
+matters. The linter does not edit files.
+
+Mathematics written outside math is reported too: `math/outside-math-mode` for TeX
+notation in prose (`x_0`, `R^n`, `\sum`), which pandoc reads as emphasis delimiters,
+plain text, or raw TeX that HTML output drops, and `math/unicode-symbol` for Unicode
+math characters (`⊗`, `α`, `²`), which render as text and fail under pdflatex.
+
+Rules are first-class named objects. `flowmark-lint --list-rules` lists the effective
+built-in and extension rule catalogue. Any rule can be disabled or have its severity
+overridden:
+
+```bash
+flowmark-lint --rule heading/increment=off README.md
+flowmark-lint --rule structure/heading-in-fenced-div=error README.md
+```
+
+The same policy can live in `.flowmark.toml`, `flowmark.toml`, or
+`pyproject.toml [tool.flowmark]`:
+
+```toml
+[lint.rules]
+"heading/increment" = "off"
+"structure/heading-in-fenced-div" = "error"
+"style/line-length" = { level = "warning", max = 100 }
+```
+
+Lint extensions register ordinary named rules through the public rule registry. Installed
+packages may expose the `flowmark.lint_rules` entry-point group; local/project extensions
+may be loaded explicitly with `--plugin module.name` or `--plugin path/to/plugin.py`.
+Extension rules receive the same Pandoc-authoritative `RuleContext` as built-ins. Optional
+external authority is supplied as JSON data with `--context context.json`, so a rule
+remains runnable from CLI/CI and does not become coupled to an editor process.
+
+#### Mathematics, TeX, references and citations
+
+Flowmark lints the TeX inside Pandoc math and raw TeX, not only the Markdown around it.
+Rules that need data only the author's environment has read it from `[lint.context]`
+(or `--context`):
+
+```toml
+[lint.context.tex]
+macro_sources = ["~/.pandoc/styles/macros", "~/.pandoc/templates/css/mathjax-macros.json"]
+packages = ["amsmath", "amssymb"]
+```
+
+- `tex/unknown-command` reports a control word in math that no active package, macro
+  source, or in-document definition provides. When a package that is not active would
+  provide it, the finding names those packages.
+- `math/user-macro-candidates` reports manual notation that matches one or more
+  available macros. It lists every matching macro instead of choosing one.
+- `math/notation-consistency` reports a document that mixes paired variants such as
+  `\epsilon` and `\varepsilon`.
+- `tex/missing-resource` reports a static `\input`, `\include` or `\includegraphics`
+  target that cannot be found.
+- `document/authorial-residue` reports TODO, FIXME, `???` and citation placeholders.
+- `reference/*`, `citation/*` and `tikz/compile-error` check theorem/proof divs,
+  cross-references, citation keys and TikZ compiler output. Workspace reference
+  resolutions and compiler findings arrive under `[lint.context.references]` and
+  `[lint.context.compiler]`.
+- `citation/missing-bibliography-entry` reads the bibliography files themselves, with
+  Pandoc's own readers (`.bib` BibLaTeX, `.bibtex`, CSL `.json`/`.yaml`, `.ris`): the
+  files listed in `lint.context.references.bibliographies` when given, otherwise the
+  document's `bibliography` metadata. Keys are cached per file under the user cache
+  directory and re-read when the file changes.
+
+`macro_sources` accepts files, directories (searched recursively) and glob patterns.
+Relative paths resolve from the linted document's directory. `.tex`, `.sty` and `.cls`
+sources contribute every declared control word, and their simple definitions and
+`\DeclareMathOperator` declarations contribute expansions for macro-candidate matching.
+`.json` sources accept a MathJax macro mapping, `{"macros": {...}}`, or
+`{"tex": {"macros": {...}}}`.
+
+The TeX and LaTeX command vocabulary comes from TeXstudio's completion (CWL) files. The
+TeX, LaTeX-document and LaTeX-dev files are always active. Packages and classes become
+active through `\usepackage`, `\RequirePackage` and `\documentclass` in raw TeX (a
+declaration inside a code block does not count), through macro sources that require
+them, and through `lint.context.tex.packages` / `classes`. `#include:` dependencies are
+followed. `devtools/update_texstudio_command_index.py` regenerates
+`src/flowmark/data/texstudio-command-index.json` from TeXstudio's upstream HEAD.
 
 Pure house-style policies are opt-in instead of being treated as Markdown correctness:
 

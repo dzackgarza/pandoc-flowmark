@@ -120,7 +120,9 @@ SUSPENSION_WORDS = ["and", "or", "to", "nor", "but", "through", "versus"]
 @pytest.mark.parametrize("word", SUSPENSION_WORDS)
 def test_suspended_hyphenation_is_never_joined(word: str) -> None:
     """One test per member of the suspension scope."""
-    result = fill_markdown(f"the pre-\n{word} post-stable models\n", cleanups=True, dedent_input=False)
+    result = fill_markdown(
+        f"the pre-\n{word} post-stable models\n", cleanups=True, dedent_input=False
+    )
 
     assert f"pre- {word}" in result, result
 
@@ -130,7 +132,9 @@ def test_an_authored_space_after_a_hyphen_is_left_alone() -> None:
     The rule fires only at a line join. A `degree- 2` the author typed on one
     line is the author's, and reflowing must not silently rewrite it.
     """
-    result = fill_markdown("the degree- 2 Coble locus\n", cleanups=True, dedent_input=False)
+    result = fill_markdown(
+        "the degree- 2 Coble locus\n", cleanups=True, dedent_input=False
+    )
 
     assert "degree- 2" in result, result
 
@@ -141,14 +145,18 @@ def test_a_join_beside_an_authored_hyphen_space_passes_verification() -> None:
     up, and a `post- cases` the author typed on one line, which it leaves alone.
     The gate must accept exactly that result, not demand every `- x` be joined.
     """
-    result = reformat_text("A semi-log-\nscale plot of the post- cases.\n", cleanups=True, verify=True)
+    result = reformat_text(
+        "A semi-log-\nscale plot of the post- cases.\n", cleanups=True, verify=True
+    )
 
     assert "semi-log-scale plot of the post- cases." in result, result
 
 
 def test_hyphen_join_requires_cleanups() -> None:
     """Without `-c` the faithful `SoftBreak` spacing stands."""
-    result = fill_markdown("the degree-\n2 Coble locus\n", cleanups=False, dedent_input=False)
+    result = fill_markdown(
+        "the degree-\n2 Coble locus\n", cleanups=False, dedent_input=False
+    )
 
     assert "degree- 2" in result, result
 
@@ -159,7 +167,9 @@ def test_hyphen_join_passes_verification() -> None:
     `Str "degree-2"`), so it needs a declared normalization rather than the gate
     being loosened.
     """
-    reformat_text("the degree-\n2 Coble locus and more words\n", cleanups=True, verify=True)
+    reformat_text(
+        "the degree-\n2 Coble locus and more words\n", cleanups=True, verify=True
+    )
 
 
 def test_hyphen_join_scope_matches_the_cleanup() -> None:
