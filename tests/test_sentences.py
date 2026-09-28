@@ -46,3 +46,22 @@ def test_abbreviations_not_sentence_ends() -> None:
         "I saw Dr. Jones yesterday.",
         "We spoke briefly.",
     ]
+
+
+def test_math_abbreviations_and_citation_sentence_ends() -> None:
+    """In mathematical prose, `resp.`, `cf.` and `viz.` continue the sentence, and a
+    sentence that ends with a bracketed citation ends there."""
+    from flowmark import reformat_text
+
+    source = (
+        "Blue (resp. red) indicate lattices which are valid (resp. invalid) targets "
+        "of mirror moves, cf. the table below. "
+        "We recall the mirror move algorithm from [@AE22]. "
+        "We have Nikulin's 2-elementary diagram.\n"
+    )
+    assert reformat_text(source, verify=True) == (
+        "Blue (resp. red) indicate lattices which are valid (resp. invalid) targets of mirror\n"
+        "moves, cf. the table below.\n"
+        "We recall the mirror move algorithm from [@AE22].\n"
+        "We have Nikulin's 2-elementary diagram.\n"
+    )
