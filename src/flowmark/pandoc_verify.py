@@ -271,6 +271,21 @@ def _unbold_headings(node: PandocJson) -> PandocJson:
     return node
 
 
+def _upper_alert_types(node: PandocJson) -> PandocJson:
+    """Spell a GFM alert marker such as `[!note]` in capitals, on both sides."""
+    if isinstance(node, dict):
+        out = {key: _upper_alert_types(value) for key, value in node.items()}
+        text = out.get("c")
+        if out.get("t") == "Str" and isinstance(text, str):
+            # `_canonical` merges a paragraph's words into one `Str`, so the
+            # marker is matched at its start.
+            out["c"] = _GFM_ALERT_MARKER.sub(lambda m: m.group(0).upper(), text)
+        return out
+    if isinstance(node, list):
+        return [_upper_alert_types(item) for item in node]
+    return node
+
+
 def _plain_to_para(node: PandocJson) -> PandocJson:
     """
     Treat `Plain` and `Para` as one, on both sides of a comparison.
@@ -526,6 +541,16 @@ SMART_QUOTES = "smart_quotes"
 HYPHEN_JOIN = "hyphen_join"
 """Identifier for closing up a line break that fell after a hyphen; `cleanups`."""
 
+ALERT_TYPE = "alert_type"
+"""Identifier for writing a GFM alert type in capitals; part of every format."""
+
+GFM_ALERT_TYPES = frozenset({"note", "tip", "important", "warning", "caution"})
+"""The alert types GitHub renders, matched case-insensitively."""
+
+_GFM_ALERT_MARKER = re.compile(
+    r"^\[!(?:" + "|".join(sorted(GFM_ALERT_TYPES)) + r")\](?=\s|$)", re.IGNORECASE
+)
+
 LAZY_LIST = "lazy_list"
 """Identifier for materializing a list out of a lazy paragraph continuation.
 
@@ -694,6 +719,7 @@ _NORMALIZATIONS: list[tuple[str, str, Normalization]] = [
     (UNBOLD_HEADING, "removed bold from a heading", _both(_unbold_headings)),
     (LIST_SPACING, "changed list spacing (tight/loose)", _both(_plain_to_para)),
     (SMART_QUOTES, "curled straight quotes", _normalize_quotes),
+    (ALERT_TYPE, "wrote an alert type in capitals", _both(_upper_alert_types)),
     (
         LAZY_LIST,
         "made a list out of a lazy paragraph continuation",

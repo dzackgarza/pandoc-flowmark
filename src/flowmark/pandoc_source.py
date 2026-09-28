@@ -29,6 +29,7 @@ from flowmark.pandoc_reader import (
 )
 from flowmark.pandoc_verify import (
     _SUSPENSION_WORDS,  # pyright: ignore[reportPrivateUsage]
+    GFM_ALERT_TYPES,
     MeaningChangedError,
     check_meaning_preserved,
 )
@@ -52,6 +53,7 @@ _ESCAPED_PERIOD = re.compile(r"(?<!\\)\\\.")
 _SIMPLE_REFERENCE = re.compile(r"\[([^\[\]\\]+)\](?:\[([^\[\]\\]*)\])?")
 _HTML_OPEN_LINE = re.compile(r"^<[A-Za-z][^<>]*>$")
 _HTML_CLOSE_LINE = re.compile(r"^</[A-Za-z][A-Za-z0-9-]*>$")
+_ALERT_MARKER = re.compile(r"\[!([A-Za-z][\w-]*)\][+-]?(?:[ \t][^\n]*)?\n")
 
 
 def normalize_sourced_spelling(source: str, pandoc_exe: str) -> str:
@@ -342,7 +344,24 @@ def _propose_paragraph_edits(
                 )
             else:
                 content = "".join(line[prefix_width:] for line in protected_lines)
-            if line_wrapper is not None:
+            # A GFM alert or Obsidian callout marker keeps its own line; the
+            # paragraph text below it wraps as usual.
+            alert_header = ""
+            marker = _ALERT_MARKER.match(content) if is_quote and not is_list else None
+            if marker is not None:
+                alert_type = marker.group(1)
+                if alert_type.lower() in GFM_ALERT_TYPES:
+                    alert_type = alert_type.upper()
+                alert_header = (
+                    first_prefix
+                    + f"[!{alert_type}]"
+                    + marker.group(0)[len(marker.group(1)) + 3 :]
+                )
+                content = content[marker.end() :]
+                first_prefix = continuation
+            if not content.strip():
+                wrapped = alert_header
+            elif line_wrapper is not None:
                 wrapped = line_wrapper(content, first_prefix, continuation) + "\n"
             elif semantic:
                 wrapped = (
@@ -366,6 +385,8 @@ def _propose_paragraph_edits(
                     + "".join("\n" + continuation + line for line in wrapped_lines[1:])
                     + "\n"
                 )
+            if content.strip():
+                wrapped = alert_header + wrapped
             wrapped = wrapped.translate(_SHOW)
             if wrapped != old:
                 edits.append(SourceEdit(start, end, wrapped))
@@ -755,10 +776,11 @@ def normalize_sourced_quote_blank_lines(
         starts.append(starts[-1] + len(line))
     edits: set[SourceEdit] = set()
     nodes = located_nodes(read_source_ast(source, pandoc_exe))
-    list_lines = {
+    # Blank lines inside a quoted list or code block keep the bare marker.
+    kept_lines = {
         index
         for node in nodes
-        if node.node.get("t") in {"BulletList", "OrderedList"}
+        if node.node.get("t") in {"BulletList", "OrderedList", "CodeBlock"}
         and "BlockQuote" in node.ancestors
         for index in range(
             node.source_range.start.line - 1,
@@ -772,7 +794,7 @@ def normalize_sourced_quote_blank_lines(
         last = min(located.source_range.end.line - 1, len(lines))
         for index in range(first, last):
             raw = lines[index].rstrip("\r\n")
-            if index not in list_lines and re.fullmatch(r"[ >]*>", raw):
+            if index not in kept_lines and re.fullmatch(r"[ >]*>", raw):
                 edits.add(
                     SourceEdit(starts[index] + len(raw), starts[index] + len(raw), " ")
                 )
@@ -887,7 +909,7 @@ def set_sourced_heading_spacing(
         if not (1 < next_line <= len(lines)):
             continue
         previous = lines[next_line - 2].rstrip("\r\n")
-        if not previous.strip():
+        if not previous.strip(" \t>"):
             continue
         if previous.endswith("\\") or previous.endswith("  "):
             continue
@@ -1081,8 +1103,8 @@ def format_sourced_markdown(
         result = normalize_sourced_list_indentation(result, pandoc_exe, verify=False)
     result = normalize_sourced_indented_code(result, pandoc_exe, verify=False)
     result = normalize_sourced_blank_gaps(result, pandoc_exe, verify=False)
-    result = normalize_sourced_quote_blank_lines(result, pandoc_exe, verify=False)
     result = set_sourced_heading_spacing(result, pandoc_exe, verify=False)
+    result = normalize_sourced_quote_blank_lines(result, pandoc_exe, verify=False)
     if verify and result != source:
         check_meaning_preserved(source, result)
     return result, joined

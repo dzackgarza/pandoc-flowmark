@@ -17,6 +17,7 @@ import pytest
 
 from flowmark.pandoc_verify import (
     _NORMALIZATIONS,  # pyright: ignore[reportPrivateUsage]
+    ALERT_TYPE,
     HYPHEN_JOIN,
     LAZY_LIST,
     LIST_SPACING,
@@ -132,6 +133,14 @@ NORMALIZATION_CONTRACT: tuple[NormalizationContract, ...] = (
         negative=('He said "hi" and there.\n', "He said hi and there.\n"),
         negative_reason=(
             "the quotation marks were dropped rather than curled; the entry writes the marks into the text precisely so a lost or moved quote still shows"
+        ),
+    ),
+    NormalizationContract(
+        key=ALERT_TYPE,
+        positive=("> [!note]\n> Text.\n", "> [!NOTE]\n> Text.\n"),
+        negative=("> [!note]\n> Text.\n", "> [!NOTED]\n> Text.\n"),
+        negative_reason=(
+            "the alert type changed rather than its case: NOTED is no GFM alert"
         ),
     ),
     NormalizationContract(
