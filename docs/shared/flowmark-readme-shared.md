@@ -35,7 +35,7 @@ General philosophy:
   You can adjust or disable most settings.
   And if you are using it as a library, you can fully control anything you want (including more complex things like custom line wrapping for HTML).
 
-- Be as small and simple as possible, with few dependencies: the `pandoc-flowmark` executable, [`pathspec`](https://pypi.org/project/pathspec/), [`regex`](https://pypi.org/project/regex/), and [`strif`](https://github.com/jlevy/strif).
+- Be as small and simple as possible, with few dependencies: the `pandoc-flowmark` executable, [`pathspec`](https://pypi.org/project/pathspec/), [`platformdirs`](https://pypi.org/project/platformdirs/), [`rapidfuzz`](https://pypi.org/project/rapidfuzz/), and [`strif`](https://github.com/jlevy/strif).
 
 ## Use Cases
 

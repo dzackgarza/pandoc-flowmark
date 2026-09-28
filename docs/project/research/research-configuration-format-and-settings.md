@@ -6,7 +6,7 @@
 
 **Related**:
 
-- [File Discovery and Globbing Plan Spec](../specs/active/plan-2026-02-15-file-discovery-and-globbing.md)
+- [File Discovery and Globbing Plan Spec](../specs/done/plan-2026-02-15-file-discovery-and-globbing.md)
 
 - [Auto-Formatter File Discovery Research](research-auto-formatter-file-discovery.md)
 

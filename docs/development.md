@@ -27,8 +27,12 @@ make readme
 # Build wheel:
 make build
 
-# Linting:
-make lint
+# Lint, typecheck, and test through the global QC tiers (ai-review-ci).
+# The pre-commit and pre-push hooks run the first two; the push and CI tiers add
+# the golden tests.
+just test-commit
+just test-push
+just test-ci
 
 # Run tests:
 make test
