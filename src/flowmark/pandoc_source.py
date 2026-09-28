@@ -58,10 +58,70 @@ _HTML_CLOSE_LINE = re.compile(r"^</[A-Za-z][A-Za-z0-9-]*>$")
 # columns from default to relative widths.
 _PANDOC_TABLE_COLUMNS = 72
 _PIPE_DELIMITER_ROW = re.compile(r"\|?(\s*:?-+:?\s*\|)+\s*:?-*:?\s*")
+# Inline nodes the wrapper never breaks. Emphasis, strong, strikeout, and quoted
+# text wrap between their words like plain prose.
+_WRAP_ATOMS = frozenset(
+    {"Code", "Math", "RawInline", "Link", "Image", "Cite", "Note", "Span", "LineBreak"}
+)
+# Atoms whose descendants are hidden with them. Every located inline sits in a
+# `data-pos` Span wrapper, so a Span ancestor says nothing.
+_NESTING_ATOMS = _WRAP_ATOMS - {"Span"}
+_JOINED_ATOMS = frozenset({"Code", "Link", "Image", "Cite", "Note", "Span"})
+# Indentation, quote markers, and one list marker with the whitespace after it.
+_LIST_LINE_PREFIX = re.compile(
+    r"[ \t]*(?:>[ \t]*)*(?:(?:[-+*]|\(?(?:\d+|[A-Za-z]+|#)[.)])[ \t]+)?"
+)
+# The text before a list item's content: indentation, a marker, and one to four
+# spaces. Five or more spaces after a marker start indented code instead.
+_MARKER_SPACING = re.compile(r"( *)([-+*]|\(?(?:\d+|[A-Za-z]+|#)[.)])( {1,4})")
 _TRAILING_SPACE = re.compile(r"[ \t]+(?=\n)")
 _CODE_BREAK = re.compile(r"\n[ \t]*")
 _QUOTED_CODE_BREAK = re.compile(r"\n[ \t>]*")
 _ALERT_MARKER = re.compile(r"\[!([A-Za-z][\w-]*)\][+-]?(?:[ \t][^\n]*)?\n")
+
+
+def expand_sourced_list_tabs(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
+    """
+    Write tabs in the indentation and list markers of list and quote lines as
+    spaces, to Pandoc's tab stop of 4 columns.
+
+    Pandoc reports columns with tabs expanded, so the later edits need lines
+    whose columns are character offsets. Code, raw, and math lines keep their
+    tabs, which are content there.
+    """
+    lines = source.splitlines(keepends=True)
+    nodes = located_nodes(read_source_ast(source, pandoc_exe))
+
+    def line_indices(kinds: set[str]) -> set[int]:
+        return {
+            index
+            for node in nodes
+            if node.node.get("t") in kinds
+            for index in range(
+                node.source_range.start.line - 1,
+                min(node.source_range.end.line, len(lines) + 1),
+            )
+        }
+
+    containers = line_indices({"BulletList", "OrderedList", "BlockQuote"})
+    kept = line_indices({"CodeBlock", "RawBlock", "Math"})
+    result: list[str] = []
+    for index, line in enumerate(lines):
+        prefix = _LIST_LINE_PREFIX.match(line)
+        if (
+            index in containers
+            and index not in kept
+            and prefix is not None
+            and "\t" in prefix.group(0)
+        ):
+            line = prefix.group(0).expandtabs(4) + line[prefix.end() :]
+        result.append(line)
+    expanded = "".join(result)
+    if verify and expanded != source:
+        check_meaning_preserved(source, expanded)
+    return expanded
 
 
 def normalize_sourced_spelling(source: str, pandoc_exe: str) -> str:
@@ -115,6 +175,9 @@ def normalize_sourced_spelling(source: str, pandoc_exe: str) -> str:
                     replacement = f"[{label}][]"
                     if replacement != raw:
                         edits.append(SourceEdit(start, end, replacement))
+        elif kind == "LineBreak" and raw.endswith("\n") and not raw.strip():
+            # Trailing spaces are an invisible hard break; a backslash shows it.
+            edits.append(SourceEdit(start, end, "\\\n"))
         elif kind == "Math" and raw.startswith("$") and not raw.startswith("$$"):
             replacement = raw.replace("\n", " ")
             if replacement != raw:
@@ -174,9 +237,15 @@ def normalize_sourced_html_block_layout(
 
 
 def _span_kind(node: dict[str, PandocJson]) -> str:
-    """How the wrapper treats an inline atom: `code`, `display` math, or `other`."""
-    if node.get("t") == "Code":
-        return "code"
+    """
+    How the wrapper treats an inline atom: `joined` onto one line, `display` math,
+    or kept as written (`other`).
+
+    Pandoc reads a line break inside code, link, image, citation, span, and note
+    text as one space, so those atoms are written on one line.
+    """
+    if node.get("t") in _JOINED_ATOMS:
+        return "joined"
     content = node.get("c")
     if (
         node.get("t") == "Math"
@@ -302,7 +371,9 @@ def _propose_paragraph_edits(
         for inline in paragraph_inlines:
             if "Note" in inline.ancestors:
                 continue
-            if inline.node.get("t") in {"Str", "Space", "SoftBreak"}:
+            if inline.node.get("t") not in _WRAP_ATOMS:
+                continue
+            if any(ancestor in _NESTING_ATOMS for ancestor in inline.ancestors):
                 continue
             begin = inline.source_range.start
             finish = inline.source_range.end
@@ -326,14 +397,14 @@ def _propose_paragraph_edits(
             for begin, finish, kind in inline_spans
         ):
             continue
-        # Pandoc reads a line break in a code span, with the next line's
+        # Pandoc reads a line break in a joined atom, with the next line's
         # indentation and quote markers, as one space; writing the space keeps
-        # the span on one line.
+        # the atom on one line.
         code_break = _QUOTED_CODE_BREAK if is_quote else _CODE_BREAK
         display_math: list[str] = []
         for begin, finish, kind in sorted(inline_spans, reverse=True):
             span = protected[begin:finish]
-            if kind == "code":
+            if kind == "joined":
                 span = code_break.sub(" ", span)
             hidden = span.translate(_HIDE)
             if kind == "display" and "\n" in span:
@@ -353,10 +424,13 @@ def _propose_paragraph_edits(
                 else line_wrap_to_width(width=width, is_markdown=False)
             )
             wrapped = wrapper(content, " " * (prefix_width + len(leading)), "")
+            # Text that ends before an inline closing tag keeps the space
+            # that separates it from the tag.
             wrapped = (
                 leading
                 + wrapped[prefix_width + len(leading) :]
                 + ("\n" if old.endswith("\n") else "")
+                + (" " if old.endswith(" ") else "")
             ).translate(_SHOW)
             if wrapped != old:
                 edits.append(SourceEdit(start, end, wrapped))
@@ -700,38 +774,108 @@ def set_sourced_list_spacing(
     return result
 
 
-def normalize_sourced_list_indentation(
+def normalize_sourced_marker_spacing(
     source: str, pandoc_exe: str, *, verify: bool = True
 ) -> str:
-    """Use Pandoc-safe indentation for nested lists."""
+    """
+    Write a top-level list marker at the line start with one space after it,
+    moving the item's other lines left by the same amount.
+
+    Five or more spaces after a marker start indented code, so only two to four
+    are closed up.
+    """
     lines = source.splitlines(keepends=True)
     starts = [0]
     for line in lines:
         starts.append(starts[-1] + len(line))
-    shifts: dict[int, tuple[int, int]] = {}
+    edits: list[SourceEdit] = []
+    nodes = located_nodes(read_source_ast(source, pandoc_exe))
+    for located in nodes:
+        if located.node.get("t") not in {"BulletList", "OrderedList"}:
+            continue
+        if not set(located.ancestors) <= {"Div"}:
+            continue
+        first = located.source_range.start.line
+        last = min(located.source_range.end.line - 1, len(lines))
+        # (line, indentation, offset of the spaces after the marker, surplus
+        # spaces, content column)
+        items: list[tuple[int, int, int, int, int]] = []
+        for block in nodes:
+            line = block.source_range.start.line
+            # An item's blocks sit in the list's position wrapper and the list.
+            item_ancestors = (*located.ancestors, "Div", located.node.get("t"))
+            if not (first <= line <= last) or block.ancestors != item_ancestors:
+                continue
+            prefix = lines[line - 1][: block.source_range.start.column - 1]
+            marker = _MARKER_SPACING.fullmatch(prefix)
+            if marker is not None:
+                items.append(
+                    (
+                        line,
+                        len(marker.group(1)),
+                        marker.start(3),
+                        len(marker.group(3)) - 1,
+                        len(prefix),
+                    )
+                )
+        bounds = [item[0] for item in items] + [last + 1]
+        for (line, indent, spaces, surplus, column), end in zip(
+            items, bounds[1:], strict=True
+        ):
+            if indent == 0 and surplus == 0:
+                continue
+            offset = starts[line - 1] + spaces + 1
+            edits.append(SourceEdit(offset, offset + surplus, ""))
+            edits.append(SourceEdit(starts[line - 1], starts[line - 1] + indent, ""))
+            for index in range(line, end - 1):
+                if lines[index].startswith(" " * column):
+                    edits.append(
+                        SourceEdit(starts[index], starts[index] + indent + surplus, "")
+                    )
+    result = source
+    for edit in sorted(set(edits), key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if verify and result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
+def normalize_sourced_list_indentation(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
+    """
+    Indent a nested list's markers to its parent item's content column.
+
+    Pandoc reports a nested list's start column as that content column. Each
+    list moves its lines left by its surplus indentation, and a line inside
+    several nested lists moves by their sum.
+    """
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    shifts: dict[int, int] = {}
     for located in located_nodes(read_source_ast(source, pandoc_exe)):
         if located.node.get("t") not in {"BulletList", "OrderedList"}:
             continue
         if any(ancestor in {"BlockQuote", "Note"} for ancestor in located.ancestors):
             continue
-        depth = sum(
+        if not any(
             ancestor in {"BulletList", "OrderedList"} for ancestor in located.ancestors
-        )
-        if depth == 0:
+        ):
             continue
         first = located.source_range.start.line - 1
         last = min(located.source_range.end.line - 1, len(lines))
         if not (0 <= first < len(lines)):
             continue
         indent = len(lines[first]) - len(lines[first].lstrip(" "))
-        delta = indent - 4 * depth
+        delta = indent - (located.source_range.start.column - 1)
         if delta <= 0:
             continue
         for index in range(first, last):
-            if index not in shifts or depth > shifts[index][0]:
-                shifts[index] = (depth, delta)
+            shifts[index] = shifts.get(index, 0) + delta
     edits: list[SourceEdit] = []
-    for index, (_depth, delta) in shifts.items():
+    for index, delta in shifts.items():
         if lines[index].startswith(" " * delta):
             edits.append(SourceEdit(starts[index], starts[index] + delta, ""))
     result = source
@@ -1235,7 +1379,8 @@ def format_sourced_markdown(
     verify: bool = True,
 ) -> tuple[str, int]:
     """Run the supported formatting edits through one Pandoc source map."""
-    result = normalize_sourced_spelling(source, pandoc_exe)
+    result = expand_sourced_list_tabs(source, pandoc_exe, verify=False)
+    result = normalize_sourced_spelling(result, pandoc_exe)
     result = set_sourced_tag_block_spacing(result, pandoc_exe, verify=False)
     result = separate_sourced_lazy_lists(result, pandoc_exe, verify=False)
     result = normalize_sourced_html_block_layout(result, pandoc_exe, verify=False)
@@ -1255,6 +1400,7 @@ def format_sourced_markdown(
         result = set_sourced_list_spacing(
             result, pandoc_exe, loose=list_spacing is ListSpacing.loose, verify=False
         )
+        result = normalize_sourced_marker_spacing(result, pandoc_exe, verify=False)
         result = normalize_sourced_list_indentation(result, pandoc_exe, verify=False)
     result = normalize_sourced_indented_code(result, pandoc_exe, verify=False)
     result = normalize_sourced_pipe_tables(result, pandoc_exe, verify=False)
