@@ -14,7 +14,7 @@
 Design a small, clean, general-purpose public API surface in flowmark so **any** downstream consumer can reuse flowmark's Markdown-inline knowledge — atomic constructs, sentence boundaries, and AST/link traversal — instead of re-implementing it or copying flowmark internals that may drift.
 
 The goal is **generality and flexibility**, not tailoring to one client.
-flowmark already contains well-tested logic for "what is an unbreakable Markdown construct," "where do sentences end," and "how do I walk a marko tree."
+flowmark already contains well-tested logic for "what is an unbreakable Markdown construct," "where do sentences end," and "how do I walk a Markdown AST."
 That logic should be exposed as a deliberate, reusable API with clean parameterization, so it serves a tool that needs exact link spans just as well as one that needs link-safe wrapping, token counting, or content extraction.
 
 chopdiff (PR #8, spec `plan-2026-05-26-block-aware-doc.md`) is the **motivating example** that surfaced the need, and its Addendum requests four upstream changes.
@@ -31,9 +31,7 @@ The logic all consumers need already exists in flowmark, but lives in internal m
 
 - `src/flowmark/linewrapping/sentence_split_regex.py` — `split_sentences_regex` and `heuristic_end_of_sentence`.
 
-- `src/flowmark/transforms/doc_transforms.py` — `transform_tree` (robust marko walk) and `_collect_inline_segments`.
-
-- `src/flowmark/formats/flowmark_markdown.py` — `flowmark_markdown()`, the configured GFM + footnote parser (already public).
+- `src/flowmark/formats/flowmark_markdown.py` — `flowmark_markdown()`, the Pandoc-backed parser wrapper (already public).
 
 Today flowmark already keeps two independent atomic mechanisms:
 
@@ -47,12 +45,12 @@ But a consumer that wants sentence *spans* (chopdiff) is exposed to it directly.
 
 ### Two principles that shape this design
 
-1. **Identity vs. spans.** marko does not record source positions for inline elements.
+1. **Identity vs. spans.** The public `Link` type carries no source span.
    So flowmark can answer *what* a link/code span/autolink is (via the AST, which handles reference links, autolinks, images, and escapes correctly), but it cannot return a source span for one from the AST alone.
-   The division of labor that keeps the API general: **flowmark owns inline identity + sentence/atomic heuristics; the consumer maps to spans against its own source.** (Where a consumer works on raw text rather than an AST, `iter_atomic_spans` and `split_sentences_with_spans` *do* carry offsets — see Phase B — so flowmark still serves span-based consumers; it just can't synthesize spans for AST nodes marko never positioned.)
+   The division of labor that keeps the API general: **flowmark owns inline identity + sentence/atomic heuristics; the consumer maps to spans against its own source.** (Where a consumer works on raw text rather than an AST, `iter_atomic_spans` and `split_sentences_with_spans` *do* carry offsets — see Phase B — so flowmark still serves span-based consumers; the Pandoc reader's `sourcepos` extension gives node ranges internally, but `Link` does not expose them.)
 
 2. **Heuristic vs. parser.** The `MARKDOWN_LINK` atomic regex (`\[[^\]]*\](?:\([^)]*\)|\[[^\]]*\])?`) is a *line-wrapping heuristic*, not a Markdown parser.
-   It deliberately disagrees with marko on nested brackets, reference-link resolution, images (`![...]`), and escaped brackets.
+   It deliberately disagrees with the Pandoc reader on nested brackets, reference-link resolution, images (`![...]`), and escaped brackets.
    It is correct for "don't break a line here" and wrong as an enumerator of links.
    The published API must keep these two notions separate and say so loudly, so a consumer never enumerates links from the regex (spans would silently diverge from rendered output).
 
@@ -65,18 +63,18 @@ Add two public submodules, strictly additively:
 
 - **`flowmark.markdown_ast`** — publish a read-only `walk_elements(element)` and a convenience `extract_links(doc) -> list[Link]` where `Link(text, url, title)` carries **no span** (per the identity-vs-spans principle), built on a small generic AST walk.
 
-Keep marko an implementation detail everywhere except `flowmark.markdown_ast`, where the AST is unavoidably part of the contract.
+`flowmark.markdown_ast` exposes the Pandoc JSON AST, as read with the shared `flowmark.pandoc_dialect.PANDOC_FORMAT` reader string.
 
 ### Explicitly not in scope
 
-- No span on `extract_links` / `Link` (marko gives no inline offsets — consumer recovers spans).
+- No span on `extract_links` / `Link` (consumer recovers spans).
   Documented as a deliberate boundary, not a TODO.
 
 - No client-specific helpers (e.g. nothing shaped around a particular document model).
   The API is parameterized primitives; consumers compose them.
 
-- No parallel wrapper types over marko's element hierarchy.
-  Consumers use marko types.
+- No parallel wrapper types over the Pandoc AST.
+  Consumers use Pandoc JSON nodes.
 
 - No change to the default `Splitter` / wrapping output in Phases A–B. Switching the default sentence splitter to the atomic-aware one is gated to Phase C behind golden tests.
 
@@ -94,7 +92,7 @@ Keep marko an implementation detail everywhere except `flowmark.markdown_ast`, w
 
 - The wrapping word splitter, reimplemented on `iter_atomic_spans`, produces byte-identical output across the existing golden corpus (no wrapping regression).
 
-- `extract_links` agrees with marko on link identity for reference links, autolinks, and images-excluded cases in tests.
+- `extract_links` agrees with the Pandoc reader on link identity for reference links, autolinks, and images-excluded cases in tests.
 
 ## Backward Compatibility
 
@@ -192,23 +190,20 @@ class Link(NamedTuple):
     text: str
     url: str
     title: str | None
-    # No span: marko provides no inline source offsets. Recover spans by locating
+    # No span. Recover spans by locating
     # `text`/`url` in the source (consumer responsibility).
 
-def walk_elements(element: Element) -> Iterator[Element]:
-    """Read-only depth-first iteration over all descendant elements (generic tree walk)."""
+def walk_elements(value: PandocJson) -> Iterator[dict[str, PandocJson]]:
+    """Visit every Pandoc node in document order without changing it."""
 
-def extract_links(doc: Document) -> list[Link]:
-    """All links in document order, via the marko AST (reference links, autolinks
+def extract_links(markdown_text: str, *, include_autolinks: bool = True, include_images: bool = False) -> list[Link]:
+    """All links in document order, via the Pandoc AST (reference links, autolinks
     resolved; images excluded). Built on walk_elements."""
 ```
 
-`walk_elements` is a standalone read-only depth-first walk over any element with list `children` (it does NOT reuse `transform_tree`, whose recursion is gated to a fixed set of container types; the generic walk is the better public behavior); `extract_links` filters for `inline.Link` (and `inline.AutoLink` / `gfm_elements.Url` as appropriate), reading `dest`/`title` and rendering child `RawText` for `text`.
+`walk_elements` is a read-only depth-first walk over every Pandoc JSON node; `extract_links` filters for `Link` (autolinks carry the `uri` class) and optionally `Image`, reading the target URL and title and stringifying the child inlines for `text`.
 
 ## Stage 3: Refine Architecture (reuse)
-
-- **`transform_tree`** (`doc_transforms.py:37`) is the internal smart-quotes/rewrite walk (recursion gated to known container types).
-  `walk_elements` is intentionally a separate, ungated generic walk so link extraction reaches links in any block; it does not reuse `transform_tree`.
 
 - **`ATOMIC_CONSTRUCT_PATTERN` construction** (`atomic_patterns.py:186`) — reused to build the combined regex per pattern set.
 
@@ -261,6 +256,6 @@ def extract_links(doc: Document) -> list[Link]:
 
 ## Assumptions
 
-- marko exposes no source offsets for inline elements (verified by inspection); spans are the consumer's responsibility.
+- Spans of links are the consumer's responsibility.
 
 - `split_sentences_regex`'s existing callers (`line_wrappers.py:31`, `markdown_filling.py:33`) rely on its normalized-join behavior and must be left intact in Phases A–B.
