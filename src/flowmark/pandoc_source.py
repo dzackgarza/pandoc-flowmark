@@ -459,7 +459,10 @@ def _propose_paragraph_edits(
             else starts[end_line]
         )
         old = source[start:end]
-        if any(line.strip() == ":::" for line in old.splitlines()):
+        # A colon-fence line Pandoc reads as paragraph text -- a div opener or
+        # closer with no blank line before it -- is a fence to its author;
+        # wrapping would join it to the prose around it.
+        if any(line.lstrip().startswith(":::") for line in old.splitlines()):
             continue
         # A fence-shaped line Pandoc reads as paragraph text is a code block to
         # CommonMark; wrapping would run the code into prose.
