@@ -195,4 +195,4 @@ def test_an_opener_with_no_blank_line_before_it_is_never_joined_to_prose() -> No
     """
     source = "::: {.solution}\n<1>1. A claim.\n::: {.proof}\nLet $x$ be given. Then it holds.\n:::\n:::\n"
 
-    assert fill_markdown(source, FormatOptions(Semantic())) == source
+    assert fill_markdown(source, semantic=True, dedent_input=False) == source
