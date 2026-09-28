@@ -137,9 +137,7 @@ def _register_plugin_object(registry: RuleRegistry, plugin: object, label: str) 
         if callable(register):
             _ = register(registry)
             return
-    raise TypeError(
-        f"Lint plugin {label!r} must be a callable or expose register_lint_rules(registry)"
-    )
+    raise TypeError(f"Lint plugin {label!r} must be a callable or expose register_lint_rules(registry)")
 
 
 def _load_plugin_module(specifier: str) -> ModuleType:
@@ -192,9 +190,7 @@ def parse_rule_setting(value: object) -> RuleSetting:
         level = None if level_value is None else RuleLevel(str(level_value))
         options = {str(key): item for key, item in typed.items() if key != "level"}
         return RuleSetting(level=level, options=options)
-    raise ValueError(
-        "Lint rule setting must be a level string, boolean, or table with a 'level' key"
-    )
+    raise ValueError("Lint rule setting must be a level string, boolean, or table with a 'level' key")
 
 
 def normalize_rule_settings(
@@ -262,14 +258,10 @@ def run_registered_rules(
         level = effective_rule_level(rule, setting, rule.default_level.value)
         if level == RuleLevel.OFF:
             continue
-        options: Mapping[str, object] = (
-            _empty_mapping() if setting is None else setting.options
-        )
+        options: Mapping[str, object] = _empty_mapping() if setting is None else setting.options
         for finding in rule.check(context, options):
             if finding.rule != rule.name:
-                raise ValueError(
-                    f"Rule {rule.name!r} emitted finding for {finding.rule!r}"
-                )
+                raise ValueError(f"Rule {rule.name!r} emitted finding for {finding.rule!r}")
             findings.append(
                 RuleFinding(
                     rule=finding.rule,

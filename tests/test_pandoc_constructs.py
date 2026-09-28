@@ -122,10 +122,7 @@ def test_indented_code_block_as_first_block_stays_code() -> None:
     The four-space indent is the only thing marking the block as code, and it
     sits where the document-edge strip could reach it.
     """
-    assert (
-        reformat_text("    literal code\n\nAfter.\n")
-        == "```\nliteral code\n```\n\nAfter.\n"
-    )
+    assert reformat_text("    literal code\n\nAfter.\n") == "```\nliteral code\n```\n\nAfter.\n"
 
 
 def test_indented_code_block_alone_stays_code() -> None:
@@ -134,10 +131,7 @@ def test_indented_code_block_alone_stays_code() -> None:
 
 
 def test_indented_code_block_after_paragraph_stays_code() -> None:
-    assert (
-        reformat_text("Intro.\n\n    literal code\n\nAfter.\n")
-        == "Intro.\n\n```\nliteral code\n```\n\nAfter.\n"
-    )
+    assert reformat_text("Intro.\n\n    literal code\n\nAfter.\n") == "Intro.\n\n```\nliteral code\n```\n\nAfter.\n"
 
 
 def test_leading_blank_lines_are_still_stripped() -> None:
@@ -287,10 +281,7 @@ def test_a_sentence_break_never_starts_a_line_with_a_list_marker(width: int) -> 
     Semantic line breaks put each sentence on its own line, so a sentence that
     begins with a marker-like word (`A)` after `App.`) starts a line too.
     """
-    source = (
-        "- Truncation bounds via majorants (Thms. 3.4-3.7, App. A) give interval "
-        "enclosures of the solutions.\n"
-    )
+    source = "- Truncation bounds via majorants (Thms. 3.4-3.7, App. A) give interval enclosures of the solutions.\n"
 
     reformat_text(source, replace(REFORMAT_DEFAULTS, wrap=Semantic(width)))
 
@@ -300,11 +291,7 @@ def test_bars_only_inside_math_do_not_start_a_table() -> None:
     A pipe-table row needs a `|` outside code and math, and a delimiter cell is
     only `:?-+:?`. This paragraph and the bullet under it are not a table.
     """
-    source = (
-        "- Item:\n\n"
-        "  With grading $|a|' = |a| - 1$, the bracket satisfies:\n"
-        "  - Graded skew-symmetry.\n"
-    )
+    source = "- Item:\n\n  With grading $|a|' = |a| - 1$, the bracket satisfies:\n  - Graded skew-symmetry.\n"
     result = reformat_text(source)
 
     assert "---" not in result
@@ -318,13 +305,9 @@ def test_row_wider_than_its_header_keeps_its_text() -> None:
     blind to those cells: writing them back is what keeps their text in the file.
     """
     header = "| lead | capability |\n| --- | --- |\n"
-    source = (
-        header + "| Lambert series | b_N = \\sum_{d|N} a_d and Mobius inversion |\n"
-    )
+    source = header + "| Lambert series | b_N = \\sum_{d|N} a_d and Mobius inversion |\n"
     # Every cell boundary is written padded, the accidental one included.
-    written = (
-        header + "| Lambert series | b_N = \\sum_{d | N} a_d and Mobius inversion |\n"
-    )
+    written = header + "| Lambert series | b_N = \\sum_{d | N} a_d and Mobius inversion |\n"
 
     assert reformat_text(source) == written
 
@@ -335,9 +318,7 @@ def test_a_multiline_html_comment_block_is_kept_verbatim() -> None:
     `RawBlock` whose text includes the line breaks, so reflowing it changes that
     text. The README's generated-file banner is this shape (#41).
     """
-    source = (
-        "<!-- Generated from a file via\nscripts/gen.py.\n-->\n\n# Title\n\nText.\n"
-    )
+    source = "<!-- Generated from a file via\nscripts/gen.py.\n-->\n\n# Title\n\nText.\n"
 
     result = reformat_text(source, replace(REFORMAT_DEFAULTS, wrap=Width()))
 
@@ -346,12 +327,7 @@ def test_a_multiline_html_comment_block_is_kept_verbatim() -> None:
 
 def test_a_table_in_an_ordered_list_item_stays_in_the_item() -> None:
     """A pipe table indented under an ordered-list item keeps its indentation (#42)."""
-    source = (
-        "1. First step.\n\n"
-        "2. Second step, with a table:\n\n"
-        "   | A | B |\n   | --- | --- |\n   | 1 | 2 |\n\n"
-        "3. Third step.\n"
-    )
+    source = "1. First step.\n\n2. Second step, with a table:\n\n   | A | B |\n   | --- | --- |\n   | 1 | 2 |\n\n3. Third step.\n"
 
     assert reformat_text(source) == source
 

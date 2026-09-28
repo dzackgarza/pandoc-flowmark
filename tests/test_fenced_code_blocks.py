@@ -306,11 +306,7 @@ def test_empty_lines_in_nested_code_block_no_trailing_whitespace() -> None:
     assert result == expected_doc
     # Verify the empty line between functions has no trailing whitespace
     lines = result.split("\n")
-    empty_line_idx = next(
-        i
-        for i in range(len(lines))
-        if lines[i - 1].endswith("pass") and lines[i + 1].strip().startswith("def bar")
-    )
+    empty_line_idx = next(i for i in range(len(lines)) if lines[i - 1].endswith("pass") and lines[i + 1].strip().startswith("def bar"))
     assert lines[empty_line_idx] == ""
 
 

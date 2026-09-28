@@ -27,9 +27,7 @@ def test_zero_width_disables_wrapping() -> None:
     result = reformat_text(text, replace(REFORMAT_DEFAULTS, wrap=Plain(0)))
     lines = result.strip().split("\n")
     assert len(lines) == 1, "Width 0 should disable wrapping and keep text on one line"
-    assert result.strip() == text, (
-        "Text should be unchanged except for whitespace normalization"
-    )
+    assert result.strip() == text, "Text should be unchanged except for whitespace normalization"
 
 
 def test_negative_width_disables_wrapping() -> None:
@@ -39,12 +37,8 @@ def test_negative_width_disables_wrapping() -> None:
     # Negative width should disable wrapping
     result = reformat_text(text, replace(REFORMAT_DEFAULTS, wrap=Plain(-1)))
     lines = result.strip().split("\n")
-    assert len(lines) == 1, (
-        "Negative width should disable wrapping and keep text on one line"
-    )
-    assert result.strip() == text, (
-        "Text should be unchanged except for whitespace normalization"
-    )
+    assert len(lines) == 1, "Negative width should disable wrapping and keep text on one line"
+    assert result.strip() == text, "Text should be unchanged except for whitespace normalization"
 
 
 def test_width_zero_with_semantic() -> None:
@@ -90,9 +84,7 @@ def test_existing_behavior_unchanged() -> None:
     # Default behavior should be unchanged
     result_default = reformat_text(text, replace(REFORMAT_DEFAULTS, wrap=Plain()))
     result_88 = reformat_text(text, replace(REFORMAT_DEFAULTS, wrap=Plain(88)))
-    assert result_default == result_88, (
-        "Default behavior should match explicit width=88"
-    )
+    assert result_default == result_88, "Default behavior should match explicit width=88"
 
     # Should wrap at default width (line is longer than 88 chars)
     long_text = "This is a very long line that definitely exceeds 88 characters and should be wrapped when using the default width setting."

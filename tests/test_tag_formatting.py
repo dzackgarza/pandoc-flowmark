@@ -181,9 +181,7 @@ def test_smart_quotes_not_applied_in_tag_attributes() -> None:
             f"Input: {tag[:100]}...\n"
             f"Output: {result[:100]}..."
         )
-        assert result_smart == 0, (
-            f"Test {i}: Smart quotes were introduced.\nInput: {tag[:100]}...\nOutput: {result[:100]}..."
-        )
+        assert result_smart == 0, f"Test {i}: Smart quotes were introduced.\nInput: {tag[:100]}...\nOutput: {result[:100]}..."
 
 
 def test_tag_with_array_spanning_lines() -> None:
@@ -233,9 +231,7 @@ def test_pipeline_preserves_tag_quotes() -> None:
         original_straight = _count_straight_quotes(tag)
 
         # Process through pipeline with smartquotes enabled
-        result = fill_markdown(
-            tag, FormatOptions(Semantic(), passes=frozenset({Pass.smartquotes}))
-        )
+        result = fill_markdown(tag, FormatOptions(Semantic(), passes=frozenset({Pass.smartquotes})))
 
         result_straight = _count_straight_quotes(result)
 
@@ -555,9 +551,7 @@ def test_tag_block_spacing_tables() -> None:
     assert "%}\n\n|" in result, f"Missing blank line after opening tag: {result}"
 
     # Should have blank line before closing tag
-    assert "|\n\n{% /table" in result, (
-        f"Missing blank line before closing tag: {result}"
-    )
+    assert "|\n\n{% /table" in result, f"Missing blank line before closing tag: {result}"
 
 
 def test_tag_block_spacing_already_spaced() -> None:
@@ -599,9 +593,7 @@ def test_tag_block_spacing_inline_tags() -> None:
     result = set_sourced_tag_block_spacing(text, pandoc_executable())
 
     # Should NOT have blank lines between list items
-    assert "{% #item1 %}\n- Item 2" in result, (
-        f"Incorrectly added blank between items: {result}"
-    )
+    assert "{% #item1 %}\n- Item 2" in result, f"Incorrectly added blank between items: {result}"
 
 
 def test_tags_around_text_the_parser_reads_as_no_block() -> None:
@@ -695,12 +687,9 @@ def test_list_item_with_tag_on_continuation_line() -> None:
 
     # The tag should NOT have an extra blank line before it
     # The continuation line with the tag should be preserved as-is
-    assert "\n\n  <!-- #kg-32zz -->" not in result, (
-        f"Extra blank line incorrectly added before tag on continuation line.\nResult:\n{result}"
-    )
+    assert "\n\n  <!-- #kg-32zz -->" not in result, f"Extra blank line incorrectly added before tag on continuation line.\nResult:\n{result}"
 
     # The proper indented continuation should be preserved
-    assert (
-        "tsconfig.base.json)\n  <!-- #kg-32zz -->" in result
-        or "(tsconfig.base.json)\n<!-- #kg-32zz -->" in result
-    ), f"Tag continuation line not preserved correctly.\nResult:\n{result}"
+    assert "tsconfig.base.json)\n  <!-- #kg-32zz -->" in result or "(tsconfig.base.json)\n<!-- #kg-32zz -->" in result, (
+        f"Tag continuation line not preserved correctly.\nResult:\n{result}"
+    )

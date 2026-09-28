@@ -43,11 +43,7 @@ class FlowmarkMarkdown:
             FormatOptions(list_spacing=self.list_spacing),
             self.line_wrapper,
         )
-        top_level = [
-            node
-            for node in located_nodes(read_source_ast(result, pandoc_executable()))
-            if not node.ancestors
-        ]
+        top_level = [node for node in located_nodes(read_source_ast(result, pandoc_executable())) if not node.ancestors]
         if top_level and top_level[-1].node.get("t") == "Header":
             return result + "\n"
         return result
@@ -61,7 +57,5 @@ def flowmark_markdown(
     list_spacing: ListSpacing = ListSpacing.loose,
 ) -> FlowmarkMarkdown:
     """Return the Pandoc-backed Markdown formatter."""
-    wrapper = line_wrapper or line_wrap_by_sentence(
-        width=DEFAULT_WRAP_WIDTH, escape_word=markdown_escape_word
-    )
+    wrapper = line_wrapper or line_wrap_by_sentence(width=DEFAULT_WRAP_WIDTH, escape_word=markdown_escape_word)
     return FlowmarkMarkdown(wrapper, list_spacing)

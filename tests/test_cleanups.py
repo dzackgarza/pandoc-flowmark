@@ -94,9 +94,7 @@ def test_hyphen_join_drops_the_space_at_a_line_break(source: str, wanted: str) -
     fall inside inline markup (`**semi-log-` / `canonical**`) and the following
     token can be inline math (`degree-` / `$4$`).
     """
-    result = fill_markdown(
-        source + "\n", FormatOptions(passes=frozenset({Pass.cleanups}))
-    )
+    result = fill_markdown(source + "\n", FormatOptions(passes=frozenset({Pass.cleanups})))
 
     assert wanted in result, result
 
@@ -122,9 +120,7 @@ def test_an_authored_space_after_a_hyphen_is_left_alone() -> None:
     The rule fires only at a line join. A `degree- 2` the author typed on one
     line is the author's, and reflowing must not silently rewrite it.
     """
-    result = fill_markdown(
-        "the degree- 2 Coble locus\n", FormatOptions(passes=frozenset({Pass.cleanups}))
-    )
+    result = fill_markdown("the degree- 2 Coble locus\n", FormatOptions(passes=frozenset({Pass.cleanups})))
 
     assert "degree- 2" in result, result
 

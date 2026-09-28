@@ -25,11 +25,7 @@ def test_preflight_reads_a_bar_inside_a_span_as_cell_content() -> None:
     Reporting them sent the #17 reporter and a later user to "fix" input that was
     correct -- and escaping the bar inside a code span changes the code's text.
     """
-    rows = (
-        "| construct | status |\n|---|---|\n"
-        "| explicit `|X(F_{q^r})|` for `A^n` | proposed |\n"
-        "| $|-2K_{\\widetilde V}|=\\{C\\}$ generically | established |\n"
-    )
+    rows = "| construct | status |\n|---|---|\n| explicit `|X(F_{q^r})|` for `A^n` | proposed |\n| $|-2K_{\\widetilde V}|=\\{C\\}$ generically | established |\n"
 
     assert preflight(rows) == []
 
@@ -42,9 +38,7 @@ def test_preflight_finds_a_row_whose_cell_count_disagrees() -> None:
 
 
 def test_preflight_finds_unterminated_math() -> None:
-    assert [f.line for f in preflight("A paragraph with $x + y and no closer.\n")] == [
-        1
-    ]
+    assert [f.line for f in preflight("A paragraph with $x + y and no closer.\n")] == [1]
 
 
 def test_preflight_finds_an_unbalanced_fence() -> None:

@@ -17,11 +17,7 @@ def read_ignore_file(path: Path) -> pathspec.PathSpec | None:
         text = path.read_text()
     except OSError, UnicodeDecodeError:
         return None
-    lines = [
-        line
-        for line in text.splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    ]
+    lines = [line for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
     if not lines:
         return None
     return pathspec.PathSpec.from_lines("gitignore", lines)

@@ -10,9 +10,7 @@ from flowmark.pandoc_dialect import PANDOC_FORMAT
 from flowmark.pandoc_math import iter_pandoc_math_spans
 from flowmark.pandoc_reader import pandoc_executable
 
-type JsonValue = (
-    str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
-)
+type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
 
 
 SENTINEL = "FLOWMARK-PANDOC-MATH-CASE-"
@@ -56,9 +54,7 @@ def _sentinel_index(block: JsonValue) -> int | None:
 
 
 def _pandoc_math_by_case(cases: list[str]) -> list[list[tuple[bool, str]]]:
-    batch = "\n\n".join(
-        f"{source}\n\n<!-- {SENTINEL}{index} -->" for index, source in enumerate(cases)
-    )
+    batch = "\n\n".join(f"{source}\n\n<!-- {SENTINEL}{index} -->" for index, source in enumerate(cases))
     completed = subprocess.run(
         [pandoc_executable(), "-f", PANDOC_FORMAT, "-t", "json"],
         input=batch,

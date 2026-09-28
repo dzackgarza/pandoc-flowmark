@@ -93,9 +93,7 @@ def extract_links(
 ) -> list[Link]:
     """Extract the links of `kinds` as the configured Pandoc Markdown reader parses them."""
     ast = read_source_ast(markdown_text, pandoc_executable())
-    positions = {
-        id(located.node): located.source_range for located in located_nodes(ast)
-    }
+    positions = {id(located.node): located.source_range for located in located_nodes(ast)}
     starts = [0]
     for line in markdown_text.splitlines(keepends=True):
         starts.append(starts[-1] + len(line))

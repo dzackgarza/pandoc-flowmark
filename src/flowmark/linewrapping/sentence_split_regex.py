@@ -88,15 +88,9 @@ _ABBREV_LSTRIP = "(['\"‘“"
 
 def heuristic_end_of_sentence(word: str) -> bool:
     word_end = SENTENCE_END_RE.search(word)
-    if not (
-        (word_end and word_end.group(1)[-1].islower())
-        or _MATH_SENTENCE_END_RE.search(word)
-        or _CITATION_SENTENCE_END_RE.search(word)
-    ):
+    if not ((word_end and word_end.group(1)[-1].islower()) or _MATH_SENTENCE_END_RE.search(word) or _CITATION_SENTENCE_END_RE.search(word)):
         return False
-    return (
-        word.rstrip(_ABBREV_STRIP).lstrip(_ABBREV_LSTRIP).lower() not in _ABBREVIATIONS
-    )
+    return word.rstrip(_ABBREV_STRIP).lstrip(_ABBREV_LSTRIP).lower() not in _ABBREVIATIONS
 
 
 def split_sentences_regex(
@@ -233,9 +227,4 @@ def split_sentences_atomic(
     code span, or URL. Suitable as the `split_sentences` argument to
     `line_wrap_by_sentence`.
     """
-    return [
-        s.text
-        for s in split_sentences_with_spans(
-            text, min_length=min_length, heuristic=heuristic
-        )
-    ]
+    return [s.text for s in split_sentences_with_spans(text, min_length=min_length, heuristic=heuristic)]

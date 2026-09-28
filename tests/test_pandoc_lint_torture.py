@@ -43,11 +43,7 @@ def test_default_linter_is_quiet_on_pandoc_prose_lookalikes() -> None:
         parsed = parse_pandoc_for_lint(source + "\n")
         assert parsed.parsed, source
         assert parsed.messages == (), source
-        findings = [
-            item.rule
-            for item in lint_text(source + "\n")
-            if item.rule != "math/outside-math-mode"
-        ]
+        findings = [item.rule for item in lint_text(source + "\n") if item.rule != "math/outside-math-mode"]
         assert findings == [], source
 
 
@@ -78,9 +74,7 @@ def test_parser_looking_source_inside_literal_regions_cannot_leak_lint_syntax() 
     for source in documents:
         parsed = parse_pandoc_for_lint(source)
         assert parsed.parsed, source
-        assert not any(message.severity == "error" for message in parsed.messages), (
-            source
-        )
+        assert not any(message.severity == "error" for message in parsed.messages), source
         rules = {diagnostic.rule for diagnostic in lint_text(source)}
         assert not any(
             rule.startswith(
@@ -135,10 +129,7 @@ def test_pandoc_warnings_are_mapped_without_reimplementing_the_grammar(
 ) -> None:
     parsed = parse_pandoc_for_lint(source)
     assert parsed.parsed
-    assert any(
-        warning_fragment.casefold() in item.message.casefold()
-        for item in parsed.messages
-    )
+    assert any(warning_fragment.casefold() in item.message.casefold() for item in parsed.messages)
     assert rule in {diagnostic.rule for diagnostic in lint_text(source)}
 
 

@@ -48,14 +48,8 @@ def test_numbered_list_preserve() -> None:
     input_tight = "1. one\n2. two\n3. three\n"
     input_loose = "1. one\n\n2. two\n\n3. three\n"
 
-    assert (
-        fill_markdown(input_tight, FormatOptions(list_spacing=ListSpacing.preserve))
-        == "1. one\n2. two\n3. three\n"
-    )
-    assert (
-        fill_markdown(input_loose, FormatOptions(list_spacing=ListSpacing.preserve))
-        == "1. one\n\n2. two\n\n3. three\n"
-    )
+    assert fill_markdown(input_tight, FormatOptions(list_spacing=ListSpacing.preserve)) == "1. one\n2. two\n3. three\n"
+    assert fill_markdown(input_loose, FormatOptions(list_spacing=ListSpacing.preserve)) == "1. one\n\n2. two\n\n3. three\n"
 
 
 # --- Tests for loose mode ---
@@ -221,9 +215,7 @@ def test_list_items_with_code_blocks_preserve() -> None:
     )
 
     # This is loose in the input, should stay loose
-    normalized_doc = fill_markdown(
-        input_doc, FormatOptions(Semantic(), list_spacing=ListSpacing.preserve)
-    )
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic(), list_spacing=ListSpacing.preserve))
     assert normalized_doc == expected_doc
 
 
@@ -294,9 +286,7 @@ def test_list_items_with_quote_blocks() -> None:
     )
 
     # This is loose in the input (has multi-block items)
-    normalized_doc = fill_markdown(
-        input_doc, FormatOptions(Semantic(), list_spacing=ListSpacing.preserve)
-    )
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic(), list_spacing=ListSpacing.preserve))
     assert normalized_doc == expected_doc
 
 
@@ -336,18 +326,9 @@ def test_input_spacing_normalization_tight() -> None:
     # All should normalize to tight output
     expected_output = "- First item\n- Second item\n- Third item\n"
 
-    assert (
-        fill_markdown(input_tight, FormatOptions(list_spacing=ListSpacing.tight))
-        == expected_output
-    )
-    assert (
-        fill_markdown(input_loose, FormatOptions(list_spacing=ListSpacing.tight))
-        == expected_output
-    )
-    assert (
-        fill_markdown(input_extra, FormatOptions(list_spacing=ListSpacing.tight))
-        == expected_output
-    )
+    assert fill_markdown(input_tight, FormatOptions(list_spacing=ListSpacing.tight)) == expected_output
+    assert fill_markdown(input_loose, FormatOptions(list_spacing=ListSpacing.tight)) == expected_output
+    assert fill_markdown(input_extra, FormatOptions(list_spacing=ListSpacing.tight)) == expected_output
 
 
 def test_complex_content_with_loose_mode() -> None:

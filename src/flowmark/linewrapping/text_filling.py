@@ -107,11 +107,7 @@ def fill_text(
         word_splitter = get_html_md_word_splitter()
 
     if not text_wrap.should_wrap:
-        indent = (
-            extra_indent + DEFAULT_INDENT
-            if text_wrap == Wrap.INDENT_ONLY
-            else extra_indent
-        )
+        indent = extra_indent + DEFAULT_INDENT if text_wrap == Wrap.INDENT_ONLY else extra_indent
         lines = text.splitlines()
         if lines:
             return "\n".join(indent + line for line in lines)

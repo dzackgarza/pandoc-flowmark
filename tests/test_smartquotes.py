@@ -8,30 +8,21 @@ from flowmark.typography.smartquotes import smart_quotes
 
 def test_basic_double_quotes() -> None:
     """Test basic double quote conversion."""
-    assert (
-        smart_quotes('I\'m there with "George"')
-        == "I\u2019m there with \u201cGeorge\u201d"
-    )
+    assert smart_quotes('I\'m there with "George"') == "I\u2019m there with \u201cGeorge\u201d"
     assert smart_quotes('"Hello," he said.') == "\u201cHello,\u201d he said."
     assert smart_quotes('"I know!"') == "\u201cI know!\u201d"
 
 
 def test_basic_single_quotes() -> None:
     """Test basic single quote conversion."""
-    assert (
-        smart_quotes("Words in 'single quotes' work too")
-        == "Words in \u2018single quotes\u2019 work too"
-    )
+    assert smart_quotes("Words in 'single quotes' work too") == "Words in \u2018single quotes\u2019 work too"
     assert smart_quotes("X is 'foo'") == "X is \u2018foo\u2019"
 
 
 def test_apostrophes_and_contractions() -> None:
     """Test apostrophe and contraction conversion."""
     assert smart_quotes("I'm there") == "I\u2019m there"
-    assert (
-        smart_quotes("I'll be there, don't worry")
-        == "I\u2019ll be there, don\u2019t worry"
-    )
+    assert smart_quotes("I'll be there, don't worry") == "I\u2019ll be there, don\u2019t worry"
     assert smart_quotes("Jill's") == "Jill\u2019s"
     assert smart_quotes("James'") == "James\u2019"
 
@@ -73,22 +64,13 @@ def test_quotes_with_punctuation() -> None:
 def test_quotes_at_boundaries() -> None:
     """Test quotes at sentence boundaries."""
     assert smart_quotes('"Start of sentence"') == "\u201cStart of sentence\u201d"
-    assert (
-        smart_quotes('He said "middle of sentence" and continued')
-        == "He said \u201cmiddle of sentence\u201d and continued"
-    )
+    assert smart_quotes('He said "middle of sentence" and continued') == "He said \u201cmiddle of sentence\u201d and continued"
 
 
 def test_mixed_quotes_and_apostrophes() -> None:
     """Test text with both quotes and apostrophes."""
-    assert (
-        smart_quotes('I\'m reading "The Great Gatsby" today')
-        == "I\u2019m reading \u201cThe Great Gatsby\u201d today"
-    )
-    assert (
-        smart_quotes('She said "I can\'t believe it!"')
-        == "She said \u201cI can\u2019t believe it!\u201d"
-    )
+    assert smart_quotes('I\'m reading "The Great Gatsby" today') == "I\u2019m reading \u201cThe Great Gatsby\u201d today"
+    assert smart_quotes('She said "I can\'t believe it!"') == "She said \u201cI can\u2019t believe it!\u201d"
 
 
 def test_edge_cases() -> None:
@@ -101,22 +83,14 @@ def test_edge_cases() -> None:
 
 def test_multiple_quotes_in_text() -> None:
     """Test text with multiple separate quoted sections."""
-    assert (
-        smart_quotes('He said "hello" and she said "goodbye"')
-        == "He said \u201chello\u201d and she said \u201cgoodbye\u201d"
-    )
-    assert (
-        smart_quotes("The words 'yes' and 'no' are opposites")
-        == "The words \u2018yes\u2019 and \u2018no\u2019 are opposites"
-    )
+    assert smart_quotes('He said "hello" and she said "goodbye"') == "He said \u201chello\u201d and she said \u201cgoodbye\u201d"
+    assert smart_quotes("The words 'yes' and 'no' are opposites") == "The words \u2018yes\u2019 and \u2018no\u2019 are opposites"
 
 
 def test_complex_sentences() -> None:
     """Test more complex real-world sentences."""
     text = "John said \"I can't believe it's not butter!\" at the store."
-    expected = (
-        "John said \u201cI can\u2019t believe it\u2019s not butter!\u201d at the store."
-    )
+    expected = "John said \u201cI can\u2019t believe it\u2019s not butter!\u201d at the store."
     assert smart_quotes(text) == expected
 
 
@@ -149,25 +123,13 @@ def test_quotes_with_newlines() -> None:
     """Test quotes that contain newlines."""
     # Double quotes with newlines
     assert smart_quotes('"Hello\nWorld"') == "\u201cHello\nWorld\u201d"
-    assert (
-        smart_quotes('He said "Hello\nWorld" today')
-        == "He said \u201cHello\nWorld\u201d today"
-    )
-    assert (
-        smart_quotes('"First line\nSecond line\nThird line"')
-        == "\u201cFirst line\nSecond line\nThird line\u201d"
-    )
+    assert smart_quotes('He said "Hello\nWorld" today') == "He said \u201cHello\nWorld\u201d today"
+    assert smart_quotes('"First line\nSecond line\nThird line"') == "\u201cFirst line\nSecond line\nThird line\u201d"
 
     # Single quotes with newlines
     assert smart_quotes("'Hello\nWorld'") == "\u2018Hello\nWorld\u2019"
-    assert (
-        smart_quotes("She said 'Hello\nWorld' today")
-        == "She said \u2018Hello\nWorld\u2019 today"
-    )
-    assert (
-        smart_quotes("'First line\nSecond line\nThird line'")
-        == "\u2018First line\nSecond line\nThird line\u2019"
-    )
+    assert smart_quotes("She said 'Hello\nWorld' today") == "She said \u2018Hello\nWorld\u2019 today"
+    assert smart_quotes("'First line\nSecond line\nThird line'") == "\u2018First line\nSecond line\nThird line\u2019"
 
     # With punctuation after newline quotes
     assert smart_quotes('"Hello\nWorld".') == "\u201cHello\nWorld\u201d."
@@ -175,10 +137,7 @@ def test_quotes_with_newlines() -> None:
     assert smart_quotes("'Hello\nWorld'?") == "\u2018Hello\nWorld\u2019?"
 
     # Mixed with contractions
-    assert (
-        smart_quotes('I\'m reading "Hello\nWorld" today')
-        == "I\u2019m reading \u201cHello\nWorld\u201d today"
-    )
+    assert smart_quotes('I\'m reading "Hello\nWorld" today') == "I\u2019m reading \u201cHello\nWorld\u201d today"
 
     # Multiple paragraphs in quotes should NOT be converted
     text = '"This is paragraph one.\n\nThis is paragraph two."'
@@ -200,10 +159,7 @@ def test_quotes_with_newlines() -> None:
     assert smart_quotes('"Para 1.\n\t\nPara 2."') == '"Para 1.\n\t\nPara 2."'
 
     # Multiple paragraph breaks
-    assert (
-        smart_quotes('"Para 1.\n\nPara 2.\n\nPara 3."')
-        == '"Para 1.\n\nPara 2.\n\nPara 3."'
-    )
+    assert smart_quotes('"Para 1.\n\nPara 2.\n\nPara 3."') == '"Para 1.\n\nPara 2.\n\nPara 3."'
 
     # Paragraph break in context
     text = 'He said "Para 1.\n\nPara 2." yesterday.'
@@ -212,9 +168,7 @@ def test_quotes_with_newlines() -> None:
 
     # Mixed: some with paragraph breaks, some without
     text = 'She said "Hello world" and he said "Para 1.\n\nPara 2." today.'
-    expected = (
-        'She said \u201cHello world\u201d and he said "Para 1.\n\nPara 2." today.'
-    )
+    expected = 'She said \u201cHello world\u201d and he said "Para 1.\n\nPara 2." today.'
     assert smart_quotes(text) == expected
 
 
@@ -328,14 +282,8 @@ def test_smart_quotes_complex_table() -> None:
     )
     result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     # Prose quotes should be converted
-    assert (
-        "\u201cThere\u2019s a bug where \u2026\u201d" in result
-        or "\u201cThere\u2019s a bug where ...\u201d" in result
-    )
-    assert (
-        "\u201cCreate a task/feature for \u2026\u201d" in result
-        or "\u201cCreate a task/feature for ...\u201d" in result
-    )
+    assert "\u201cThere\u2019s a bug where \u2026\u201d" in result or "\u201cThere\u2019s a bug where ...\u201d" in result
+    assert "\u201cCreate a task/feature for \u2026\u201d" in result or "\u201cCreate a task/feature for ...\u201d" in result
     # Code spans should be unchanged
     assert '`tbd create "..." --type=bug`' in result
     assert '`tbd create "..." --type=task`' in result
@@ -348,9 +296,7 @@ def test_smart_quotes_blockquote_multiline_with_code_span() -> None:
         "> Markform is a CLI tool for creating structured forms that agents can fill via tool\n"
         "> calls. I'll install it globally so we can use the `markform` command.\"\n"
     )
-    result = fill_markdown(
-        text, FormatOptions(Semantic(), passes=frozenset({Pass.smartquotes}))
-    )
+    result = fill_markdown(text, FormatOptions(Semantic(), passes=frozenset({Pass.smartquotes})))
     # The outer quotes should be converted to smart quotes
     assert "\u201cFirst," in result
     assert "command.\u201d" in result
@@ -364,20 +310,14 @@ def test_stray_quote_blocks_later_single_span() -> None:
     """A stray straight quote before a span makes pairing ambiguous: a markdown
     reader pairs the stray with one of the span's quotes, so converting the span
     would move which text the document quotes. Contractions still convert."""
-    assert (
-        smart_quotes("Apostrophes: the cat's meow, the '90s, rock 'n' roll.")
-        == "Apostrophes: the cat’s meow, the '90s, rock 'n' roll."
-    )
+    assert smart_quotes("Apostrophes: the cat's meow, the '90s, rock 'n' roll.") == "Apostrophes: the cat’s meow, the '90s, rock 'n' roll."
     assert smart_quotes("'til you 'see' it") == "'til you 'see' it"
 
 
 def test_stray_quote_after_span_does_not_block() -> None:
     """A stray quote AFTER a span cannot capture it, so the span still converts;
     the trailing digit elision then curls too (nothing left to pair with it)."""
-    assert (
-        smart_quotes("rock 'n' roll and the '90s forever")
-        == "rock ‘n’ roll and the ’90s forever"
-    )
+    assert smart_quotes("rock 'n' roll and the '90s forever") == "rock ‘n’ roll and the ’90s forever"
 
 
 def test_stray_double_quote_blocks_later_double_span() -> None:
@@ -388,10 +328,7 @@ def test_stray_double_quote_blocks_later_double_span() -> None:
 def test_stray_single_inside_converted_double_span_blocks_later_single() -> None:
     """A stray single quote inside a converted double span still counts: it stays
     straight in the output and pairs across the double quotes."""
-    assert (
-        smart_quotes("He said \"the '90s were fun\" and 'foo' bar")
-        == "He said “the '90s were fun” and 'foo' bar"
-    )
+    assert smart_quotes("He said \"the '90s were fun\" and 'foo' bar") == "He said “the '90s were fun” and 'foo' bar"
 
 
 def test_single_pair_inside_converted_double_span_stays_straight() -> None:
@@ -420,19 +357,13 @@ def test_digit_elision_apostrophe_curls_when_unambiguous() -> None:
     assert smart_quotes("Back in the '90s.") == "Back in the ’90s."
     assert smart_quotes("the '80s and '90s were rad") == "the ’80s and ’90s were rad"
     # Inside a converted double span it is equally unambiguous.
-    assert (
-        smart_quotes('He said "the \'90s were fun" then.')
-        == "He said “the ’90s were fun” then."
-    )
+    assert smart_quotes('He said "the \'90s were fun" then.') == "He said “the ’90s were fun” then."
 
 
 def test_digit_elision_stays_straight_when_a_closer_follows() -> None:
     """A later closing-capable quote would pair with the elision as a quotation,
     so it must stay straight -- this is the rock-'n'-roll line's shape."""
-    assert (
-        smart_quotes("Apostrophes: the cat's meow, the '90s, rock 'n' roll.")
-        == "Apostrophes: the cat’s meow, the '90s, rock 'n' roll."
-    )
+    assert smart_quotes("Apostrophes: the cat's meow, the '90s, rock 'n' roll.") == "Apostrophes: the cat’s meow, the '90s, rock 'n' roll."
 
 
 def test_letter_elisions_curl_when_nothing_can_pair_with_them() -> None:
@@ -495,9 +426,7 @@ def test_recorded_probe_curled_elision_reads_the_same(source: str, curled: str) 
 
 
 @pytest.mark.parametrize(("source", "curled"), CHANGED_READING_PROBES)
-def test_recorded_probe_curled_elision_reads_differently(
-    source: str, curled: str
-) -> None:
+def test_recorded_probe_curled_elision_reads_differently(source: str, curled: str) -> None:
     assert pandoc_ast(source + "\n") != pandoc_ast(curled + "\n")
 
 

@@ -40,9 +40,11 @@ from flowmark.formats.options import (
     Plain,
     Semantic,
     Width,
+    WrapMode,
 )
 from flowmark.linewrapping.line_wrappers import DEFAULT_MIN_LINE_LEN
 from flowmark.linewrapping.text_filling import DEFAULT_WRAP_WIDTH
+from flowmark.pandoc_reader import PandocUnavailableError
 from flowmark.reformat_api import (
     Destination,
     InPlace,
@@ -115,6 +117,7 @@ class Options:
             Pass.smartquotes: self.smartquotes,
             Pass.ellipses: self.ellipses,
         }
+        wrap: WrapMode
         if self.plaintext:
             wrap = Plain(self.line_width)
         elif self.semantic:
@@ -197,22 +200,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "--cleanups",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Enable (safe) cleanups for common issues like accidentally boldfaced "
-        "section headers (default: %(default)s; only applies to Markdown mode)",
+        help="Enable (safe) cleanups for common issues like accidentally boldfaced section headers (default: %(default)s; only applies to Markdown mode)",
     )
     parser.add_argument(
         "--smartquotes",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Convert straight quotes to typographic (curly) quotes and apostrophes "
-        "(default: %(default)s; only applies to Markdown mode)",
+        help="Convert straight quotes to typographic (curly) quotes and apostrophes (default: %(default)s; only applies to Markdown mode)",
     )
     parser.add_argument(
         "--ellipses",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Convert three dots (...) to ellipsis character (…) with normalized "
-        "spacing (default: %(default)s; only applies to Markdown mode)",
+        help="Convert three dots (...) to ellipsis character (…) with normalized spacing (default: %(default)s; only applies to Markdown mode)",
     )
     parser.add_argument(
         "--verify",
@@ -259,24 +259,21 @@ def _build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="PATTERN",
-        help="Additional file patterns to include (e.g., '*.mdx'). Can be repeated; "
-        "adds to the config file's patterns",
+        help="Additional file patterns to include (e.g., '*.mdx'). Can be repeated; adds to the config file's patterns",
     )
     parser.add_argument(
         "--exclude",
         action="append",
         default=None,
         metavar="PATTERN",
-        help="Replace all default exclusion patterns. Can be repeated; adds to the "
-        "config file's patterns",
+        help="Replace all default exclusion patterns. Can be repeated; adds to the config file's patterns",
     )
     parser.add_argument(
         "--extend-exclude",
         action="append",
         default=[],
         metavar="PATTERN",
-        help="Add to default exclusion patterns (e.g., 'drafts/'). Can be repeated; "
-        "adds to the config file's patterns",
+        help="Add to default exclusion patterns (e.g., 'drafts/'). Can be repeated; adds to the config file's patterns",
     )
     parser.add_argument(
         "--respect-gitignore",
@@ -288,8 +285,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force-exclude",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Apply exclusion patterns even to files named explicitly on the command "
-        "line (default: %(default)s)",
+        help="Apply exclusion patterns even to files named explicitly on the command line (default: %(default)s)",
     )
     parser.add_argument(
         "--list-files",
@@ -475,8 +471,8 @@ def main(args: list[str] | None = None) -> int:
         # Handle errors reported by reformat_file, like using --inplace with stdin.
         print(f"Error: {e}", file=sys.stderr)
         return 1
-    except Exception as e:
-        # Catch other potential file or processing errors.
+    except (OSError, PandocUnavailableError) as e:
+        # A file cannot be read or written, or pandoc cannot run.
         print(f"Error: {e}", file=sys.stderr)
         return 2
 

@@ -71,13 +71,9 @@ def test_all_valid_alert_types() -> None:
         normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
         # Verify alert header is preserved
-        assert f"> [!{alert_type}]" in normalized_doc, (
-            f"Alert type {alert_type} was not preserved"
-        )
+        assert f"> [!{alert_type}]" in normalized_doc, f"Alert type {alert_type} was not preserved"
         # Verify content is preserved
-        assert f"{alert_type.lower()} alert" in normalized_doc, (
-            f"Content for {alert_type} was lost"
-        )
+        assert f"{alert_type.lower()} alert" in normalized_doc, f"Content for {alert_type} was lost"
         # Verify quote formatting is preserved
         assert normalized_doc.startswith(">"), f"Quote formatting lost for {alert_type}"
 
@@ -117,14 +113,10 @@ def test_misspelled_alert_preserves_quote() -> None:
         normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
         # Quote formatting MUST be preserved
-        assert normalized_doc.startswith(">"), (
-            f"Quote formatting lost for {misspelled_type}"
-        )
+        assert normalized_doc.startswith(">"), f"Quote formatting lost for {misspelled_type}"
         # Content must be preserved (the misspelled type becomes part of the content)
         assert misspelled_type in normalized_doc, f"Content lost for {misspelled_type}"
-        assert "Content here" in normalized_doc, (
-            f"Body content lost for {misspelled_type}"
-        )
+        assert "Content here" in normalized_doc, f"Body content lost for {misspelled_type}"
 
 
 def test_unknown_alert_types_preserve_quote() -> None:
@@ -143,9 +135,7 @@ def test_unknown_alert_types_preserve_quote() -> None:
         normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
         # Quote formatting MUST be preserved
-        assert normalized_doc.startswith(">"), (
-            f"Quote formatting lost for: {input_doc[:20]}"
-        )
+        assert normalized_doc.startswith(">"), f"Quote formatting lost for: {input_doc[:20]}"
         # All content must be preserved
         lines = input_doc.split("\n")
         for line in lines:
@@ -175,9 +165,7 @@ def test_malformed_alert_preserves_quote() -> None:
     for input_doc in test_cases:
         normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
         # Quote formatting MUST be preserved
-        assert normalized_doc.startswith(">"), (
-            f"Quote formatting lost for: {input_doc[:30]}"
-        )
+        assert normalized_doc.startswith(">"), f"Quote formatting lost for: {input_doc[:30]}"
 
 
 def test_alert_with_multiline_content() -> None:

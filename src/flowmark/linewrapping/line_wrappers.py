@@ -42,12 +42,7 @@ def split_sentences_no_min_length(text: str) -> list[str]:
     # wrapper hides the whitespace in each atom Pandoc locates), so a "St." inside
     # link text is not a word end and cannot trip the end-of-sentence heuristic.
     # Tags have no parse node, so they are kept whole by pattern.
-    return [
-        span.text
-        for span in split_sentences_with_spans(
-            text, min_length=0, patterns=TEMPLATE_TAG_PATTERNS
-        )
-    ]
+    return [span.text for span in split_sentences_with_spans(text, min_length=0, patterns=TEMPLATE_TAG_PATTERNS)]
 
 
 _line_break_re = re.compile(r"\\\n|  \n")
@@ -84,9 +79,7 @@ def _add_markdown_hard_break_handling(base_wrapper: LineWrapper) -> LineWrapper:
             is_last = i == len(segments) - 1
 
             cur_initial_indent = initial_indent if is_first else subsequent_indent
-            wrapped_segment = base_wrapper(
-                segment, cur_initial_indent, subsequent_indent
-            )
+            wrapped_segment = base_wrapper(segment, cur_initial_indent, subsequent_indent)
             if is_last:
                 wrapped_segments.append(wrapped_segment)
             else:
@@ -158,17 +151,12 @@ def line_wrap_by_sentence(
 
         # Handle width <= 0 as "semantic-only: split sentences, no column wrapping"
         if width <= 0:
-            result = "\n".join(
-                _escape_line_start(s.strip(), escape_word) if index else s.strip()
-                for index, s in enumerate(s for s in sentences if s.strip())
-            )
+            result = "\n".join(_escape_line_start(s.strip(), escape_word) if index else s.strip() for index, s in enumerate(s for s in sentences if s.strip()))
             if initial_indent and result:
                 indented_lines = result.split("\n")
                 indented_lines[0] = initial_indent + indented_lines[0]
                 if subsequent_indent and len(indented_lines) > 1:
-                    indented_lines[1:] = [
-                        subsequent_indent + line for line in indented_lines[1:]
-                    ]
+                    indented_lines[1:] = [subsequent_indent + line for line in indented_lines[1:]]
                 result = "\n".join(indented_lines)
             return result
 
@@ -196,12 +184,7 @@ def line_wrap_by_sentence(
             )
             # If last line is shorter than min_line_len, combine with next line.
             # Also handles if the first word doesn't fit.
-            if (
-                len(lines) > 0
-                and wrapped
-                and length(lines[-1]) < min_line_len
-                and length(lines[-1]) + 1 + length(wrapped[0]) <= width
-            ):
+            if len(lines) > 0 and wrapped and length(lines[-1]) < min_line_len and length(lines[-1]) + 1 + length(wrapped[0]) <= width:
                 lines[-1] += " " + wrapped[0]
                 wrapped.pop(0)
 

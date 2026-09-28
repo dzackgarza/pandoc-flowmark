@@ -59,9 +59,7 @@ type Formatter = Callable[[str, FormatOptions, str], str]
 """Format a text with options; the last argument names the text in errors."""
 
 
-def reformat_text_unchecked(
-    text: str, options: FormatOptions = REFORMAT_DEFAULTS, label: str = "input"
-) -> str:
+def reformat_text_unchecked(text: str, options: FormatOptions = REFORMAT_DEFAULTS, label: str = "input") -> str:
     """
     Reformat text or Markdown and wrap lines, without checking that Pandoc reads
     the result as it reads `text`. A convenient wrapper around `fill_text()` and
@@ -91,15 +89,11 @@ def reformat_text_unchecked(
     )
     if rejected:
         named = "; ".join(f"{label}:{f.line + offset}: {f.message}" for f in rejected)
-        raise MalformedInputError(
-            f"Refusing to write {label}: {named}. The file is unchanged."
-        )
+        raise MalformedInputError(f"Refusing to write {label}: {named}. The file is unchanged.")
     return format_markdown(text, options)
 
 
-def reformat_text(
-    text: str, options: FormatOptions = REFORMAT_DEFAULTS, label: str = "input"
-) -> str:
+def reformat_text(text: str, options: FormatOptions = REFORMAT_DEFAULTS, label: str = "input") -> str:
     """
     `reformat_text_unchecked`, and in Markdown mode check with pandoc that the
     result parses to the same AST as `text`. Raise `MeaningChangedError` rather
@@ -125,16 +119,10 @@ def reformat_text(
         findings = preflight(text)
         if findings and changed.block is not None:
             blocks = block_indices(text, [f.line for f in findings])
-            findings = [
-                finding
-                for finding, block in zip(findings, blocks, strict=True)
-                if block == changed.block
-            ]
+            findings = [finding for finding, block in zip(findings, blocks, strict=True) if block == changed.block]
         if not findings:
             raise
-        named = "; ".join(
-            f"{label}:{finding.line}: {finding.message}" for finding in findings[:3]
-        )
+        named = "; ".join(f"{label}:{finding.line}: {finding.message}" for finding in findings[:3])
         more = "" if len(findings) <= 3 else f" (and {len(findings) - 3} more)"
         raise MeaningChangedError(
             f"Refusing to write {label}: reformatting would change what "
@@ -213,9 +201,7 @@ def reformat_file(
             with atomic_output_file(output, make_parents=True) as tmp_path:
                 tmp_path.write_text(result)
         case InPlace(backup_suffix):
-            with atomic_output_file(
-                path, backup_suffix=backup_suffix, make_parents=True
-            ) as tmp_path:
+            with atomic_output_file(path, backup_suffix=backup_suffix, make_parents=True) as tmp_path:
                 tmp_path.write_text(result)
 
 
@@ -236,9 +222,7 @@ def reformat_files(
         reformat_file(files[0], destination, options, formatter)
         return 0
     if isinstance(destination, ToFile):
-        raise ValueError(
-            "Cannot specify output file when processing multiple files (use --inplace instead)"
-        )
+        raise ValueError("Cannot specify output file when processing multiple files (use --inplace instead)")
 
     refused = 0
     for file_path in files:

@@ -50,9 +50,7 @@ def test_markdown_with_frontmatter() -> None:
 
     # Verify the frontmatter is preserved exactly
     frontmatter, _ = split_frontmatter(normalized_doc)
-    expected_frontmatter = (
-        "---\ntitle: Test Document\ndate: 2023-01-01\nauthor: Test Author\n---\n"
-    )
+    expected_frontmatter = "---\ntitle: Test Document\ndate: 2023-01-01\nauthor: Test Author\n---\n"
     assert frontmatter == expected_frontmatter
 
     # Verify the content is formatted correctly
