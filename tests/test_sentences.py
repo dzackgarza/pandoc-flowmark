@@ -70,8 +70,8 @@ def test_math_abbreviations_and_citation_sentence_ends() -> None:
 def test_non_ascii_sentence_ends() -> None:
     """A sentence ends after a word of non-ASCII letters whose last letter is
     lowercase, and does not end after an uppercase or digit-led token."""
-    assert split_sentences_regex("Nous avons pris un café. Puis nous sommes partis.") == [
-        "Nous avons pris un café.",
+    assert split_sentences_regex("Nous avons commandé un café. Puis nous sommes partis.") == [
+        "Nous avons commandé un café.",
         "Puis nous sommes partis.",
     ]
     assert split_sentences_regex("Wir fahren über die Straße. Dann weiter.") == [
