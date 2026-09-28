@@ -64,11 +64,11 @@ Final text.
 
 
 def test_unbold_headings() -> None:
-    marko = flowmark_markdown(line_wrap_by_sentence())
+    formatter = flowmark_markdown(line_wrap_by_sentence())
 
-    doc = marko.parse(input_md)
+    doc = formatter.parse(input_md)
     unbold_headings(doc)
-    rendered_md = marko.render(doc).strip()
+    rendered_md = formatter.render(doc).strip()
 
     assert rendered_md == expected_md.strip()
 

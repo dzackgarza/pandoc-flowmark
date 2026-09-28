@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from typing import cast
 
-import pytest
 
 from flowmark.pandoc_math import iter_pandoc_math_spans
 from flowmark.pandoc_dialect import PANDOC_FORMAT
+from flowmark.pandoc_reader import pandoc_executable
 
 
 type JsonValue = (
@@ -19,10 +18,6 @@ type JsonValue = (
 
 
 SENTINEL = "FLOWMARK-PANDOC-MATH-CASE-"
-
-pandocless = pytest.mark.skipif(
-    shutil.which("pandoc") is None, reason="requires the Pandoc oracle on PATH"
-)
 
 
 def _collect_math(value: JsonValue) -> list[tuple[bool, str]]:
@@ -67,7 +62,7 @@ def _pandoc_math_by_case(cases: list[str]) -> list[list[tuple[bool, str]]]:
         f"{source}\n\n<!-- {SENTINEL}{index} -->" for index, source in enumerate(cases)
     )
     completed = subprocess.run(
-        ["pandoc", "-f", PANDOC_FORMAT, "-t", "json"],
+        [pandoc_executable(), "-f", PANDOC_FORMAT, "-t", "json"],
         input=batch,
         text=True,
         capture_output=True,
@@ -167,7 +162,6 @@ def _generated_cases() -> list[str]:
     return cases
 
 
-@pandocless
 def test_pandoc_math_scanner_matches_real_pandoc_torture_corpus() -> None:
     cases = _generated_cases()
     assert len(cases) >= 400
@@ -176,7 +170,6 @@ def test_pandoc_math_scanner_matches_real_pandoc_torture_corpus() -> None:
         assert _scanner_math(source) == pandoc_math, f"case {index}: {source!r}"
 
 
-@pandocless
 def test_workspace_multiline_regression_matches_pandoc_exactly() -> None:
     source = (
         "summand of $B\\cong U\\oplus U\\oplus\\latI_{0,7}$; then "

@@ -1,6 +1,7 @@
 """Test smart escape handling - only preserve escapes when necessary."""
 
-from flowmark.formats.flowmark_markdown import ListSpacing, flowmark_markdown
+from flowmark.formats.flowmark_markdown import flowmark_markdown
+from flowmark.formats.options import ListSpacing
 
 
 def test_escape_in_heading() -> None:

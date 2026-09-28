@@ -2,27 +2,30 @@
 
 Regression tests for https://github.com/jlevy/flowmark/issues/45
 
-marko's inline.Link element does not preserve the original reference style
-(inline, full, collapsed, or shortcut); it only stores ``dest`` and ``title``.
-flowmark reconstructs a reference link by matching the destination/title back
-to a link reference definition.
-
-When the link text equals the matched label, the link must NOT be collapsed to
+When the link text equals the reference label, the link must NOT be collapsed to
 the shortcut form ``[label]``: a shortcut reference is fragile because it merges
 with a following ``(...)`` (becoming an inline link) or a following ``[...]``
 (becoming a full/collapsed reference), silently changing or dropping links.
 The collapsed reference form ``[label][]`` is used instead, which is unambiguous.
 """
 
-import marko
+import subprocess
 
 from flowmark.formats.flowmark_markdown import flowmark_markdown
+from flowmark.pandoc_dialect import PANDOC_FORMAT
+from flowmark.pandoc_reader import pandoc_executable
 
 
 def _html(src: str) -> str:
-    """Render markdown to HTML with stock marko, for semantic equivalence checks."""
-    parser = marko.Markdown()
-    return parser.render(parser.parse(src)).strip()
+    """Render through the same Pandoc dialect used by the formatter."""
+    result = subprocess.run(
+        [pandoc_executable(), "-f", PANDOC_FORMAT, "-t", "html", "--wrap=none"],
+        input=src,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
 
 
 def test_full_reference_with_distinct_label_preserved() -> None:

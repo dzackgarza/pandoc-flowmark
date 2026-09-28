@@ -1,26 +1,27 @@
 ## Why Use Flowmark?
 
-Flowmark is a Markdown auto-formatter, written [in Python](https://github.com/jlevy/flowmark) with an auto-synced [Rust port](https://github.com/jlevy/flowmark-rs), designed for **better LLM workflows**, **clean git diffs**, and **flexible use from CLI, from IDEs, or as a library**.
+Flowmark is a Markdown auto-formatter, written in Python, designed for **better LLM workflows**, **clean git diffs**, and **flexible use from CLI, from IDEs, or as a library**.
 
 With AI tools increasingly using Markdown, having consistent, diff-friendly formatting has become essential for modern writing, editing, and document processing workflows.
 Normalizing Markdown formatting greatly improves collaborative editing and LLM workflows, especially when committing documents to git repositories.
 
 You can use Flowmark as a CLI, as an autoformatter in your IDE, or as a Python library.
 
-Flowmark comes in two flavors: this Python reference implementation and an auto-synced [Rust port (flowmark-rs)](https://github.com/jlevy/flowmark-rs).
-For CLI auto-formatting either works and produces the same output — the Rust port is a fast single native binary, while the Python version is the reference and is sometimes ahead on the newest features.
-Pick whichever fits your environment; for heavy or latency-sensitive formatting the Rust binary is the faster choice.
+Flowmark reads Markdown with [Pandoc](https://pandoc.org/)’s Markdown reader and nothing else.
+The reader is a fork, [dzackgarza/pandoc](https://github.com/dzackgarza/pandoc) (branch `flowmark-sourcepos`), whose `sourcepos` extension reports the source line and column of each block and inline node, and whose `flowmark_tags` extension reads a template tag line as its own block.
+Every formatting step edits the source only at the ranges Pandoc reports, so text Flowmark does not change keeps its exact bytes, including raw TeX, attributes, and template tags.
+Before writing, Flowmark parses the original and the result with the same reader and refuses to write if they mean different things, except for the style normalizations it names.
 
 ## Comparison With Other Formatters
 
-Flowmark supports both [CommonMark](https://spec.commonmark.org/0.31.2/) and [GitHub-Flavored Markdown (GFM)](https://github.github.com/gfm/) via [Marko](https://github.com/frostming/marko).
+Flowmark formats [Pandoc Markdown](https://pandoc.org/MANUAL.html#pandocs-markdown) with the extensions `fenced_divs`, `raw_tex`, `tex_math_dollars`, `tex_math_single_backslash`, `wikilinks_title_after_pipe`, `autolink_bare_uris`, and `flowmark_tags`.
 
 The key differences from [other Markdown formatters](#why-another-markdown-formatter):
 
 - Carefully chosen default formatting rules that are effective for use in editors/IDEs, in LLM pipelines, and also when paging through docs in a terminal.
   It parses and normalizes standard links and special characters, headings, tables, footnotes, and horizontal rules and performing Markdown-aware line wrapping.
 
-- “Just works” support for GFM-style tables, footnotes, YAML frontmatter, template tags (Markdoc, Jinja, Nunjucks), and inline HTML comments.
+- “Just works” support for pipe and grid tables, footnotes, fenced divs, TeX math and raw TeX, wikilinks, YAML frontmatter, template tags (Markdoc, Jinja, Nunjucks), and inline HTML comments.
 
 - Advanced and customizable line-wrapping capabilities, including [semantic line breaks](#semantic-line-breaks), a feature that is especially helpful in allowing collaborative edits on a Markdown document while avoiding git conflicts.
 
@@ -34,7 +35,7 @@ General philosophy:
   You can adjust or disable most settings.
   And if you are using it as a library, you can fully control anything you want (including more complex things like custom line wrapping for HTML).
 
-- Be as small and simple as possible, with few dependencies: [`marko`](https://github.com/frostming/marko), [`pathspec`](https://pypi.org/project/pathspec/), [`regex`](https://pypi.org/project/regex/), and [`strif`](https://github.com/jlevy/strif).
+- Be as small and simple as possible, with few dependencies: the `pandoc-flowmark` executable, [`pathspec`](https://pypi.org/project/pathspec/), [`regex`](https://pypi.org/project/regex/), and [`strif`](https://github.com/jlevy/strif).
 
 ## Use Cases
 
@@ -50,12 +51,12 @@ The main ways to use Flowmark are:
 
 - As a more powerful **drop-in replacement library for Python’s default [`textwrap`](https://docs.python.org/3/library/textwrap.html)** but with more options.
   It simplifies and generalizes that library, offering better control over **initial and subsequent indentation** and **when to split words and lines**, e.g. using a word splitter that won’t break lines within HTML tags, template tags (`{% %}`, `{# #}`, `{{ }}`), Markdown links (including links with multi-word text), inline code spans (`` `code with spaces` ``), or HTML comments.
-  See [`wrap_paragraph_lines`](https://github.com/jlevy/flowmark/blob/main/src/flowmark/linewrapping/text_wrapping.py).
+  See [`wrap_paragraph_lines`](src/flowmark/linewrapping/text_wrapping.py).
 
 ## Semantic Line Breaks
 
 > [!TIP]
-> For an example of what an auto-formatted Markdown doc looks with semantic line breaks looks like, see [the Markdown source](https://github.com/jlevy/flowmark/blob/main/README.md?plain=1) of this readme file.
+> For an example of a Markdown document formatted with semantic line breaks, see [the Markdown source](https://github.com/dzackgarza/pandoc-flowmark/blob/main/README.md?plain=1) of this readme file.
 
 Some Markdown auto-formatters never wrap lines, while others wrap at a fixed width.
 By default, Flowmark does neither: it puts each sentence on its own line and sets no column limit.
@@ -74,12 +75,12 @@ But it usually requires people to agree on how to break lines, which is both dif
 
 However, now we are using versioned Markdown more than ever, it’s a good time to revisit this idea, as it can **make diffs in git much more readable**. The change may seem subtle but avoids having paragraphs reflow for very small edits, which does a lot to **minimize merge conflicts**.
 
-This is my own refinement of [traditional semantic line breaks](https://github.com/sembr/specification).
+Flowmark refines [traditional semantic line breaks](https://github.com/sembr/specification).
 Instead of just allowing you to break lines as you wish, it auto-applies fixed conventions about likely sentence boundaries in a conservative and reasonable way.
 It uses simple and fast **regex-based sentence splitting**. While not perfect, this works well for these purposes (and is much faster and simpler than a proper sentence parser like SpaCy).
 It should work fine for English and many other Latin/Cyrillic languages, but hasn’t been tested on CJK. You can see some [old discussion](https://github.com/shurcooL/markdownfmt/issues/17) of this idea with the markdownfmt author.
 
-While this approach to line wrapping may not be familiar, I suggest you just try `flowmark --auto` on a document and you will begin to see the benefits as you edit/commit documents.
+To see the effect, run `flowmark --auto` on a document and edit and commit it.
 
 Semantic line breaks are the default.
 Turn them off with `--no-semantic`.
@@ -145,12 +146,6 @@ flowmark --auto .
 ```
 
 This recursively discovers all `.md` files, skips common non-content directories (`node_modules`, `.venv`, `build`, etc.), respects `.gitignore`, and formats everything in-place with semantic line breaks, smart quotes, ellipses, and cleanups.
-
-For a legacy alternative (pre-v1.0 behavior):
-
-```bash
-find . -name "*.md" -exec flowmark --auto {} \;
-```
 
 ### CLI Reference
 
@@ -367,12 +362,12 @@ There are several other Markdown auto-formatters:
 
 - [dprint-plugin-markdown](https://github.com/dprint/dprint-plugin-markdown) is a Markdown plugin for dprint, the fast Rust/WASM engine
 
-- Rule-based linters like [markdownlint-cli2](https://github.com/DavidAnson/markdownlint-cli2) catch violations or sometimes fix, but tend to be far too clumsy in my experience.
+- Rule-based linters like [markdownlint-cli2](https://github.com/DavidAnson/markdownlint-cli2) catch violations and sometimes fix them, but they do not reformat a document.
 
 - Finally, the [remark ecosystem](https://github.com/remarkjs/remark) is by far the most powerful library ecosystem for building your own Markdown tooling in JavaScript/TypeScript.
   You can build auto-formatters with it but there isn’t one that’s broadly used as a CLI tool.
 
-All of these are worth looking at, but none offer the more advanced line breaking features of Flowmark or seemed to have the “just works” CLI defaults and library usage I found most useful.
+None of these reads Pandoc Markdown with Pandoc's own reader, so none of them can guarantee that formatting keeps the meaning Pandoc gives a document. None of them applies semantic line breaks automatically.
 
 ## Pandoc-aware linting
 

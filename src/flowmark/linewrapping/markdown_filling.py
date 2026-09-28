@@ -14,22 +14,12 @@ from __future__ import annotations
 import sys
 from textwrap import dedent
 
-from flowmark.formats.flowmark_markdown import ListSpacing, flowmark_markdown
+from flowmark.formats.options import ListSpacing
 from flowmark.formats.frontmatter import split_frontmatter
-from flowmark.linewrapping.line_wrappers import (
-    line_wrap_by_sentence,
-    line_wrap_to_width,
-)
 from flowmark.linewrapping.protocols import LineWrapper
-from flowmark.linewrapping.tag_handling import preprocess_tag_block_spacing
 from flowmark.linewrapping.text_filling import DEFAULT_WRAP_WIDTH
-from flowmark.transforms.doc_cleanups import doc_cleanups
-from flowmark.transforms.doc_transforms import (
-    rewrite_text_across_inlines,
-    rewrite_text_content,
-)
-from flowmark.typography.ellipses import ellipses as apply_ellipses
-from flowmark.typography.smartquotes import smart_quotes
+from flowmark.pandoc_source import format_sourced_markdown
+from flowmark.pandoc_reader import pandoc_executable
 
 
 def _strip_blank_edges(text: str) -> str:
@@ -59,6 +49,7 @@ def fill_markdown(
     ellipses: bool = False,
     line_wrapper: LineWrapper | None = None,
     list_spacing: ListSpacing = ListSpacing.loose,
+    verify: bool = True,
 ) -> str:
     """
     Normalize and wrap Markdown text filling paragraphs to the full width.
@@ -82,12 +73,6 @@ def fill_markdown(
     Preserves YAML frontmatter (delimited by --- lines) if present at the
     beginning of the document.
     """
-    if line_wrapper is None:
-        if semantic:
-            line_wrapper = line_wrap_by_sentence(width=width, is_markdown=True)
-        else:
-            line_wrapper = line_wrap_to_width(width=width, is_markdown=True)
-
     # Extract frontmatter before any processing
     frontmatter, content = split_frontmatter(markdown_text)
 
@@ -100,30 +85,23 @@ def fill_markdown(
 
     markdown_text = _strip_blank_edges(markdown_text) + "\n"
 
-    # Preprocess: ensure proper blank lines around block content within tags.
-    # This must happen before parsing to prevent CommonMark lazy continuation
-    # from incorrectly merging tags with lists/tables.
-    markdown_text = preprocess_tag_block_spacing(markdown_text)
-
-    # Parse and render.
-    marko = flowmark_markdown(line_wrapper, list_spacing)
-    document = marko.parse(markdown_text)
-    if cleanups:
-        # The hyphen join is a heuristic -- #18 says so plainly, and asks for a count
-        # rather than silence, because its scope ("digit, lowercase, or inline math",
-        # minus the suspension conjunctions) will not be right every time. Saying how
-        # many is what lets a reader check them.
-        joined = doc_cleanups(document)
-        if joined:
-            print(
-                f"Note: closed up {joined} line break{'s' if joined != 1 else ''} that fell after a hyphen",
-                file=sys.stderr,
-            )
-    if smartquotes:
-        rewrite_text_across_inlines(document, smart_quotes)
-    if ellipses:
-        rewrite_text_content(document, apply_ellipses, coalesce_lines=True)
-    result = marko.render(document)
+    result, joined = format_sourced_markdown(
+        markdown_text,
+        pandoc_executable(),
+        width=width,
+        semantic=semantic,
+        cleanups=cleanups,
+        smartquotes=smartquotes,
+        ellipses=ellipses,
+        list_spacing=list_spacing,
+        line_wrapper=line_wrapper,
+        verify=verify,
+    )
+    if joined:
+        print(
+            f"Note: closed up {joined} line break{'s' if joined != 1 else ''} that fell after a hyphen",
+            file=sys.stderr,
+        )
 
     # End on exactly one newline. Some block renderers append a trailing blank
     # line as a separator from whatever follows; when the block is the document's

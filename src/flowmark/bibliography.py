@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 import subprocess
 from pathlib import Path
 from typing import cast
 
 from platformdirs import user_cache_path
+
+from flowmark.pandoc_reader import pandoc_executable
 
 PANDOC_BIBLIOGRAPHY_READERS = {
     ".bib": "biblatex",
@@ -67,9 +68,7 @@ def _read_keys(path: Path) -> frozenset[str]:
             + ", ".join(PANDOC_BIBLIOGRAPHY_READERS)
             + " files."
         )
-    pandoc = shutil.which("pandoc")
-    if pandoc is None:
-        raise RuntimeError("Pandoc is required to read bibliography files")
+    pandoc = pandoc_executable()
     completed = subprocess.run(
         [pandoc, "-f", reader, "-t", "csljson", str(path)],
         capture_output=True,

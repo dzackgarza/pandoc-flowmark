@@ -339,3 +339,26 @@ def test_a_multiline_html_comment_block_is_kept_verbatim() -> None:
     result = reformat_text(source, semantic=False, verify=True)
 
     assert result.startswith("<!-- Generated from a file via\nscripts/gen.py.\n-->\n")
+
+
+def test_a_table_in_an_ordered_list_item_stays_in_the_item() -> None:
+    """A pipe table indented under an ordered-list item keeps its indentation (#42)."""
+    source = (
+        "1. First step.\n\n"
+        "2. Second step, with a table:\n\n"
+        "   | A | B |\n   | --- | --- |\n   | 1 | 2 |\n\n"
+        "3. Third step.\n"
+    )
+
+    assert reformat_text(source, semantic=True, verify=True) == source
+
+
+def test_backslash_paren_math_is_opaque() -> None:
+    """
+    Pandoc's `tex_math_single_backslash` reads `\\(...\\)` as math, so underscores
+    inside it are TeX, never emphasis (#43).
+    """
+    math = r"\(O_{\mathrm{sn}_{K'}}(L)=O(L)\cap\ker\mathrm{sn}_{K'}\)"
+    source = f"- Return {math} for the spinor norm.\n"
+
+    assert math in reformat_text(source, semantic=True, verify=True)

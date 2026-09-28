@@ -11,7 +11,7 @@ with control over tight vs loose list formatting.
 
 from textwrap import dedent
 
-from flowmark.formats.flowmark_markdown import ListSpacing
+from flowmark.formats.options import ListSpacing
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
 # --- Tests for preserve mode ---

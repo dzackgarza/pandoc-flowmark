@@ -139,14 +139,14 @@ $ printf 'drafts/\n' > project/.flowmarkignore && flowmark --list-files project 
 $ flowmark --skill | head -3
 ---
 name: flowmark
-description: Auto-format Markdown with semantic line breaks, smart quotes, and diff-friendly output. Use for formatting Markdown files, normalizing LLM outputs, or when user mentions flowmark, markdown formatting, or semantic line breaks.
+description: Auto-format and lint Pandoc Markdown with semantic line breaks, smart quotes, and diff-friendly output. Use for formatting Markdown files, normalizing LLM outputs, or when user mentions flowmark, markdown formatting, or semantic line breaks.
 ```
 
 ## Docs: print documentation
 
 ```console
-$ flowmark --docs | grep "^# flowmark$" | head -1
-# flowmark
+$ flowmark --docs | grep "^# pandoc-flowmark$" | head -1
+# pandoc-flowmark
 ```
 
 ## Stdin: default formatting

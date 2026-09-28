@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-import shutil
-
 import pytest
 
 from flowmark.lint import lint_text
 from flowmark.pandoc_lint import parse_pandoc_for_lint
-
-
-pandocless = pytest.mark.skipif(
-    shutil.which("pandoc") is None, reason="requires the Pandoc oracle on PATH"
-)
 
 
 PROSE_LOOKALIKES = (
@@ -41,7 +34,6 @@ BOUNDARY_LOOKALIKES = (
 )
 
 
-@pandocless
 def test_default_linter_is_quiet_on_pandoc_prose_lookalikes() -> None:
     # These are intentionally parser-looking strings.  The test first asserts
     # the canonical Pandoc reader accepts them without warnings/errors, then
@@ -60,7 +52,6 @@ def test_default_linter_is_quiet_on_pandoc_prose_lookalikes() -> None:
         assert findings == [], source
 
 
-@pandocless
 def test_parser_looking_source_inside_literal_regions_cannot_leak_lint_syntax() -> None:
     tokens = [
         "#Heading",
@@ -138,7 +129,6 @@ def test_parser_looking_source_inside_literal_regions_cannot_leak_lint_syntax() 
         ),
     ],
 )
-@pandocless
 def test_pandoc_warnings_are_mapped_without_reimplementing_the_grammar(
     source: str,
     warning_fragment: str,
@@ -153,7 +143,6 @@ def test_pandoc_warnings_are_mapped_without_reimplementing_the_grammar(
     assert rule in {diagnostic.rule for diagnostic in lint_text(source)}
 
 
-@pandocless
 def test_pandoc_parse_error_is_the_syntax_error() -> None:
     source = "---\ntitle: [oops\n---\n\nText\n"
     parsed = parse_pandoc_for_lint(source)
@@ -163,7 +152,6 @@ def test_pandoc_parse_error_is_the_syntax_error() -> None:
     assert [item.rule for item in diagnostics] == ["frontmatter/malformed-flow"]
 
 
-@pandocless
 def test_atx_heading_level_is_pandoc_unbounded_not_commonmark_six() -> None:
     source = "####### Seven\n\n######## Eight\n"
     parsed = parse_pandoc_for_lint(source)

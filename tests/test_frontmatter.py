@@ -1,5 +1,6 @@
 from flowmark.formats.frontmatter import has_frontmatter, split_frontmatter
 from flowmark.linewrapping.markdown_filling import fill_markdown
+from flowmark.reformat_api import reformat_text
 
 
 def test_split_frontmatter() -> None:
@@ -72,3 +73,10 @@ def test_markdown_with_frontmatter() -> None:
     assert "# Content" in content
     assert "with long sentence that should be wrapped" in content
     assert "readable when it gets" in content
+
+
+def test_frontmatter_is_not_checked_as_markdown_math() -> None:
+    """A `$` in YAML frontmatter is metadata, never rejected as malformed math."""
+    source = "---\npath: $ROOT/bin before: | cp $\n---\n\n# Title\n\nText.\n"
+
+    assert reformat_text(source, verify=True) == source

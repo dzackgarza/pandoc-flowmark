@@ -10,13 +10,17 @@ PANDOC_FORMAT = (
     "+tex_math_dollars"
     "+tex_math_single_backslash"
     "+wikilinks_title_after_pipe"
+    "+autolink_bare_uris"
+    "+flowmark_tags"
 )
-"""The exact Pandoc Markdown reader used by the surrounding authoring pipeline.
+"""The exact Pandoc Markdown reader for formatting, linting, and verification.
 
 Pandoc's ``markdown`` defaults already enable citations, pipe/grid tables,
 footnotes, bracketed spans, and attributes. ``tex_math_single_backslash`` and
 ``wikilinks_title_after_pipe`` are not defaults and are load-bearing for this
 corpus, so no caller may silently fall back to bare ``markdown``.
+``autolink_bare_uris`` reads a bare URL as a link, and ``flowmark_tags`` (an
+extension of the pandoc-flowmark reader) reads a template tag line as a block.
 """
 
 PANDOC_LINT_FORMAT = PANDOC_FORMAT + "-native_divs"

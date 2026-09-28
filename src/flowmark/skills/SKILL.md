@@ -1,31 +1,26 @@
 ---
 name: flowmark
-description: Auto-format Markdown with semantic line breaks, smart quotes, and diff-friendly output. Use for formatting Markdown files, normalizing LLM outputs, or when user mentions flowmark, markdown formatting, or semantic line breaks.
-allowed-tools: Bash(flowmark:*), Bash(uvx flowmark@latest:*), Read, Write
+description: Auto-format and lint Pandoc Markdown with semantic line breaks, smart quotes, and diff-friendly output. Use for formatting Markdown files, normalizing LLM outputs, or when user mentions flowmark, markdown formatting, or semantic line breaks.
+allowed-tools: Bash(flowmark:*), Bash(flowmark-lint:*), Read, Write
 ---
 # Flowmark - Markdown Auto-Formatter
 
-> **Full documentation: Run `uvx flowmark@latest --docs` for all options and usage.**
+> **Full documentation: Run `flowmark --docs` for all options and usage.**
 
-Auto-format Markdown with semantic line breaks for clean git diffs and consistent
-output.
-
-> **Python or Rust:** This skill drives the Python Flowmark (`uvx flowmark@latest`). An
-> auto-synced [Rust port (flowmark-rs)](https://github.com/jlevy/flowmark-rs) offers the
-> same formatting as a fast single native binary — use either, by preference.
-> The Python version is the reference implementation and is occasionally ahead on the
-> newest features.
+Auto-format Pandoc Markdown with semantic line breaks for clean git diffs and consistent
+output. Flowmark reads each document with the `pandoc-flowmark` reader, which must be on
+`PATH`, and refuses to write a result that Pandoc reads differently.
 
 ## Quick Start
 
 **Format a file in place with all auto-formatting:**
 ```bash
-uvx flowmark@latest --auto README.md
+flowmark --auto README.md
 ```
 
 **Preview formatted output to stdout:**
 ```bash
-uvx flowmark@latest README.md
+flowmark README.md
 ```
 
 ## When to Use Flowmark
@@ -40,7 +35,6 @@ uvx flowmark@latest README.md
 **Don’t use flowmark for:**
 - Syntax highlighting or rendering (use a Markdown viewer)
 - Converting between formats (use pandoc)
-- Linting without auto-fix (use markdownlint)
 
 ## Key Options
 
@@ -61,33 +55,39 @@ uvx flowmark@latest README.md
 
 ## Common Workflows
 
+### Lint Without Writing
+
+```bash
+flowmark-lint docs/
+```
+
 ### Format for Git
 
 ```bash
-uvx flowmark@latest --auto *.md
+flowmark --auto *.md
 git diff  # Review clean, semantic diffs
 ```
 
 ### Format LLM Output
 
 ```bash
-echo "$llm_output" | uvx flowmark@latest -
+echo "$llm_output" | flowmark -
 ```
 
 ### Batch Format
 
 ```bash
 # Format all Markdown files in current directory recursively
-uvx flowmark@latest --auto .
+flowmark --auto .
 
 # List files that would be formatted (without formatting)
-uvx flowmark@latest --list-files .
+flowmark --list-files .
 ```
 
 ### Stdin/Stdout Processing
 
 ```bash
-cat document.md | uvx flowmark@latest - > formatted.md
+cat document.md | flowmark - > formatted.md
 ```
 
 ### VS Code/Cursor (Run on Save)

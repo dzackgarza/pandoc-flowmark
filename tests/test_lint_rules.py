@@ -348,8 +348,7 @@ def _findings(source: str, rule: str) -> list[str]:
 
 def test_tex_notation_outside_math_mode_is_reported() -> None:
     """
-    Outside `$...$`, `_` is an emphasis delimiter (here marko and pandoc disagree
-    on whether `_R ... x_` is one span), and `\\sum` is raw TeX that pandoc drops
+    Outside `$...$`, `_` is an emphasis delimiter, and `\\sum` is raw TeX that pandoc drops
     from HTML output. Each site is named where it stands.
     """
     assert _findings(MATH_IN_PROSE, "math/outside-math-mode") == [

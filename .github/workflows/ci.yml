@@ -70,15 +70,18 @@ jobs:
       - name: Run linting
         run: uv run python devtools/lint.py
 
-      - name: Install pandoc (pinned)
-        # The verify oracle asks pandoc what documents mean, and the recorded
-        # probe contracts in tests/test_smartquotes.py are pinned to this exact
-        # release. ubuntu-latest does not ship pandoc.
+      - name: Install pandoc-flowmark (pinned)
+        # Flowmark parses, lints, and verifies with the pandoc-flowmark reader, a
+        # static build of the Pandoc fork dzackgarza/pandoc (branch
+        # flowmark-sourcepos). The release tag and the tarball's SHA-256 change
+        # together; see SUPPLY-CHAIN-SECURITY.md.
         run: |
-          curl -sSL -o /tmp/pandoc.tgz https://github.com/jgm/pandoc/releases/download/3.9.0.2/pandoc-3.9.0.2-linux-amd64.tar.gz
-          tar xzf /tmp/pandoc.tgz -C /tmp
-          sudo install -m755 /tmp/pandoc-3.9.0.2/bin/pandoc /usr/local/bin/pandoc
-          pandoc --version | head -1
+          tag=flowmark-3.10.2-4
+          curl -sSL -o /tmp/pandoc-flowmark.tar.gz "https://github.com/dzackgarza/pandoc/releases/download/$tag/$tag-linux-amd64.tar.gz"
+          echo "50ce56aa651ce19e94a7c9f2d0376f3b09510396659f5e39a56fff9f3a83d2a9  /tmp/pandoc-flowmark.tar.gz" | sha256sum -c -
+          tar xzf /tmp/pandoc-flowmark.tar.gz -C /tmp
+          sudo install -m755 "/tmp/$tag-linux-amd64/pandoc-flowmark" /usr/local/bin/pandoc-flowmark
+          pandoc-flowmark --version | head -1
 
       - name: Run tests
         run: uv run pytest

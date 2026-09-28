@@ -26,7 +26,7 @@ Additional changes implemented:
 
 - Removed `_normalize_html_comments()` function that was forcing all comments to separate lines
 
-- Marko parser now handles HTML comments naturally (inline stays inline, block stays block)
+- The Pandoc reader handles HTML comments naturally (inline stays inline, block stays block)
 
 - Added unit tests: `test_inline_code_with_spaces`, `test_inline_code_with_surrounding_punctuation`, `test_html_comments_kept_together`
 
@@ -42,7 +42,7 @@ Remaining work (future enhancements):
 
 - Phase 2: Tag boundary detection for preventing line joining around block tags
 
-- Phase 4: Block-level tag handling (recognizing block tags at Marko parser level)
+- Phase 4: Block-level tag handling (done: the Pandoc reader's `flowmark_tags` extension reads a block tag as a `flowmark-tag` raw block)
 
 ## Overview
 
@@ -241,12 +241,12 @@ This content should be wrapped normally.
 {% /if %}
 ```
 
-The current Marko parser integration doesn’t recognize Markdoc as special syntax.
-Options:
+The Pandoc reader, with the fork's `flowmark_tags` extension, reads a tag alone on a line as a `RawBlock` in format `flowmark-tag`. The formatter keeps these blocks byte-identical.
+The options considered were:
 
 1. **Minimal approach (recommended for now):** Treat block tags as regular paragraphs, just ensure they’re not broken or joined improperly
 
-2. **Full integration (future):** Add Marko extension to recognize Markdoc block elements
+2. **Full integration (done):** Recognize Markdoc block elements in the reader
 
 ### Phase 5: Testing
 

@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 from dataclasses import dataclass
 from typing import cast
 
 from flowmark.pandoc_dialect import PANDOC_LINT_FORMAT
+from flowmark.pandoc_reader import PandocUnavailableError, pandoc_executable
 
 
 type PandocJson = (
@@ -96,9 +96,10 @@ def _messages(stderr: str, *, failed: bool) -> tuple[PandocMessage, ...]:
 
 def parse_pandoc_for_lint(text: str) -> PandocLintDocument:
     """Parse exact authored text with the canonical Pandoc reader dialect."""
-    pandoc = shutil.which("pandoc")
-    if pandoc is None:
-        raise PandocLintUnavailableError("Pandoc is required for syntax-aware linting")
+    try:
+        pandoc = pandoc_executable()
+    except PandocUnavailableError as error:
+        raise PandocLintUnavailableError(str(error)) from error
     completed = subprocess.run(
         [pandoc, "-f", PANDOC_LINT_FORMAT, "-t", "json"],
         input=text,

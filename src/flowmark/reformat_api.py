@@ -3,11 +3,19 @@ from pathlib import Path
 
 from strif import atomic_output_file
 
-from flowmark.formats.flowmark_markdown import ListSpacing
+from flowmark.formats.frontmatter import split_frontmatter
+from flowmark.formats.options import ListSpacing
 from flowmark.linewrapping.markdown_filling import fill_markdown
 from flowmark.linewrapping.text_filling import Wrap, fill_text
 from flowmark.linewrapping.text_wrapping import get_html_md_word_splitter
+from flowmark.pandoc_reader import (
+    PandocParseError,
+    located_nodes,
+    pandoc_executable,
+    read_source_ast,
+)
 from flowmark.pandoc_verify import (
+    ALERT_TYPE,
     HYPHEN_JOIN,
     LAZY_LIST,
     LIST_SPACING,
@@ -18,7 +26,28 @@ from flowmark.pandoc_verify import (
     check_meaning_preserved,
     describe,
 )
-from flowmark.preflight import MalformedInputError, preflight, rejected_math
+from flowmark.preflight import (
+    MalformedInputError,
+    preflight,
+    rejected_math,
+    unclosed_fences,
+)
+
+
+def _without_raw_blocks(body: str) -> str:
+    """
+    `body` with the lines of Pandoc's raw and code blocks emptied, so a `$` in raw
+    TeX or code is not checked as Markdown math. Line numbers are kept.
+    """
+    lines = body.split("\n")
+    for node in located_nodes(read_source_ast(body, pandoc_executable())):
+        if node.node.get("t") not in {"RawBlock", "CodeBlock"}:
+            continue
+        end = node.source_range.end
+        last = end.line - 1 if end.column == 1 else end.line
+        for index in range(node.source_range.start.line - 1, min(last, len(lines))):
+            lines[index] = ""
+    return "\n".join(lines)
 
 
 def reformat_text(
@@ -46,7 +75,8 @@ def reformat_text(
 
     Raises:
         MalformedInputError: in Markdown mode, if the document has `$...$` meant as
-            math that pandoc reads as text (`rejected_math`).
+            math that pandoc reads as text (`rejected_math`), or a fence that is
+            never closed (`unclosed_fences`).
     """
     if plaintext:
         # Plaintext mode
@@ -57,11 +87,20 @@ def reformat_text(
             word_splitter=get_html_md_word_splitter(),
         )
     else:
-        # Markdown mode. Math pandoc reads as text is an error in the document:
-        # formatting it would treat the author's TeX as prose.
-        rejected = rejected_math(text)
+        # Markdown mode. Math pandoc reads as text, or a fence never closed, is an
+        # error in the document: formatting it would treat the author's TeX or
+        # code as prose. YAML frontmatter is metadata, not Markdown, so only the
+        # body is checked; line numbers count from the top of the file.
+        frontmatter, body = split_frontmatter(text)
+        offset = frontmatter.count("\n")
+        rejected = sorted(
+            [*rejected_math(_without_raw_blocks(body)), *unclosed_fences(body)],
+            key=lambda f: f.line,
+        )
         if rejected:
-            named = "; ".join(f"{verify_label}:{f.line}: {f.message}" for f in rejected)
+            named = "; ".join(
+                f"{verify_label}:{f.line + offset}: {f.message}" for f in rejected
+            )
             raise MalformedInputError(
                 f"Refusing to write {verify_label}: {named}. The file is unchanged."
             )
@@ -77,6 +116,7 @@ def reformat_text(
             smartquotes=smartquotes,
             ellipses=ellipses,
             list_spacing=list_spacing,
+            verify=False,
         )
         if verify and result != text:
             # An unchanged document trivially preserves meaning, so only a real
@@ -123,6 +163,7 @@ def reformat_text(
                 LIST_SPACING: list_spacing is not ListSpacing.preserve,
                 SMART_QUOTES: smartquotes,
                 HYPHEN_JOIN: cleanups,
+                ALERT_TYPE: True,
                 # No flag asks for this one, so it is always worth saying: the
                 # author's bullets under a paragraph line became a real list.
                 LAZY_LIST: False,
@@ -307,6 +348,14 @@ def reformat_files(
             # The document was left byte-identical; a per-file refusal must not
             # abort the batch.
             print(f"Warning: {e}", file=sys.stderr)
+            refused += 1
+        except PandocParseError as e:
+            # Pandoc cannot read the document at all, so there is nothing to
+            # format; it is an error in the input, left byte-identical.
+            print(
+                f"Warning: Refusing to write {file_path}: pandoc cannot parse it: {e}",
+                file=sys.stderr,
+            )
             refused += 1
     if refused:
         print(

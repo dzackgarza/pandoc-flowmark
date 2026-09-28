@@ -38,10 +38,10 @@ class SentenceSplitter(Protocol):
 
 
 def split_sentences_no_min_length(text: str) -> list[str]:
-    # A link, code span or math span arrives with no whitespace in it (the renderer
-    # writes parsed elements `unbreakable`), so a "St." inside link text is not a word
-    # end and cannot trip the end-of-sentence heuristic. Tags have no parse node, so
-    # they are kept whole by pattern.
+    # A link, code span or math span arrives with no whitespace in it (the sourced
+    # wrapper hides the whitespace in each atom Pandoc locates), so a "St." inside
+    # link text is not a word end and cannot trip the end-of-sentence heuristic.
+    # Tags have no parse node, so they are kept whole by pattern.
     return [
         span.text
         for span in split_sentences_with_spans(
@@ -132,6 +132,7 @@ def line_wrap_by_sentence(
     min_line_len: int = DEFAULT_MIN_LINE_LEN,
     len_fn: Callable[[str], int] = DEFAULT_LEN_FUNCTION,
     is_markdown: bool = False,
+    source_preserving: bool = False,
 ) -> LineWrapper:
     """
     Wrap lines of text to a given width but also keep sentences on their own lines.
@@ -172,6 +173,10 @@ def line_wrap_by_sentence(
             current_column = initial_indent_len if first_line else subsequent_indent_len
             if len(lines) > 0 and length(lines[-1]) < min_line_len:
                 current_column += length(lines[-1])
+            elif lines and sentence.strip():
+                # The sentence starts a line after a line break, so its first word
+                # is escaped before wrapping measures it.
+                sentence = _escape_line_start(sentence.lstrip(), is_markdown)
 
             wrapped = wrap_paragraph_lines(
                 sentence,
@@ -191,10 +196,6 @@ def line_wrap_by_sentence(
                 lines[-1] += " " + wrapped[0]
                 wrapped.pop(0)
 
-            # A sentence's first line is a first line to the wrapper, which does
-            # not escape it, but in the paragraph it follows a line break.
-            if lines and wrapped:
-                wrapped[0] = _escape_line_start(wrapped[0], is_markdown)
             lines.extend(wrapped)
 
             first_line = False
@@ -210,7 +211,7 @@ def line_wrap_by_sentence(
         # Restore original adjacency for paired tags (remove spaces added during tokenization)
         return denormalize_adjacent_tags(result)
 
-    if is_markdown:
+    if is_markdown and not source_preserving:
         # Apply tag newline handling first, then hard break handling
         enhanced = add_tag_newline_handling(line_wrapper)
         return _add_markdown_hard_break_handling(enhanced)

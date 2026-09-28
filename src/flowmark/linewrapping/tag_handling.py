@@ -14,15 +14,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from enum import Enum
-from functools import cache
-from typing import NamedTuple, cast
-
-from marko import block
-from marko.ext.gfm import elements as gfm_elements
-from marko.parser import Parser
-from marko.source import Source
-
-from flowmark.formats.flowmark_parser import flowmark_parser
+from typing import NamedTuple
 from flowmark.linewrapping.atomic_patterns import (
     PAIRED_HTML_COMMENT,
     PAIRED_JINJA_COMMENT,
@@ -34,6 +26,12 @@ from flowmark.linewrapping.atomic_patterns import (
     SINGLE_JINJA_VAR,
 )
 from flowmark.linewrapping.protocols import LineWrapper
+from flowmark.pandoc_reader import (
+    PandocJson,
+    located_nodes,
+    pandoc_executable,
+    read_source_ast,
+)
 
 # Pattern to match complete template tags (for protecting content inside tags).
 # Uses the single tag patterns from atomic_patterns.
@@ -154,32 +152,20 @@ def is_tag_only_line(line: str) -> bool:
     return starts_tag and ends_tag
 
 
-@cache
-def _parser() -> Parser:
-    """flowmark's Markdown parser, built once."""
-    return flowmark_parser()
-
-
-def _blocks(lines: Sequence[str]) -> list[block.BlockElement]:
-    """The top-level blocks flowmark's parser reads in `lines`."""
-    # marko's `Parser.parse` (marko/parser.py, marko 2.2.2) without its inline
-    # pass: only block types are asked about here, and inline parsing is most of
-    # a parse's cost.
-    parser = _parser()
-    source = Source("\n".join(lines) + "\n")
-    source.parser = parser
-    document = cast("block.Document", parser.block_elements["Document"]())
-    with source.under_state(document):
-        return parser.parse_source(source)
-
-
-def _is_list_or_table(element: block.BlockElement) -> bool:
-    return isinstance(element, (block.List, gfm_elements.Table))
+def _blocks(lines: Sequence[str]) -> list[dict[str, PandocJson]]:
+    """Top-level blocks from Flowmark's Pandoc reader."""
+    source = "\n".join(lines) + "\n"
+    return [
+        node.node
+        for node in located_nodes(read_source_ast(source, pandoc_executable()))
+        if not node.ancestors
+    ]
 
 
 def _is_list_item_line(line: str) -> bool:
     """Whether the parser reads `line`, on its own, as the start of a list."""
-    return isinstance(_blocks([line])[0], block.List)
+    blocks = _blocks([line])
+    return bool(blocks and blocks[0].get("t") in {"BulletList", "OrderedList"})
 
 
 def _table_length(lines: Sequence[str]) -> int:
@@ -188,84 +174,27 @@ def _table_length(lines: Sequence[str]) -> int:
     if they do not open one.
     """
     # The header and delimiter rows alone decide whether a table opens here, so the
-    # whole run is parsed only when one does.
-    if not isinstance(_blocks(lines[:2])[0], gfm_elements.Table):
+    # whole run is parsed only when one does. Both rows of a pipe table contain a
+    # pipe (Pandoc manual, "pipe_tables").
+    if len(lines) < 2 or "|" not in lines[0] or "|" not in lines[1]:
         return 0
-    table = _blocks(lines)[0]
-    assert isinstance(table, gfm_elements.Table)
-    # Every row is a child of the table; the delimiter row is not.
-    return len(table.children) + 1
-
-
-def _run_between_tags(lines: Sequence[str], start: int, step: int) -> list[str]:
-    """
-    The lines from `start`, walking by `step` (1 or -1) until a blank or tag-only
-    line, in document order.
-    """
-    run: list[str] = []
-    i = start
-    while 0 <= i < len(lines) and lines[i].strip() and not is_tag_only_line(lines[i]):
-        run.append(lines[i])
-        i += step
-    return run if step > 0 else run[::-1]
-
-
-def preprocess_tag_block_spacing(text: str) -> str:
-    """
-    Preprocess text to ensure proper blank lines around block content within tags.
-
-    When block content (lists, tables) appears directly after an opening tag or
-    directly before a closing tag, the CommonMark parser may use lazy continuation
-    to merge them incorrectly. This function inserts blank lines to prevent this.
-
-    This preprocessing must happen BEFORE Markdown parsing, as the parser's
-    structure cannot be fixed after the fact.
-
-    Example transformation:
-        {% field %}
-        - item 1
-        - item 2
-        {% /field %}
-
-    Becomes:
-        {% field %}
-
-        - item 1
-        - item 2
-
-        {% /field %}
-
-    Whether the content beside a tag is a list or table is the parser's reading of
-    that content, taken up to the next blank or tag-only line.
-    """
-    lines = text.split("\n")
-    result_lines: list[str] = []
-
-    # Check if there are any tag-only lines in the text
-    has_tag_only_lines = any(is_tag_only_line(line) for line in lines)
-    if not has_tag_only_lines:
-        return text
-
-    for i, line in enumerate(lines):
-        # Check if we need to add a blank line BEFORE this line
-        if i > 0 and lines[i - 1].strip():
-            # Case 1: a tag-only line, then content that opens with a list or table
-            # (need blank line after opening tag before list/table)
-            if is_tag_only_line(lines[i - 1]):
-                after = _run_between_tags(lines, i, 1)
-                if after and _is_list_or_table(_blocks(after)[0]):
-                    result_lines.append("")
-
-            # Case 2: content that closes with a list or table, then a tag-only line
-            # (need blank line after list/table before closing tag)
-            if is_tag_only_line(line):
-                before = _run_between_tags(lines, i - 1, -1)
-                if before and _is_list_or_table(_blocks(before)[-1]):
-                    result_lines.append("")
-
-        result_lines.append(line)
-
-    return "\n".join(result_lines)
+    first = _blocks(lines[:2])
+    if not first or first[0].get("t") != "Table":
+        return 0
+    blocks = _blocks(lines)
+    if not blocks or blocks[0].get("t") != "Table":
+        return 0
+    content = blocks[0].get("c")
+    if not isinstance(content, list) or len(content) < 5:
+        return 0
+    bodies = content[4]
+    if not isinstance(bodies, list):
+        return 0
+    rows = 0
+    for body in bodies:
+        if isinstance(body, list) and len(body) == 4 and isinstance(body[3], list):
+            rows += len(body[3])
+    return rows + 2
 
 
 def line_ends_with_tag(line: str) -> bool:
@@ -391,29 +320,12 @@ def add_tag_newline_handling(
     This enables compatibility with Markdoc, Markform, and similar systems
     that use block-level tags like `{% field %}...{% /field %}`.
 
-    The `tags` parameter is retained for API compatibility but currently unused.
     Both atomic and wrap modes apply the multiline tag fix (workaround for
     Markdoc parser bug - see GitHub issue #17).
 
-    IMPORTANT LIMITATION: This operates at the line-wrapping level, AFTER
-    Markdown parsing. If the Markdown parser (Marko) has already interpreted
-    content as part of a block element (e.g., list item continuation), we
-    cannot undo that structure. For example:
-
-        - list item
-        {% /tag %}
-
-    The parser may treat `{% /tag %}` as list continuation, causing it to
-    be indented. The newline IS preserved, but indentation is added.
-
-    WORKAROUND: Use blank lines around block elements inside tags:
-
-        {% field %}
-
-        - Item 1
-        - Item 2
-
-        {% /field %}
+    This operates on paragraph text. A tag alone on its unindented line is a block
+    of its own to Pandoc's `flowmark_tags` reader, so it never reaches a paragraph
+    here; the lines kept apart are those where a tag shares a line with text.
     """
 
     def enhanced_wrapper(text: str, initial_indent: str, subsequent_indent: str) -> str:

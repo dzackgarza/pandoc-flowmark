@@ -1,8 +1,6 @@
 from textwrap import dedent
 
-import marko
-
-from flowmark.formats.flowmark_markdown import ListSpacing
+from flowmark.formats.options import ListSpacing
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
 _original_doc = dedent(
@@ -224,19 +222,9 @@ Complex should be possible.*” —Alan Kay </p>
 
 
 def test_normalize_markdown() -> None:
-    parsed = marko.parse(_original_doc)
-    print("---Parsed")
-    print(parsed)
-
     normalized_doc = fill_markdown(
         _original_doc, semantic=True, list_spacing=ListSpacing.loose
     )
-
-    print("---Before")
-    print(_original_doc)
-    print("---After")
-    print(normalized_doc)
-
     assert normalized_doc == _expected_doc
 
 
@@ -286,12 +274,11 @@ def test_wide_table_adjacent_to_paragraph() -> None:
     Test that a wide table row immediately following paragraph text (no blank line)
     is preserved on a single line by fill_markdown.
 
-    This is the reproduction case from GitHub issue #36: Marko's GFM parser does not
-    recognize a table when it directly follows paragraph text without a blank line.
-    The table rows get parsed as part of the paragraph and were previously broken
-    by the line wrapper.
+    This is the reproduction case from GitHub issue #36. Pandoc reads table rows
+    directly after paragraph text as paragraph text, so the line wrapper must keep
+    each row on its own line.
     """
-    # Table directly after paragraph (no blank line) — Marko parses as paragraph
+    # Table directly after paragraph (no blank line) — Pandoc reads a paragraph
     input_doc = dedent(
         """\
     Some paragraph text here.

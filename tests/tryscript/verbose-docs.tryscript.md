@@ -12,8 +12,6 @@ before: |
 # Verbose, Docs, and Skill Tests
 
 Tests for --skill, --install-skill, and --docs output.
-Note: --verbose is Rust-only (not in Python), so this suite focuses on docs/skill
-behavior.
 
 ## V1: Skill prints SKILL.md content
 
@@ -21,8 +19,8 @@ behavior.
 $ flowmark --skill | sed -n '1,6p'
 ---
 name: flowmark
-description: Auto-format Markdown with semantic line breaks, smart quotes, and diff-friendly output. Use for formatting Markdown files, normalizing LLM outputs, or when user mentions flowmark, markdown formatting, or semantic line breaks.
-allowed-tools: Bash(flowmark:*), Bash(uvx flowmark@latest:*), Read, Write
+description: Auto-format and lint Pandoc Markdown with semantic line breaks, smart quotes, and diff-friendly output. Use for formatting Markdown files, normalizing LLM outputs, or when user mentions flowmark, markdown formatting, or semantic line breaks.
+allowed-tools: Bash(flowmark:*), Bash(flowmark-lint:*), Read, Write
 ---
 # Flowmark - Markdown Auto-Formatter
 ```
@@ -30,13 +28,8 @@ allowed-tools: Bash(flowmark:*), Bash(uvx flowmark@latest:*), Read, Write
 ## V2: Docs prints documentation
 
 ```console
-$ flowmark --docs | grep -Fx "# flowmark"
-# flowmark
-```
-
-```console
-$ flowmark --docs | grep -Fx "## Original Python Flowmark"
-## Original Python Flowmark
+$ flowmark --docs | grep -Fx "# pandoc-flowmark"
+# pandoc-flowmark
 ```
 
 ## V3: Install skill creates skill file
@@ -56,6 +49,6 @@ nested dirs created
 ## V5: Skill output contains required frontmatter
 
 ```console
-$ flowmark --skill | grep -F -- "uvx flowmark@latest --docs" | sed 's/^> //'
-**Full documentation: Run `uvx flowmark@latest --docs` for all options and usage.**
+$ flowmark --skill | grep -F -- "flowmark --docs" | sed 's/^> //'
+**Full documentation: Run `flowmark --docs` for all options and usage.**
 ```

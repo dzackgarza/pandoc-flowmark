@@ -35,7 +35,6 @@ from flowmark.atomic_spans import (
     SINGLE_JINJA_VAR,
     iter_atomic_spans,
 )
-from flowmark.formats.flowmark_parser import CustomRawInlineTex
 from flowmark.linewrapping.atomic_patterns import INLINE_MATH
 from flowmark.lint_engine import (
     LintRule,
@@ -381,6 +380,14 @@ def _mark(protected: bytearray, start: int, end: int) -> None:
     protected[start:end] = b"\x01" * (end - start)
 
 
+# A TeX command with brace arguments, e.g. `\overline{ \mathcal{M}_{1} }`: Pandoc's
+# raw_tex reads such a run verbatim, so its underscores are TeX subscripts, not
+# emphasis. Arguments nest three deep; `re` cannot match arbitrary nesting.
+_RAW_TEX_COMMAND = re.compile(
+    r"\\[a-zA-Z]+(?:\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})+"
+)
+
+
 def _build_protected_map(
     text: str,
     lines: list[_Line],
@@ -431,10 +438,8 @@ def _build_protected_map(
     for span in iter_pandoc_math_spans(text, blocked=literal):
         _mark(protected, span.start, span.end)
 
-    raw_tex_pattern = CustomRawInlineTex.pattern
-    if isinstance(raw_tex_pattern, re.Pattern):
-        for match in raw_tex_pattern.finditer(text):
-            _mark(protected, match.start(), match.end())
+    for match in _RAW_TEX_COMMAND.finditer(text):
+        _mark(protected, match.start(), match.end())
     return protected
 
 

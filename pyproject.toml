@@ -1,7 +1,7 @@
 # ---- Project Info and Dependencies ----
 
 [project.urls]
-Repository = "https://github.com/jlevy/flowmark"
+Repository = "https://github.com/dzackgarza/pandoc-flowmark"
 # Homepage = "https://..."
 # Documentation = "https://..."
 
@@ -37,7 +37,6 @@ classifiers = [
 ]
 
 dependencies = [
-    "marko>=2.2.0",  # 2.2.0 added GFM Alert support
     "pathspec>=0.12.1",
     "platformdirs>=4.2",
     "rapidfuzz>=3.9",
@@ -64,7 +63,6 @@ dev = [
 [project.scripts]
 # Add script entry points here.
 flowmark = "flowmark.cli:main"
-flowmark-py = "flowmark.cli:main"
 flowmark-lint = "flowmark.lint_cli:main"
 
 
@@ -137,7 +135,8 @@ reportImplicitStringConcatenation = false
 [tool.codespell]
 # Add here as needed:
 # ignore-words-list = "foo,bar"
-skip = "tests/testdocs/*.md"
+# The TeXstudio command index is generated data of TeX command names.
+skip = "tests/testdocs/*.md,src/flowmark/data/texstudio-command-index.json"
 
 [tool.pytest.ini_options]
 python_files = ["*.py"]

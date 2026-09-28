@@ -25,15 +25,19 @@ SENTENCE_END_RE = regex.compile(r"(\b\p{L}+[\p{Ll}])([.?!]['\"’”)]?|['\"’�
 # common case where ``$`` intervenes.
 _MATH_SENTENCE_END_RE = regex.compile(r"\$[.?!]['\"’”)]?\s*$")
 
+# Citation-aware variant: matches sentence-ending punctuation directly after a
+# bracketed pandoc citation (e.g. ``[@AE22].`` or ``[-@thm:key].``).
+_CITATION_SENTENCE_END_RE = regex.compile(r"\[-?@[^\[\]]*\][.?!]['\"’”)]?\s*$")
+
 # Second heuristic: Very short sentences often not so useful.
 SENTENCE_MIN_LENGTH = 15
 
 # Common abbreviations that end in a lowercase letter followed by a period and so
 # match SENTENCE_END_RE, but are not real sentence boundaries (e.g. ``Mr. Jones``).
-# Compared case-insensitively against the word with trailing sentence punctuation
-# and closing quotes/parens stripped. Multi-period forms like ``e.g.`` and ``p.m.``
-# already fail SENTENCE_END_RE (single trailing letter), so only single-token
-# abbreviations need listing here.
+# Compared case-insensitively against the word with opening parens/quotes, trailing
+# sentence punctuation, and closing quotes/parens stripped. Multi-period forms like
+# ``e.g.`` and ``p.m.`` already fail SENTENCE_END_RE (single trailing letter), so only
+# single-token abbreviations need listing here.
 _ABBREVIATIONS = frozenset(
     {
         "dr",
@@ -70,16 +74,26 @@ _ABBREVIATIONS = frozenset(
         "dept",
         "univ",
         "est",
+        "resp",
+        "cf",
+        "viz",
     }
 )
 
 _ABBREV_STRIP = ".?!'\"’”)"
+_ABBREV_LSTRIP = "(['\"‘“"
 
 
 def heuristic_end_of_sentence(word: str) -> bool:
-    if not (SENTENCE_END_RE.search(word) or _MATH_SENTENCE_END_RE.search(word)):
+    if not (
+        SENTENCE_END_RE.search(word)
+        or _MATH_SENTENCE_END_RE.search(word)
+        or _CITATION_SENTENCE_END_RE.search(word)
+    ):
         return False
-    return word.rstrip(_ABBREV_STRIP).lower() not in _ABBREVIATIONS
+    return (
+        word.rstrip(_ABBREV_STRIP).lstrip(_ABBREV_LSTRIP).lower() not in _ABBREVIATIONS
+    )
 
 
 def split_sentences_regex(

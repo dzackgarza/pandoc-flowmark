@@ -27,8 +27,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from flowmark.formats.flowmark_parser import split_pipe_table_row
-from flowmark.linewrapping.atomic_patterns import DOLLAR_MATH
+from flowmark.linewrapping.atomic_patterns import DOLLAR_MATH, INLINE_CODE_SPAN
 
 
 class MalformedInputError(ValueError):
@@ -49,7 +48,48 @@ class Finding:
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 _DELIMITER_ROW = re.compile(r"^\s*\|(\s*:?-+:?\s*\|)+\s*$")
 
+# Pandoc's pipeTableCell reader consumes code and math spans before it uses a
+# pipe as a cell separator (Text.Pandoc.Readers.Markdown). This scan only counts
+# source cells for the malformed-row diagnostic; Pandoc owns valid table parsing.
+_PIPE_ROW_TOKEN = re.compile(
+    rf"{INLINE_CODE_SPAN.pattern}|{DOLLAR_MATH}|\\.|(?P<bar>\|)"
+)
+
+
+def raw_pipe_table_cells(line: str) -> list[str]:
+    """The cells of a pipe table row, with the spaces around their text."""
+    stripped = line.strip()
+    bars = [
+        match.start()
+        for match in _PIPE_ROW_TOKEN.finditer(stripped)
+        if match.group("bar")
+    ]
+    edges = [-1, *bars, len(stripped)]
+    cells = [stripped[start + 1 : end] for start, end in zip(edges, edges[1:])]
+    if cells and stripped.startswith("|"):
+        cells.pop(0)
+    if cells and not cells[-1].strip() and stripped.endswith("|"):
+        cells.pop()
+    return cells
+
+
+def split_pipe_table_row(line: str) -> list[str]:
+    return [cell.strip() for cell in raw_pipe_table_cells(line)]
+
+
 _FENCE = re.compile(r"^ {,3}(`{3,}|~{3,})(.*)$")
+
+
+def opens_fence(line: str) -> bool:
+    """
+    Whether `line` is shaped like a CommonMark fence opener. A backtick fence's
+    info string may not contain a backtick, which keeps an inline code span from
+    opening a block.
+    """
+    match = _FENCE.match(line)
+    return match is not None and not (
+        match.group(1)[0] == "`" and "`" in match.group(2)
+    )
 
 
 def _check_table(lines: list[str], start: int, end: int) -> list[Finding]:
@@ -93,8 +133,15 @@ def _table_findings(lines: list[str]) -> list[Finding]:
     return findings
 
 
-def _fence_findings(lines: list[str]) -> list[Finding]:
-    """Report a fenced block that is never closed, at its opening line."""
+def unclosed_fences(text: str) -> list[Finding]:
+    """
+    Report a fenced block that is never closed, at its opening line.
+
+    Pandoc reads an unclosed fence and the lines after it as paragraph text, while
+    CommonMark reads a code block to the end of the document. This is an error in
+    the document, not something to format around: `reformat_text` refuses it.
+    """
+    lines = text.split("\n")
     open_at: int | None = None
     fence = ""
     for offset, line in enumerate(lines):
@@ -246,7 +293,7 @@ def preflight(text: str) -> list[Finding]:
     lines = text.split("\n")
     findings = [
         *_table_findings(lines),
-        *_fence_findings(lines),
+        *unclosed_fences(text),
         *rejected_math(text),
         *_math_findings(lines),
     ]

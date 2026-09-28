@@ -74,6 +74,36 @@ source .venv/bin/activate
 
 See [uv docs](https://docs.astral.sh/uv/) for details.
 
+## The Pandoc Reader
+
+Flowmark parses Markdown only with `pandoc-flowmark`, a build of the Pandoc fork
+[dzackgarza/pandoc](https://github.com/dzackgarza/pandoc), branch `flowmark-sourcepos`.
+Formatting, linting, and verification all run it with the one reader format in
+`src/flowmark/pandoc_reader.py` (`PANDOC_FORMAT`). The fork adds two Markdown reader
+extensions:
+
+- `sourcepos` wraps each block in a `Div` and each inline in a `Span` whose `data-pos`
+  attribute is the node's source range (`line:column-line:column`, columns counted with
+  tabs expanded to Pandoc's tab stop of 4). Nodes Pandoc re-parses from a string, such
+  as table cells and superscripts, carry no range.
+- `flowmark_tags` reads an unindented line holding one Jinja or Markdoc tag, comment,
+  or variable, or one HTML comment, as its own block, so a list or table ends before it.
+
+Each formatting pass in `src/flowmark/pandoc_source.py` reads the current text, edits
+only at the ranges Pandoc reports, and hands the text to the next pass. Pandoc output
+is cached by input text, so a pass that changes nothing costs the next one no Pandoc
+run. `check_meaning_preserved` compares the Pandoc readings of the input and the result
+and accepts only the named normalizations in `src/flowmark/pandoc_verify.py`.
+
+Install the release build (the tag CI pins is in `.github/workflows/ci.yml`):
+
+```shell
+gh release download flowmark-3.10.2-4 -R dzackgarza/pandoc -p pandoc-flowmark
+install -m755 pandoc-flowmark ~/.local/bin/pandoc-flowmark
+```
+
+`FLOWMARK_PANDOC` names another executable, for example a local build of the fork.
+
 ## Agent Rules
 
 See [.cursor/rules](.cursor/rules) for agent rules.
