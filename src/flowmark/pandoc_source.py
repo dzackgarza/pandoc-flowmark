@@ -16,10 +16,6 @@ from flowmark.linewrapping.tag_handling import (
     add_tag_newline_handling,
     is_tag_only_line,
 )
-from flowmark.linewrapping.text_wrapping import (
-    simple_word_splitter,
-    wrap_paragraph_lines,
-)
 from flowmark.pandoc_reader import (
     LocatedNode,
     PandocJson,
@@ -33,7 +29,7 @@ from flowmark.pandoc_verify import (
     MeaningChangedError,
     check_meaning_preserved,
 )
-from flowmark.preflight import split_pipe_table_row
+from flowmark.preflight import opens_fence, split_pipe_table_row
 from flowmark.typography.smartquotes import smart_quotes
 from flowmark.typography.ellipses import ellipses
 
@@ -74,6 +70,8 @@ _LIST_LINE_PREFIX = re.compile(
 # The text before a list item's content: indentation, a marker, and one to four
 # spaces. Five or more spaces after a marker start indented code instead.
 _MARKER_SPACING = re.compile(r"( *)([-+*]|\(?(?:\d+|[A-Za-z]+|#)[.)])( {1,4})")
+# A link reference definition line; a footnote definition may follow it directly.
+_LINK_DEFINITION = re.compile(r" {0,3}\[(?!\^)[^\]]+\]:[ \t]")
 # A footnote definition's label and the whitespace after it.
 _NOTE_DEFINITION = re.compile(r"(\[\^[^\]\s]+\]:)[ \t]*")
 _TRAILING_SPACE = re.compile(r"[ \t]+(?=\n)")
@@ -294,31 +292,18 @@ def _wrap_segment(
         return first_indent
     if line_wrapper is not None:
         return line_wrapper(text, first_indent, indent)
+    # The Markdown word splitter keeps template tags, HTML tags, and link syntax
+    # whole; the width wrapper also keeps the lines around tag-only lines.
+    if not semantic:
+        return line_wrap_to_width(width=width, is_markdown=True)(
+            text, first_indent, indent
+        )
     sentence_wrapper = line_wrap_by_sentence(
         width=width, is_markdown=True, source_preserving=True
     )
     if tags:
-        base_wrapper = (
-            sentence_wrapper
-            if semantic
-            else line_wrap_to_width(width=width, is_markdown=False)
-        )
-        return add_tag_newline_handling(base_wrapper)(text, first_indent, indent)
-    if semantic:
-        return sentence_wrapper(text, first_indent, indent)
-    wrapped_lines = wrap_paragraph_lines(
-        text,
-        width=width,
-        initial_column=len(first_indent),
-        subsequent_offset=len(indent),
-        splitter=simple_word_splitter,
-        is_markdown=True,
-    )
-    return (
-        first_indent
-        + wrapped_lines[0]
-        + "".join("\n" + indent + line for line in wrapped_lines[1:])
-    )
+        sentence_wrapper = add_tag_newline_handling(sentence_wrapper)
+    return sentence_wrapper(text, first_indent, indent)
 
 
 def _wrap_text(
@@ -332,11 +317,11 @@ def _wrap_text(
     tags: bool,
 ) -> str:
     """
-    Wrap paragraph text, without a final newline. A backslash hard break ends a
-    line, so the text between hard breaks wraps on its own.
+    Wrap paragraph text, without a final newline. In a paragraph with a backslash
+    hard break, the author set the lines, so each line wraps on its own.
     """
-    segments = text.split("\\\n")
-    return "\\\n".join(
+    segments = text.rstrip("\n").split("\n") if "\\\n" in text else [text]
+    return "\n".join(
         _wrap_segment(
             segment,
             first_indent if index == 0 else indent,
@@ -471,7 +456,9 @@ def _propose_paragraph_edits(
         old = source[start:end]
         if any(line.strip() == ":::" for line in old.splitlines()):
             continue
-        if semantic and any(tag in old for tag in ("{%", "{#", "{{")):
+        # A fence-shaped line Pandoc reads as paragraph text is a code block to
+        # CommonMark; wrapping would run the code into prose.
+        if any(opens_fence(line[prefix_width:]) for line in old.splitlines()):
             continue
         protected = old
         inline_spans: list[tuple[int, int, str]] = []
@@ -1125,6 +1112,32 @@ def normalize_sourced_pipe_tables(
     return result
 
 
+def normalize_sourced_rules(
+    source: str, pandoc_exe: str, *, verify: bool = True
+) -> str:
+    """Write each top-level horizontal rule as `* * *`."""
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    edits: list[SourceEdit] = []
+    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+        if located.node.get("t") != "HorizontalRule":
+            continue
+        if not set(located.ancestors) <= {"Div"}:
+            continue
+        index = located.source_range.start.line - 1
+        raw = lines[index].rstrip("\r\n")
+        if raw != "* * *":
+            edits.append(SourceEdit(starts[index], starts[index] + len(raw), "* * *"))
+    result = source
+    for edit in sorted(edits, key=lambda item: item.start, reverse=True):
+        result = result[: edit.start] + edit.replacement + result[edit.end :]
+    if verify and result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
 def separate_sourced_note_definitions(
     source: str, pandoc_exe: str, *, verify: bool = True
 ) -> str:
@@ -1144,6 +1157,7 @@ def separate_sourced_note_definitions(
         if 1 < line_number <= len(lines)
         and lines[line_number - 1].startswith("[^")
         and lines[line_number - 2].strip()
+        and not _LINK_DEFINITION.match(lines[line_number - 2])
     ]
     result = source
     for line_number in sorted(blank_before, reverse=True):
@@ -1197,28 +1211,72 @@ def normalize_sourced_quote_blank_lines(
 def apply_sourced_smart_quotes(
     source: str, pandoc_exe: str, *, verify: bool = True
 ) -> str:
-    """Apply prose quote style only at inline text owned by Pandoc."""
-    styled = smart_quotes(source)
-    if len(styled) != len(source):
-        raise ValueError("Smart quote conversion changed source length")
+    """
+    Apply prose quote style only at inline text owned by Pandoc.
+
+    A quotation inside another is matched only once the outer quotes are curled,
+    so the style is applied until it changes nothing.
+    """
+    result = source
+    while True:
+        styled = _apply_smart_quotes_once(result, pandoc_exe)
+        if styled == result:
+            break
+        result = styled
+    if verify and result != source:
+        check_meaning_preserved(source, result)
+    return result
+
+
+def _apply_smart_quotes_once(source: str, pandoc_exe: str) -> str:
     lines = source.splitlines(keepends=True)
     starts = [0]
     for line in lines:
         starts.append(starts[-1] + len(line))
 
+    def offsets(located: LocatedNode) -> tuple[int, int] | None:
+        begin = located.source_range.start
+        finish = located.source_range.end
+        if begin.line > len(lines) or finish.line > len(lines) + 1:
+            return None
+        start = starts[begin.line - 1] + begin.column - 1
+        end = starts[finish.line - 1] + finish.column - 1
+        return (start, end) if 0 <= start < end <= len(source) else None
+
+    nodes = located_nodes(read_source_ast(source, pandoc_exe))
+    # Quotes pair within one block of text, so each paragraph, plain block,
+    # heading, and table row is styled on its own; a stray quote elsewhere
+    # cannot pair with them.
+    runs: list[tuple[int, int]] = []
+    for located in nodes:
+        kind = located.node.get("t")
+        span = offsets(located)
+        if span is None:
+            continue
+        if kind in {"Para", "Plain", "Header"}:
+            runs.append(span)
+        elif kind == "Table":
+            first = located.source_range.start.line - 1
+            last = min(located.source_range.end.line, len(lines) + 1) - 1
+            runs.extend(
+                (starts[index], starts[index + 1]) for index in range(first, last)
+            )
+    styled = list(source)
+    for start, end in runs:
+        text = smart_quotes(source[start:end])
+        if len(text) != end - start:
+            raise ValueError("Smart quote conversion changed source length")
+        styled[start:end] = text
+
     eligible: set[int] = set()
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    for located in nodes:
         kind = located.node.get("t")
         if kind not in {"Str", "Quoted"}:
             continue
-        begin = located.source_range.start
-        finish = located.source_range.end
-        if begin.line > len(lines) or finish.line > len(lines):
+        span = offsets(located)
+        if span is None:
             continue
-        start = starts[begin.line - 1] + begin.column - 1
-        end = starts[finish.line - 1] + finish.column - 1
-        if not (0 <= start < end <= len(source)):
-            continue
+        start, end = span
         if kind == "Str":
             eligible.update(range(start, end))
         elif source[start] in "'\"" and source[end - 1] == source[start]:
@@ -1228,10 +1286,7 @@ def apply_sourced_smart_quotes(
     for index in eligible:
         if source[index] in "'\"" and styled[index] in "‘’“”":
             result[index] = styled[index]
-    formatted = "".join(result)
-    if verify and formatted != source:
-        check_meaning_preserved(source, formatted)
-    return formatted
+    return "".join(result)
 
 
 def apply_sourced_ellipses(source: str, pandoc_exe: str, *, verify: bool = True) -> str:
@@ -1263,7 +1318,16 @@ def apply_sourced_ellipses(source: str, pandoc_exe: str, *, verify: bool = True)
             right += 1
         while right < len(source) and source[right] in " \t":
             right += 1
-        if right < len(source) and source[right] not in "\r\n":
+        # What follows the ellipsis decides its spacing, and wrapping moves line
+        # breaks, so a break inside the paragraph is looked across: the window
+        # ends at the next line's first character, or at the paragraph's end.
+        if right < len(source) and source[right] == "\n":
+            following = right + 1
+            while following < len(source) and source[following] in " \t>":
+                following += 1
+            if following < len(source) and source[following] != "\n":
+                right = following + 1
+        elif right < len(source):
             right += 1
         prefix, suffix = source[left:start], source[end:right]
         styled = ellipses(source[left:right])
@@ -1529,6 +1593,7 @@ def format_sourced_markdown(
         )
     result = normalize_sourced_indented_code(result, pandoc_exe, verify=False)
     result = normalize_sourced_pipe_tables(result, pandoc_exe, verify=False)
+    result = normalize_sourced_rules(result, pandoc_exe, verify=False)
     result = normalize_sourced_blank_gaps(result, pandoc_exe, verify=False)
     result = set_sourced_heading_spacing(result, pandoc_exe, verify=False)
     result = normalize_sourced_quote_blank_lines(result, pandoc_exe, verify=False)

@@ -4,28 +4,28 @@ file, not this one.
 
 # flowmark
 
-[![Follow @ojoshe on X](https://img.shields.io/badge/follow_%40ojoshe-black?logo=x&logoColor=white)](https://x.com/ojoshe)
-[![CI](https://github.com/jlevy/flowmark/actions/workflows/ci.yml/badge.svg)](https://github.com/jlevy/flowmark/actions/workflows/ci.yml)
-[![PyPI version](https://img.shields.io/pypi/v/flowmark)](https://pypi.org/project/flowmark/)
-[![Python versions](https://img.shields.io/pypi/pyversions/flowmark)](https://pypi.org/project/flowmark/)
+[![CI](https://github.com/dzackgarza/pandoc-flowmark/actions/workflows/ci.yml/badge.svg)](https://github.com/dzackgarza/pandoc-flowmark/actions/workflows/ci.yml)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 
-## Original Python Flowmark
+## pandoc-flowmark
 
-> [!TIP]
-> This repository is the Python reference implementation of Flowmark.
-> 
-> For fastest CLI usage via a single native binary, consider the auto-synced Rust port:
-> [flowmark-rs](https://github.com/jlevy/flowmark-rs).
+> [!NOTE]
+> This repository is a fork of [jlevy/flowmark](https://github.com/jlevy/flowmark) that
+> parses Markdown only with a Pandoc reader. Its output differs from upstream Flowmark
+> and from the [flowmark-rs](https://github.com/jlevy/flowmark-rs) port wherever Pandoc
+> Markdown and CommonMark read a document differently.
 
-## Installing Python Flowmark CLI
+## Installing
 
-The simplest way to use the Python version is [uv](https://github.com/astral-sh/uv).
-
-Run with `uvx flowmark --help` or install it as a tool:
+Flowmark needs the `pandoc-flowmark` executable on `PATH`: a static Linux build of the
+Pandoc fork, published as a release asset of
+[dzackgarza/pandoc](https://github.com/dzackgarza/pandoc/releases).
+Set `FLOWMARK_PANDOC` to use an executable with another name or path.
 
 ```shell
-uv tool install --upgrade flowmark
+gh release download flowmark-3.10.2-4 -R dzackgarza/pandoc -p pandoc-flowmark
+install -m755 pandoc-flowmark ~/.local/bin/pandoc-flowmark
+uv tool install git+https://github.com/dzackgarza/pandoc-flowmark
 ```
 
 Then:
@@ -33,9 +33,6 @@ Then:
 ```shell
 flowmark --help
 ```
-
-For use in Python projects, add the [`flowmark`](https://pypi.org/project/flowmark/)
-package via uv, poetry, or pip.
 
 Primary command: `flowmark`. Alias available in this repo: `flowmark-py`.
 

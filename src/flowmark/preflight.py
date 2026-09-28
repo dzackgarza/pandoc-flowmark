@@ -75,6 +75,18 @@ def split_pipe_table_row(line: str) -> list[str]:
 _FENCE = re.compile(r"^ {,3}(`{3,}|~{3,})(.*)$")
 
 
+def opens_fence(line: str) -> bool:
+    """
+    Whether `line` is shaped like a CommonMark fence opener. A backtick fence's
+    info string may not contain a backtick, which keeps an inline code span from
+    opening a block.
+    """
+    match = _FENCE.match(line)
+    return match is not None and not (
+        match.group(1)[0] == "`" and "`" in match.group(2)
+    )
+
+
 def _check_table(lines: list[str], start: int, end: int) -> list[Finding]:
     """
     Report each row of `lines[start:end]` whose cell count differs from the header's.

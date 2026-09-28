@@ -46,11 +46,11 @@ high-stakes decisions for those who give and *receive it*. Blah blah blah and bl
 
 - Alex MacCaw,
   [*An Engineer’s Guide to Stock Options*](http://blog.alexmaccaw.com/an-engineers-guide-to-stock-options),
-  2013\.
+  2013.
 
 - Andy Rachleff, Wealthfront,
   [*The 14 Crucial Questions about Stock Options*](https://blog.wealthfront.com/stock-options-14-crucial-questions),
-  2014\.
+  2014.
 
 ### Command Execution
 
@@ -129,20 +129,20 @@ And $\$420K \div 0.44093$ is $952{,}532$ shares.
 > Note Series: `___________________________`
 > 
 > e. **Amendment and Waiver.** Any term of this Note may be amended or waived with the
-> written consent of Company and the Majority Holders.
-> 
+>    written consent of Company and the Majority Holders.
+>
 > f. **Governing Law; Venue.** This Note shall be governed by and construed under the
-> laws of the State of `________`, as applied to agreements among `_______` residents,
-> made and to be performed entirely within the State of `______`, without giving effect
-> to conflicts of laws principles.
-> The venue for any dispute arising out of or related to this Note will lie exclusively
-> in the state or federal courts located in King County, Washington, and the parties to
-> this Note irrevocably waive any right to raise forum non conveniens or any other
-> argument that King County, Washington is not the proper venue.
-> The parties to this Note irrevocably consent to personal jurisdiction in the state and
-> federal courts of the state of Washington.
+>    laws of the State of `________`, as applied to agreements among `_______`
+>    residents, made and to be performed entirely within the State of `______`, without
+>    giving effect to conflicts of laws principles.
+>    The venue for any dispute arising out of or related to this Note will lie
+>    exclusively in the state or federal courts located in King County, Washington, and
+>    the parties to this Note irrevocably waive any right to raise forum non conveniens
+>    or any other argument that King County, Washington is not the proper venue.
+>    The parties to this Note irrevocably consent to personal jurisdiction in the state
+>    and federal courts of the state of Washington.
 
-> iv. **Further Limitations on Disposition.** Without in any way limiting the
+> iv\. **Further Limitations on Disposition.** Without in any way limiting the
 > representations set forth above, the Holder further agrees not to make any disposition
 > of all or any portion of the Securities unless and until:
 > 
@@ -153,7 +153,7 @@ And $\$420K \div 0.44093$ is $952{,}532$ shares.
 ## Typical ChatGPT Output
 
 | **Feature** | **OpenAPI 3.1** | **OpenAI tool schema** | **Anthropic tool schema** | **Model Context Protocol (MCP) 2025-06-18** | **Pydantic v2 generated schema** |
-| --- | --- | --- | --- | --- | --- |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | **Primary scope** | Full REST contract: paths, verbs, auth, servers **plus** data shapes | *Input-only* definition of a function’s parameters for `/chat/completions` `tools=[…]` | Same for `/v1/messages` `tools=[…]`; also used in Claude server-tools | Tool discovery & invocation over JSON-RPC / SSE; adds output contract & rich result types | In-process data validation; can emit JSON-Schema or OpenAPI components |
 | **Where it lives / transport** | `.yaml`/`.json` served over HTTPS or bundled with code | Embedded inside a chat request | Embedded inside a chat request | Separate MCP server; clients list and call tools via `tools/*` RPC methods | Python code emits schema at runtime (`model_json_schema()` or `.schema_json()`) |
 | **JSON-Schema dialect** | Official OAS dialect, built on **draft 2020-12**([spec.openapis.org][1]) | Fixed **draft 07 subset** (no `$ref` across docs, no `oneOf` of heterogeneous types)([community.openai.com][2], [community.openai.com][3]) | **draft 2020-12** (full vocabulary)([docs.anthropic.com][4]) | **draft 2020-12** for both `inputSchema` & `outputSchema`([modelcontextprotocol.io][5]) | **draft 2020-12** (and emits OpenAPI 3.1 when asked)([docs.pydantic.dev][6]) |
@@ -568,7 +568,7 @@ The following table summarizes the native capabilities of the primary platforms
 evaluated against the core requirements:
 
 | **Feature** | **Vercel** | **Netlify** | **Cloudflare Pages** | **AWS (S3/CloudFront)** |
-| --- | --- | --- | --- | --- |
+| ------------- | ----------- | -------- | --- | ------------ |
 | **CLI Tool Availability** | Yes (vercel) 1 | Yes (netlify) 2 | Yes (wrangler) 3 | Yes (aws) 4 |
 | **Primary CLI Auth Method** | User Access Token 9 | Personal Access Token (PAT) 2 | API Token 10 | IAM Credentials / STS Token 11 |
 | **Native Token/Key Scoping** | User/Team Level 24 | User/Site Level 30 | Account Level (for Pages Edit) 3 | Path/Prefix Level (via IAM) 4 |
@@ -1028,8 +1028,7 @@ threshold leverage to block an IPO.[^210]
    modules with large *cumulative* times at the top level or deep in the call stack.
    These are the primary candidates for further investigation.<sup>1</sup>
 
-[^2]: Aulet, Bill. *Disciplined Entrepreneurship*: 24 Steps to a Successful Startup (Kindle
-    Location 1220). Wiley, 2013. Kindle Edition.
+[^2]: Aulet, Bill. *Disciplined Entrepreneurship*: 24 Steps to a Successful Startup (Kindle Location 1220). Wiley, 2013. Kindle Edition.
 
 [^191]: http://paulgraham.com/fr.html
 
@@ -1049,27 +1048,26 @@ And let's try some links with angle brackets.
 
 [^axioscomth.1lioru]: <https://www.axios.com/the-rise-of-pre-seed-venture-capital-1513305959-13da61c8-15f8-441e-b016-d29902bff8bf.html>
 
-[^carnegieda.327r3k]: Carnegie, Dale. *How To Win Friends and Influence People* (p. 35). Simon & Schuster.
-    Kindle Edition.
+[^carnegieda.327r3k]: Carnegie, Dale. *How To Win Friends and Influence People* (p. 35). Simon & Schuster. Kindle Edition.
 
 [^53]: <https://www.fastcompany.com/90216464/the-29-billion-battle-to-own-how-america-sleeps>
 
-[^217]: Testing - : Is Ketamine Contraindicated in Patients with Psychiatric Disorders?
-    \- REBEL EM - more words - accessed April 24, 2025,
-    <https://rebelem.com/is-ketamine-contraindicated-in-patients-with-psychiatric-disorders/>
+[^217]: Testing - : Is Ketamine Contraindicated in Patients with Psychiatric Disorders? - REBEL EM - more words - accessed April 24, 2025,
+  <https://rebelem.com/is-ketamine-contraindicated-in-patients-with-psychiatric-disorders/>
 
-[^multiline]: The distinction between “hiring” and “recruiting” isn’t universally agreed
-    upon. Some people think of hiring as a superset of recruiting, some consider it to be
-    the other way around.
-    However you think of it, both recruiting and hiring involve selling candidates on
-    the value proposition of a company and ensuring the alignment of interests between
-    the two parties.
+[^multiline]: The distinction between “hiring” and “recruiting” isn’t
+    universally agreed upon. Some people think of hiring as a superset
+    of recruiting, some consider it to be the other way around. However
+    you think of it, both recruiting and hiring involve selling
+    candidates on the value proposition of a company and ensuring the
+    alignment of interests between the two parties.
 
 [^multiparagraph]: This is an even longer footnote...
 
     Paragraph 1.
 
-    > And even a block quote.
+    > And even a
+    > block quote.
 
     Paragraph 3.
 
@@ -1087,12 +1085,14 @@ This is
 another.
 ```
 
-<div align="center"> <img src="images/rounds.png" alt="awesome"> <br> Example of company
-valuation, shares, fundraising, and dilution
-(<a href="http://ownyourventure.com/equitySim.html">source</a>) <br> </div>
+<div align="center">
+	<img src="images/rounds.png" alt="awesome">
+<br> Example of company valuation, shares, fundraising, and dilution
+(<a href="http://ownyourventure.com/equitySim.html">source</a>) <br>
+</div>
 
 | Specific AWS Services | Basics | Tips | Gotchas |
-| --- | --- | --- | --- |
+|---------------------------------------|--------------------------------|-------------------------------|------------------------------------------------|
 | [Security and IAM](#security-and-iam) | [📗](#security-and-iam-basics) | [📘](#security-and-iam-tips) | [📙](#security-and-iam-gotchas-and-limitations) |
 | [S3](#s3) | [📗](#s3-basics) | [📘](#s3-tips) | [📙](#s3-gotchas-and-limitations) |
 | [EC2](#ec2) | [📗](#ec2-basics) | [📘](#ec2-tips) | [📙](#ec2-gotchas-and-limitations) |

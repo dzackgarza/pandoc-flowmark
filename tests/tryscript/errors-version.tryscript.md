@@ -90,8 +90,9 @@ Second sentence here.
 
 ````console
 $ printf 'Intro.\n\n```python\nx = 1\n\nmore   text   here\n' > bad.md && flowmark bad.md -o out.md 2>&1; test ! -e out.md && echo "no output written"
-Error: Refusing to write bad.md: reformatting would change what pandoc reads (block 1: Para -> CodeBlock). The file is unchanged. Your input looks ambiguous, so this is probably not a flowmark defect -- bad.md:3: fence ````` is opened here and never closed. Fix the input, or pass --no-verify to format anyway.
+Error: Refusing to write bad.md: bad.md:3: fence ````` is opened here and never closed. The file is unchanged.
 no output written
+? 0
 ````
 
 ## E11: Output with a directory that resolves to several files
