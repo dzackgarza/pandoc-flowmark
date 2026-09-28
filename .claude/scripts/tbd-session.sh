@@ -12,10 +12,6 @@ if command -v npm &> /dev/null; then
     fi
 fi
 
-# Add common binary locations to PATH (persists for entire script)
-# Include npm global bin if found
-export PATH="$NPM_GLOBAL_BIN:$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
-
 # Function to ensure tbd is available
 ensure_tbd() {
     # Check if tbd is already installed
@@ -55,17 +51,12 @@ ensure_tbd() {
         echo "[tbd] Successfully installed to $(which tbd)"
         return 0
     else
-        echo "[tbd] WARNING: tbd installed but not found in PATH"
-        echo "[tbd] Checking common locations..."
-        # Try to find and add to path (include npm global bin)
+        echo "[tbd] ERROR: tbd installed but not found in PATH"
         for dir in "$NPM_GLOBAL_BIN" ~/.local/bin ~/.local/node_modules/.bin /usr/local/bin; do
             if [ -n "$dir" ] && [ -x "$dir/tbd" ]; then
-                export PATH="$dir:$PATH"
-                echo "[tbd] Found at $dir/tbd"
-                return 0
+                echo "[tbd] Found at $dir/tbd; add $dir to PATH in .envrc"
             fi
         done
-        echo "[tbd] Could not locate tbd after installation"
         return 1
     fi
 }

@@ -4,9 +4,6 @@
 
 set -e
 
-# Add common binary locations to PATH
-export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
-
 # Check if gh is already installed
 if command -v gh &> /dev/null; then
     echo "[gh] CLI found at $(which gh)"
