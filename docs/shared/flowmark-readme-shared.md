@@ -369,6 +369,33 @@ There are several other Markdown auto-formatters:
 
 None of these reads Pandoc Markdown with Pandoc's own reader, so none of them can guarantee that formatting keeps the meaning Pandoc gives a document. None of them applies semantic line breaks automatically.
 
+## Python API
+
+`flowmark.reformat_text(text, options)` formats one document.
+It checks with Pandoc that the result reads as the input does, and raises
+`flowmark.MeaningChangedError` if it does not, and
+`flowmark.MalformedInputError` for input it refuses to read, such as unclosed
+fences or `$ x $`.
+`flowmark.reformat_text_unchecked` formats without that check.
+The options are one frozen `FormatOptions` value:
+
+- `wrap`: `Width(n)` wraps paragraphs to `n` columns, `Semantic(n)` starts each
+  sentence on a new line, and `Plain(n)` wraps plain text, not Markdown.
+- `passes`: a `frozenset` of `Pass.cleanups`, `Pass.smartquotes`, and
+  `Pass.ellipses`.
+- `list_spacing`: `ListSpacing.loose`, `tight`, or `preserve`.
+
+```python
+from flowmark import FormatOptions, Pass, Semantic, reformat_text
+
+options = FormatOptions(Semantic(), frozenset({Pass.cleanups, Pass.smartquotes}))
+reformat_text('He said "hi" there to me. That was fine.\n', options)
+# 'He said “hi” there to me.\nThat was fine.\n'
+```
+
+`flowmark.reformat_file(path, destination, options)` writes to a `Stdout()`,
+`ToFile(path)`, or `InPlace(backup_suffix)` destination.
+
 ## Pandoc-aware linting
 
 Flowmark also ships a standalone linter over the same semantic Markdown parser used by

@@ -33,6 +33,8 @@ __all__ = (
     "reformat_file",
     "reformat_text",
     "reformat_text_unchecked",
+    "MalformedInputError",
+    "MeaningChangedError",
     "Destination",
     "InPlace",
     "Stdout",
@@ -86,7 +88,8 @@ from flowmark.lint_engine import (
     Suggestion,
 )
 from flowmark.markdown_ast import LINKS_AND_AUTOLINKS, Link, LinkKind, extract_links
-from flowmark.preflight import Finding, preflight
+from flowmark.pandoc_verify import MeaningChangedError
+from flowmark.preflight import Finding, MalformedInputError, preflight
 from flowmark.reformat_api import (
     Destination,
     InPlace,
