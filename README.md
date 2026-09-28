@@ -4,23 +4,23 @@ file, not this one.
 
 # flowmark
 
-[![Follow @ojoshe on X](https://img.shields.io/badge/follow_%40ojoshe-black?logo=x&logoColor=white)](https://x.com/ojoshe) [![CI](https://github.com/jlevy/flowmark/actions/workflows/ci.yml/badge.svg)](https://github.com/jlevy/flowmark/actions/workflows/ci.yml) [![PyPI version](https://img.shields.io/pypi/v/flowmark)](https://pypi.org/project/flowmark/) [![Python versions](https://img.shields.io/pypi/pyversions/flowmark)](https://pypi.org/project/flowmark/) [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![CI](https://github.com/dzackgarza/pandoc-flowmark/actions/workflows/ci.yml/badge.svg)](https://github.com/dzackgarza/pandoc-flowmark/actions/workflows/ci.yml) [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 
-## Original Python Flowmark
+## pandoc-flowmark
 
-> [!TIP]
-> This repository is the Python reference implementation of Flowmark.
-> 
-> For fastest CLI usage via a single native binary, consider the auto-synced Rust port: [flowmark-rs](https://github.com/jlevy/flowmark-rs).
+> [!NOTE]
+> This repository is a fork of [jlevy/flowmark](https://github.com/jlevy/flowmark) that parses Markdown only with a Pandoc reader.
+> Its output differs from upstream Flowmark and from the [flowmark-rs](https://github.com/jlevy/flowmark-rs) port wherever Pandoc Markdown and CommonMark read a document differently.
 
-## Installing Python Flowmark CLI
+## Installing
 
-The simplest way to use the Python version is [uv](https://github.com/astral-sh/uv).
-
-Run with `uvx flowmark --help` or install it as a tool:
+Flowmark needs the `pandoc-flowmark` executable on `PATH`: a static Linux build of the Pandoc fork, published as a release asset of [dzackgarza/pandoc](https://github.com/dzackgarza/pandoc/releases).
+Set `FLOWMARK_PANDOC` to use an executable with another name or path.
 
 ```shell
-uv tool install --upgrade flowmark
+gh release download flowmark-3.10.2-4 -R dzackgarza/pandoc -p pandoc-flowmark
+install -m755 pandoc-flowmark ~/.local/bin/pandoc-flowmark
+uv tool install git+https://github.com/dzackgarza/pandoc-flowmark
 ```
 
 Then:
@@ -29,28 +29,27 @@ Then:
 flowmark --help
 ```
 
-For use in Python projects, add the [`flowmark`](https://pypi.org/project/flowmark/) package via uv, poetry, or pip.
-
 Primary command: `flowmark`. Alias available in this repo: `flowmark-py`.
 
 * * *
 
 ## Why Use Flowmark?
 
-Flowmark is a Markdown auto-formatter, written [in Python](https://github.com/jlevy/flowmark) with an auto-synced [Rust port](https://github.com/jlevy/flowmark-rs), designed for **better LLM workflows**, **clean git diffs**, and **flexible use from CLI, from IDEs, or as a library**.
+Flowmark is a Markdown auto-formatter, written in Python, designed for **better LLM workflows**, **clean git diffs**, and **flexible use from CLI, from IDEs, or as a library**.
 
 With AI tools increasingly using Markdown, having consistent, diff-friendly formatting has become essential for modern writing, editing, and document processing workflows.
 Normalizing Markdown formatting greatly improves collaborative editing and LLM workflows, especially when committing documents to git repositories.
 
 You can use Flowmark as a CLI, as an autoformatter in your IDE, or as a Python library.
 
-Flowmark comes in two flavors: this Python reference implementation and an auto-synced [Rust port (flowmark-rs)](https://github.com/jlevy/flowmark-rs).
-For CLI auto-formatting either works and produces the same output — the Rust port is a fast single native binary, while the Python version is the reference and is sometimes ahead on the newest features.
-Pick whichever fits your environment; for heavy or latency-sensitive formatting the Rust binary is the faster choice.
+Flowmark reads Markdown with [Pandoc](https://pandoc.org/)’s Markdown reader and nothing else.
+The reader is a fork, [dzackgarza/pandoc](https://github.com/dzackgarza/pandoc) (branch `flowmark-sourcepos`), whose `sourcepos` extension reports the source line and column of each block and inline node, and whose `flowmark_tags` extension reads a template tag line as its own block.
+Every formatting step edits the source only at the ranges Pandoc reports, so text Flowmark does not change keeps its exact bytes, including raw TeX, attributes, and template tags.
+Before writing, Flowmark parses the original and the result with the same reader and refuses to write if they mean different things, except for the style normalizations it names.
 
 ## Comparison With Other Formatters
 
-Flowmark supports both [CommonMark](https://spec.commonmark.org/0.31.2/) and [GitHub-Flavored Markdown (GFM)](https://github.github.com/gfm/) via [Marko](https://github.com/frostming/marko).
+Flowmark formats [Pandoc Markdown](https://pandoc.org/MANUAL.html#pandocs-markdown) with the extensions `fenced_divs`, `raw_tex`, `tex_math_dollars`, `tex_math_single_backslash`, `wikilinks_title_after_pipe`, `autolink_bare_uris`, and `flowmark_tags`.
 
 The key differences from [other Markdown formatters](#why-another-markdown-formatter):
 
@@ -71,7 +70,7 @@ General philosophy:
   You can adjust or disable most settings.
   And if you are using it as a library, you can fully control anything you want (including more complex things like custom line wrapping for HTML).
 
-- Be as small and simple as possible, with few dependencies: [`marko`](https://github.com/frostming/marko), [`pathspec`](https://pypi.org/project/pathspec/), [`regex`](https://pypi.org/project/regex/), and [`strif`](https://github.com/jlevy/strif).
+- Be as small and simple as possible, with few dependencies: the `pandoc-flowmark` executable, [`pathspec`](https://pypi.org/project/pathspec/), [`regex`](https://pypi.org/project/regex/), and [`strif`](https://github.com/jlevy/strif).
 
 ## Use Cases
 
