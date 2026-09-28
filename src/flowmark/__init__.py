@@ -1,6 +1,13 @@
 __all__ = (
     "fill_text",
     "fill_markdown",
+    "format_markdown",
+    "FormatOptions",
+    "ListSpacing",
+    "Pass",
+    "Plain",
+    "Semantic",
+    "Width",
     "first_sentence",
     "first_sentences",
     "flowmark_markdown",
@@ -18,12 +25,18 @@ __all__ = (
     "simple_word_splitter",
     "line_wrap_by_sentence",
     "line_wrap_to_width",
+    "markdown_line_wrap_to_width",
     # Checking a document for constructs pandoc reads differently than intended,
     # without reformatting it.
     "Finding",
     "preflight",
     "reformat_file",
     "reformat_text",
+    "reformat_text_unchecked",
+    "Destination",
+    "InPlace",
+    "Stdout",
+    "ToFile",
     "split_sentences_regex",
     "wrap_paragraph",
     "wrap_paragraph_lines",
@@ -32,23 +45,25 @@ __all__ = (
     # `flowmark.atomic_spans` and `flowmark.markdown_ast` submodules.
     "Link",
     "extract_links",
+    "LinkKind",
+    "LINKS_AND_AUTOLINKS",
 )
 
 from flowmark.formats.flowmark_markdown import flowmark_markdown
-from flowmark.lint import LintDiagnostic, LintOptions, StyleRule, lint_text
-from flowmark.lint_engine import (
-    LintRule,
-    RuleContext,
-    RuleFinding,
-    RuleLevel,
-    RuleRegistry,
-    Suggestion,
+from flowmark.formats.options import (
+    FormatOptions,
+    ListSpacing,
+    Pass,
+    Plain,
+    Semantic,
+    Width,
 )
 from flowmark.linewrapping.line_wrappers import (
     line_wrap_by_sentence,
     line_wrap_to_width,
+    markdown_line_wrap_to_width,
 )
-from flowmark.linewrapping.markdown_filling import fill_markdown
+from flowmark.linewrapping.markdown_filling import fill_markdown, format_markdown
 from flowmark.linewrapping.sentence_split_regex import (
     first_sentence,
     first_sentences,
@@ -61,6 +76,23 @@ from flowmark.linewrapping.text_wrapping import (
     wrap_paragraph,
     wrap_paragraph_lines,
 )
-from flowmark.markdown_ast import Link, extract_links
+from flowmark.lint import LintDiagnostic, LintOptions, StyleRule, lint_text
+from flowmark.lint_engine import (
+    LintRule,
+    RuleContext,
+    RuleFinding,
+    RuleLevel,
+    RuleRegistry,
+    Suggestion,
+)
+from flowmark.markdown_ast import LINKS_AND_AUTOLINKS, Link, LinkKind, extract_links
 from flowmark.preflight import Finding, preflight
-from flowmark.reformat_api import reformat_file, reformat_text
+from flowmark.reformat_api import (
+    Destination,
+    InPlace,
+    Stdout,
+    ToFile,
+    reformat_file,
+    reformat_text,
+    reformat_text_unchecked,
+)

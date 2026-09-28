@@ -196,7 +196,7 @@ class Link(NamedTuple):
 def walk_elements(value: PandocJson) -> Iterator[dict[str, PandocJson]]:
     """Visit every Pandoc node in document order without changing it."""
 
-def extract_links(markdown_text: str, *, include_autolinks: bool = True, include_images: bool = False) -> list[Link]:
+def extract_links(markdown_text: str, kinds: frozenset[LinkKind] = LINKS_AND_AUTOLINKS) -> list[Link]:
     """All links in document order, via the Pandoc AST (reference links, autolinks
     resolved; images excluded). Built on walk_elements."""
 ```

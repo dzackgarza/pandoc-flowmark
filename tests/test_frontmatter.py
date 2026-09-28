@@ -1,3 +1,4 @@
+from flowmark import FormatOptions, Semantic
 from flowmark.formats.frontmatter import has_frontmatter, split_frontmatter
 from flowmark.linewrapping.markdown_filling import fill_markdown
 from flowmark.reformat_api import reformat_text
@@ -45,7 +46,7 @@ def test_markdown_with_frontmatter() -> None:
     # Test that frontmatter is preserved when formatting markdown
     input_doc = "---\ntitle: Test Document\ndate: 2023-01-01\nauthor: Test Author\n---\n\n# Heading\n\nThis is sentence one. This is sentence two."
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     # Verify the frontmatter is preserved exactly
     frontmatter, _ = split_frontmatter(normalized_doc)
@@ -62,7 +63,7 @@ def test_markdown_with_frontmatter() -> None:
     # Test with empty lines before frontmatter
     input_doc = "\n\n---\ntitle: Test\n---\n\n# Content with long sentence that should be wrapped to make the diff more readable when it gets formatted."
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     # Verify the frontmatter is preserved exactly
     frontmatter, content = split_frontmatter(normalized_doc)
@@ -79,4 +80,4 @@ def test_frontmatter_is_not_checked_as_markdown_math() -> None:
     """A `$` in YAML frontmatter is metadata, never rejected as malformed math."""
     source = "---\npath: $ROOT/bin before: | cp $\n---\n\n# Title\n\nText.\n"
 
-    assert reformat_text(source, verify=True) == source
+    assert reformat_text(source) == source

@@ -7,7 +7,6 @@ import pytest
 from flowmark.lint import lint_text
 from flowmark.pandoc_lint import parse_pandoc_for_lint
 
-
 PROSE_LOOKALIKES = (
     "#Heading",
     "(text)[https://example.com]",

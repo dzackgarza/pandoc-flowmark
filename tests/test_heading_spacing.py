@@ -7,7 +7,7 @@ including the corner case where headings end with hard breaks.
 
 from textwrap import dedent
 
-from flowmark.formats.options import ListSpacing
+from flowmark import FormatOptions, Semantic
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
 
@@ -38,7 +38,7 @@ def test_heading_spacing_basic() -> None:
         + "\n"
     )
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc
 
 
@@ -65,9 +65,7 @@ def test_heading_spacing_before_list() -> None:
         + "\n"
     )
 
-    normalized_doc = fill_markdown(
-        input_doc, semantic=True, list_spacing=ListSpacing.loose
-    )
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc
 
 
@@ -91,7 +89,7 @@ def test_heading_spacing_before_quote() -> None:
         + "\n"
     )
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc
 
 
@@ -119,7 +117,7 @@ def test_heading_spacing_before_code() -> None:
         + "\n"
     )
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc
 
 
@@ -142,7 +140,7 @@ code()
 more_code()
 """
 
-    normalized_doc = fill_markdown(input_doc, semantic=True, dedent_input=False)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc
 
 
@@ -167,7 +165,7 @@ def test_heading_with_hard_break_in_list() -> None:
         + "\n"
     )
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc
 
 
@@ -182,7 +180,7 @@ second line\
 third line
 """
 
-    normalized_doc = fill_markdown(input_doc, semantic=True, dedent_input=False)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc
 
 
@@ -208,7 +206,7 @@ temp_file.flush()
 temp_file.close()
 """
 
-    normalized_doc = fill_markdown(input_doc, semantic=True, dedent_input=False)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc
 
 
@@ -233,5 +231,5 @@ def test_hard_breaks_in_list_items() -> None:
         + "\n"
     )
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc

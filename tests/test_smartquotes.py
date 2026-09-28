@@ -1,5 +1,6 @@
 import pytest
 
+from flowmark import FormatOptions, Pass, Semantic
 from flowmark.linewrapping.markdown_filling import fill_markdown
 from flowmark.pandoc_verify import pandoc_ast
 from flowmark.typography.smartquotes import smart_quotes
@@ -223,7 +224,7 @@ def test_quotes_with_newlines() -> None:
 def test_smart_quotes_in_table_cells() -> None:
     """Test that smart quotes are applied inside GFM table cells."""
     text = '| User Says | Response |\n| --- | --- |\n| "Hello there" | "Goodbye" |\n'
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     assert "\u201cHello there\u201d" in result
     assert "\u201cGoodbye\u201d" in result
 
@@ -231,14 +232,14 @@ def test_smart_quotes_in_table_cells() -> None:
 def test_smart_quotes_apostrophes_in_table_cells() -> None:
     """Test that apostrophes are converted inside table cells."""
     text = "| User Says |\n| --- |\n| There's a bug |\n"
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     assert "There\u2019s" in result
 
 
 def test_smart_quotes_in_table_preserve_code_spans() -> None:
     """Test that code spans inside table cells are not modified."""
     text = '| Description | Command |\n| --- | --- |\n| "Fix a bug" | `tbd create "..." --type=bug` |\n'
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     # The prose quotes should be converted
     assert "\u201cFix a bug\u201d" in result
     # The code span should be unchanged
@@ -248,7 +249,7 @@ def test_smart_quotes_in_table_preserve_code_spans() -> None:
 def test_smart_quotes_in_strikethrough() -> None:
     """Test that smart quotes are applied inside strikethrough text."""
     text = '~~"Hello" and don\'t~~ rest of text\n'
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     assert "\u201cHello\u201d" in result
     assert "don\u2019t" in result
 
@@ -256,7 +257,7 @@ def test_smart_quotes_in_strikethrough() -> None:
 def test_smart_quotes_spanning_code_span() -> None:
     """Test quotes that span across a code span within a paragraph."""
     text = '**Tell the user:** "First, install the `markform` command."\n'
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     assert "\u201cFirst," in result
     assert "command.\u201d" in result
 
@@ -264,7 +265,7 @@ def test_smart_quotes_spanning_code_span() -> None:
 def test_smart_quotes_spanning_code_span_in_blockquote() -> None:
     """Test quotes spanning a code span inside a blockquote."""
     text = '> **Tell the user:** "First, install the `markform` command."\n'
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     assert "\u201cFirst," in result
     assert "command.\u201d" in result
 
@@ -272,7 +273,7 @@ def test_smart_quotes_spanning_code_span_in_blockquote() -> None:
 def test_smart_quotes_spanning_emphasis() -> None:
     """Test quotes that span across emphasis within a paragraph."""
     text = 'He said "this is *really* important."\n'
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     assert "\u201cthis" in result
     assert "important.\u201d" in result
 
@@ -280,7 +281,7 @@ def test_smart_quotes_spanning_emphasis() -> None:
 def test_smart_quotes_spanning_strong_emphasis() -> None:
     """Test quotes that span across strong emphasis."""
     text = 'She said "this is **very** important."\n'
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     assert "\u201cthis" in result
     assert "important.\u201d" in result
 
@@ -288,7 +289,7 @@ def test_smart_quotes_spanning_strong_emphasis() -> None:
 def test_smart_quotes_spanning_link() -> None:
     """Test quotes that span across a link."""
     text = 'Read "the [documentation](https://example.com) first."\n'
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     assert "\u201cthe" in result
     assert "first.\u201d" in result
 
@@ -296,7 +297,7 @@ def test_smart_quotes_spanning_link() -> None:
 def test_smart_quotes_not_modifying_code_content() -> None:
     """Ensure code spans are never modified even when between smart-quoted text."""
     text = 'Use "the `x="value"` syntax" for this.\n'
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     # Code span content must be preserved exactly
     assert '`x="value"`' in result
 
@@ -304,7 +305,7 @@ def test_smart_quotes_not_modifying_code_content() -> None:
 def test_smart_quotes_apostrophe_spanning_code_span() -> None:
     """Test apostrophes in text around code spans."""
     text = "I'll use the `markform` tool and it'll work.\n"
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     assert "I\u2019ll" in result
     assert "it\u2019ll" in result
 
@@ -312,7 +313,7 @@ def test_smart_quotes_apostrophe_spanning_code_span() -> None:
 def test_smart_quotes_in_table_with_bold() -> None:
     """Test smart quotes in table cells containing bold text."""
     text = '| Column |\n| --- |\n| **Issues/Beads** |\n| "There\'s a bug" |\n'
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     assert "\u201cThere\u2019s a bug\u201d" in result
 
 
@@ -325,7 +326,7 @@ def test_smart_quotes_complex_table() -> None:
         '| "There\'s a bug where ..." | `tbd create "..." --type=bug` |\n'
         '| "Create a task/feature for ..." | `tbd create "..." --type=task` or `--type=feature` |\n'
     )
-    result = fill_markdown(text, smartquotes=True)
+    result = fill_markdown(text, FormatOptions(passes=frozenset({Pass.smartquotes})))
     # Prose quotes should be converted
     assert (
         "\u201cThere\u2019s a bug where \u2026\u201d" in result
@@ -347,7 +348,9 @@ def test_smart_quotes_blockquote_multiline_with_code_span() -> None:
         "> Markform is a CLI tool for creating structured forms that agents can fill via tool\n"
         "> calls. I'll install it globally so we can use the `markform` command.\"\n"
     )
-    result = fill_markdown(text, semantic=True, smartquotes=True)
+    result = fill_markdown(
+        text, FormatOptions(Semantic(), passes=frozenset({Pass.smartquotes}))
+    )
     # The outer quotes should be converted to smart quotes
     assert "\u201cFirst," in result
     assert "command.\u201d" in result
@@ -439,7 +442,7 @@ def test_letter_elisions_curl_when_nothing_can_pair_with_them() -> None:
     That test asserted "'til/'em read as open quotes to a markdown reader; only
     digits are safe". Probed against pandoc 3.9.0.2 that is false for the unpaired
     case: `don't stop 'til you drop` and `don’t stop ’til you drop` have identical
-    ASTs. The probe is recorded in `ELISION_PROBES` below.
+    ASTs. The probe is recorded in `SAME_READING_PROBES` below.
 
     What was true, and is kept, is the *paired* case -- see
     `test_digit_elision_stays_straight_when_a_closer_follows`, which is the same
@@ -460,36 +463,42 @@ def test_letter_elisions_curl_when_nothing_can_pair_with_them() -> None:
 # Probed against pandoc 3.9.0.2, that assertion is wrong for the unpaired cases and
 # right for the paired one. Each pair below is the recorded probe.
 
-ELISION_PROBES = [
-    # (source, curled, pandoc reads them the same)
-    ("don't stop 'til you drop", "don’t stop ’til you drop", True),
-    ("give 'em hell now", "give ’em hell now", True),
-    ("'tis the season", "’tis the season", True),
+# (source, curled) pairs pandoc reads the same.
+SAME_READING_PROBES = [
+    ("don't stop 'til you drop", "don’t stop ’til you drop"),
+    ("give 'em hell now", "give ’em hell now"),
+    ("'tis the season", "’tis the season"),
+]
+
+# (source, curled) pairs pandoc reads differently.
+CHANGED_READING_PROBES = [
     # `rock 'n' roll` is different in kind: pandoc pairs the two straight quotes
     # into `Quoted SingleQuote [Str "n"]`, so curling them *as elisions* (U+2019 in
     # both positions) erases the span.
-    ("rock 'n' roll", "rock ’n’ roll", False),
-    ("the '90s, rock 'n' roll", "the ’90s, rock ’n’ roll", False),
+    ("rock 'n' roll", "rock ’n’ roll"),
+    ("the '90s, rock 'n' roll", "the ’90s, rock ’n’ roll"),
     # Curling the same span as a *quotation* (U+2018 then U+2019) is a different
     # change and is AST-neutral under the `smart_quotes` normalization, which is
     # why the standalone case is not the one #13 refuses.
-    ("rock 'n' roll", "rock ‘n’ roll", False),
+    ("rock 'n' roll", "rock ‘n’ roll"),
 ]
 
+# The probes themselves, checked in rather than described. #13 asks that each
+# conversion be "justified by a recorded pandoc probe". This is that record: if
+# pandoc's reading ever changes, these fail here rather than the conversions
+# silently becoming unsound.
 
-@pytest.mark.parametrize(("source", "curled", "ast_neutral"), ELISION_PROBES)
-def test_recorded_pandoc_probe_for_each_elision(
-    source: str, curled: str, ast_neutral: bool
+
+@pytest.mark.parametrize(("source", "curled"), SAME_READING_PROBES)
+def test_recorded_probe_curled_elision_reads_the_same(source: str, curled: str) -> None:
+    assert pandoc_ast(source + "\n") == pandoc_ast(curled + "\n")
+
+
+@pytest.mark.parametrize(("source", "curled"), CHANGED_READING_PROBES)
+def test_recorded_probe_curled_elision_reads_differently(
+    source: str, curled: str
 ) -> None:
-    """
-    The probe itself, checked in rather than described.
-
-    #13 asks that each conversion be "justified by a recorded pandoc probe". This
-    is that record: if pandoc's reading ever changes, this fails here rather than
-    the conversions silently becoming unsound.
-    """
-    same = pandoc_ast(source + "\n") == pandoc_ast(curled + "\n")
-    assert same is ast_neutral
+    assert pandoc_ast(source + "\n") != pandoc_ast(curled + "\n")
 
 
 def test_unpaired_letter_elisions_are_curled() -> None:

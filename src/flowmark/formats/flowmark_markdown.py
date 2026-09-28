@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from flowmark.formats.options import ListSpacing
+from flowmark.formats.options import FormatOptions, ListSpacing
 from flowmark.linewrapping.line_wrappers import line_wrap_by_sentence
 from flowmark.linewrapping.protocols import LineWrapper
 from flowmark.linewrapping.text_filling import DEFAULT_WRAP_WIDTH
+from flowmark.linewrapping.text_wrapping import markdown_escape_word
 from flowmark.pandoc_reader import (
     PandocJson,
     located_nodes,
@@ -39,9 +40,8 @@ class FlowmarkMarkdown:
 
         result = fill_markdown(
             document.source,
-            dedent_input=False,
-            line_wrapper=self.line_wrapper,
-            list_spacing=self.list_spacing,
+            FormatOptions(list_spacing=self.list_spacing),
+            self.line_wrapper,
         )
         top_level = [
             node
@@ -62,6 +62,6 @@ def flowmark_markdown(
 ) -> FlowmarkMarkdown:
     """Return the Pandoc-backed Markdown formatter."""
     wrapper = line_wrapper or line_wrap_by_sentence(
-        width=DEFAULT_WRAP_WIDTH, is_markdown=True, source_preserving=True
+        width=DEFAULT_WRAP_WIDTH, escape_word=markdown_escape_word
     )
     return FlowmarkMarkdown(wrapper, list_spacing)

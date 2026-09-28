@@ -6,11 +6,9 @@ import json
 import subprocess
 from typing import cast
 
-
-from flowmark.pandoc_math import iter_pandoc_math_spans
 from flowmark.pandoc_dialect import PANDOC_FORMAT
+from flowmark.pandoc_math import iter_pandoc_math_spans
 from flowmark.pandoc_reader import pandoc_executable
-
 
 type JsonValue = (
     str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]

@@ -1,6 +1,6 @@
 from textwrap import dedent
 
-from flowmark.formats.options import ListSpacing
+from flowmark import FormatOptions, Semantic, Width
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
 _original_doc = dedent(
@@ -222,9 +222,7 @@ Complex should be possible.*” —Alan Kay </p>
 
 
 def test_normalize_markdown() -> None:
-    normalized_doc = fill_markdown(
-        _original_doc, semantic=True, list_spacing=ListSpacing.loose
-    )
+    normalized_doc = fill_markdown(_original_doc, FormatOptions(Semantic()))
     assert normalized_doc == _expected_doc
 
 
@@ -257,7 +255,7 @@ def test_multi_paragraph_list_items() -> None:
         + "\n"
     )
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     print("---Input")
     print(input_doc)
@@ -288,8 +286,8 @@ def test_wide_table_adjacent_to_paragraph() -> None:
     """
     )
 
-    for semantic in (True, False):
-        result = fill_markdown(input_doc, semantic=semantic)
+    for wrap in (Semantic(), Width()):
+        result = fill_markdown(input_doc, FormatOptions(wrap))
 
         # Every table row must remain on its own single line
         assert (
@@ -302,7 +300,7 @@ def test_wide_table_adjacent_to_paragraph() -> None:
         result_lines = result.strip().split("\n")
         table_lines = [line for line in result_lines if line.startswith("|")]
         assert len(table_lines) == 3, (
-            f"Expected 3 table lines, got {len(table_lines)} in {semantic=}"
+            f"Expected 3 table lines, got {len(table_lines)} in {wrap=}"
         )
 
 
@@ -320,7 +318,7 @@ def test_standalone_wide_table() -> None:
     """
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     # All rows preserved
     assert "| Quarter | Revenue ($M) |" in result
@@ -339,7 +337,7 @@ def test_semantic_breaks_without_a_width_collapse_runs_of_spaces() -> None:
     column limit, the CLI default, must too (#40).
     """
     result = fill_markdown(
-        "some   text   here. More   text.\n", semantic=True, width=0, dedent_input=False
+        "some   text   here. More   text.\n", FormatOptions(Semantic(0))
     )
 
     assert result == "some text here.\nMore text.\n"

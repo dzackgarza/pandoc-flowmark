@@ -104,10 +104,10 @@ class RuleRegistry:
     def __init__(self) -> None:
         self._rules: dict[str, LintRule] = {}
 
-    def register(self, rule: LintRule, *, replace: bool = False) -> None:
+    def register(self, rule: LintRule) -> None:
         if not rule.name or any(char.isspace() for char in rule.name):
             raise ValueError(f"Invalid lint rule name: {rule.name!r}")
-        if rule.name in self._rules and not replace:
+        if rule.name in self._rules:
             raise ValueError(f"Lint rule {rule.name!r} is already registered")
         self._rules[rule.name] = rule
 
@@ -163,18 +163,16 @@ def _load_plugin_module(specifier: str) -> ModuleType:
     return importlib.import_module(specifier)
 
 
-def load_lint_plugins(
-    registry: RuleRegistry,
-    plugins: Iterable[str] = (),
-    *,
-    discover_entry_points: bool = True,
-) -> None:
-    """Load installed and explicitly configured lint extensions."""
+def load_installed_lint_plugins(registry: RuleRegistry) -> None:
+    """Load the lint extensions installed under the `flowmark.lint_rules` entry point."""
 
-    if discover_entry_points:
-        for entry_point in metadata.entry_points(group="flowmark.lint_rules"):
-            plugin = cast(object, entry_point.load())
-            _register_plugin_object(registry, plugin, entry_point.name)
+    for entry_point in metadata.entry_points(group="flowmark.lint_rules"):
+        plugin = cast(object, entry_point.load())
+        _register_plugin_object(registry, plugin, entry_point.name)
+
+
+def load_lint_plugins(registry: RuleRegistry, plugins: Iterable[str]) -> None:
+    """Load the lint extensions named by module specifier or file path."""
 
     for specifier in dict.fromkeys(plugins):
         module = _load_plugin_module(specifier)

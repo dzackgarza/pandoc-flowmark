@@ -19,7 +19,7 @@ from flowmark.atomic_spans import (
     split_sentences_atomic,
     split_sentences_with_spans,
 )
-from flowmark.markdown_ast import walk_elements
+from flowmark.markdown_ast import LinkKind, walk_elements
 from flowmark.pandoc_reader import pandoc_executable, read_source_ast
 
 
@@ -131,7 +131,9 @@ def test_escaped_brackets_are_not_a_link() -> None:
 def test_images_excluded_by_default_included_on_request() -> None:
     doc = _parse("![alt](img.png)\n")
     assert extract_links(doc) == []
-    assert extract_links(doc, include_images=True) == [Link("alt", "img.png", None)]
+    assert extract_links(doc, frozenset({LinkKind.image})) == [
+        Link("alt", "img.png", None)
+    ]
 
 
 def test_email_autolink_text_is_display_not_destination() -> None:
@@ -151,7 +153,7 @@ def test_angle_autolink_and_bare_url_extraction() -> None:
     urls = [link.url for link in extract_links(doc)]
     assert "http://auto.com" in urls
     assert "https://bare.com/x" in urls
-    assert extract_links(doc, include_autolinks=False) == []
+    assert extract_links(doc, frozenset({LinkKind.link})) == []
 
 
 def test_duplicate_link_text_yields_separate_links() -> None:

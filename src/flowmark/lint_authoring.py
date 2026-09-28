@@ -17,7 +17,7 @@ from bisect import bisect_left
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import NamedTuple, cast
 
 from rapidfuzz import process
 from rapidfuzz.distance import OSA
@@ -1085,20 +1085,23 @@ def _recursive_files(context: RuleContext, root: Path) -> list[Path]:
     return files
 
 
+class SearchRoot(NamedTuple):
+    """A directory TeX searches, and whether it searches the tree below it (`dir//`)."""
+
+    path: Path
+    recursive: bool
+
+
 def _resolve_in_root(
-    context: RuleContext,
-    root: Path,
-    names: Sequence[str],
-    *,
-    recursive: bool,
+    context: RuleContext, root: SearchRoot, names: Sequence[str]
 ) -> Path | None:
     for name in names:
-        candidate = (root / name).resolve()
+        candidate = (root.path / name).resolve()
         if candidate.is_file():
             return candidate
-    if not recursive:
+    if not root.recursive:
         return None
-    files = _recursive_files(context, root)
+    files = _recursive_files(context, root.path)
     for name in names:
         normalized = name.replace("\\", "/").removeprefix("./")
         basename = Path(normalized).name
@@ -1131,22 +1134,18 @@ def _resource_exists(
     if authored_path.is_absolute():
         return any((authored_path.parent / Path(name).name).is_file() for name in names)
 
-    ordinary: list[tuple[Path, bool]] = []
+    ordinary: list[SearchRoot] = []
     if source_dir is not None:
-        ordinary.append((source_dir, False))
-    ordinary.extend((root, False) for root in project_roots)
+        ordinary.append(SearchRoot(source_dir, False))
+    ordinary.extend(SearchRoot(root, False) for root in project_roots)
     ordinary.extend(
         (
-            root,
-            recursive,
-        )
-        for root, recursive in (
-            (home / ".pandoc" / "styles", True),
-            (home / ".pandoc" / "styles" / "macros", True),
-            (home / ".pandoc" / "macros", True),
-            (home / ".pandoc" / "config", True),
-            (home / ".pandoc", False),
-            (home / ".pandoc" / "figures", False),
+            SearchRoot(home / ".pandoc" / "styles", True),
+            SearchRoot(home / ".pandoc" / "styles" / "macros", True),
+            SearchRoot(home / ".pandoc" / "macros", True),
+            SearchRoot(home / ".pandoc" / "config", True),
+            SearchRoot(home / ".pandoc", False),
+            SearchRoot(home / ".pandoc" / "figures", False),
         )
     )
     texinputs = str(data.get("texinputs") or os.environ.get("TEXINPUTS", ""))
@@ -1156,22 +1155,19 @@ def _resource_exists(
         recursive = raw.endswith("//")
         root = raw[:-2] if recursive else raw
         if root:
-            ordinary.append((Path(root).expanduser(), recursive))
+            ordinary.append(SearchRoot(Path(root).expanduser(), recursive))
 
     roots = list(ordinary)
     if kind == "graphics":
         bases = [root for root in [source_dir, *project_roots] if root is not None]
-        graphics: list[tuple[Path, bool]] = []
+        graphics: list[SearchRoot] = []
         for graphic in graphic_roots:
             if not _static_path(graphic):
                 continue
             for base in bases:
-                graphics.append(((base / graphic).resolve(), False))
+                graphics.append(SearchRoot((base / graphic).resolve(), False))
         roots = graphics + roots
-    return any(
-        _resolve_in_root(context, root, names, recursive=recursive) is not None
-        for root, recursive in roots
-    )
+    return any(_resolve_in_root(context, root, names) is not None for root in roots)
 
 
 def _tex_missing_resource(

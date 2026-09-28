@@ -41,7 +41,6 @@ dependencies = [
     "platformdirs>=4.2",
     "rapidfuzz>=3.9",
     "strif>=3.0.1",
-    "tomli>=2.0.0; python_version < '3.11'",
     "typing-extensions>=4.12.2",
 ]
 

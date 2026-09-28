@@ -8,7 +8,7 @@ should carry that weight rather than hand-applied bolding, and list spacing is
 standardized rather than letting each document control presentation.  Deliberate
 style changes like these are the formatter doing its job, so they never gate a
 run; they are at most *reported* (a stderr note when one applies without having
-been asked for); see `_NORMALIZATIONS`.
+been asked for); see `NORMALIZATIONS`.
 
 Every *other* AST change is data being destroyed by accident -- a construct the
 formatter mishandles rather than an opinion it holds -- and that is what this
@@ -64,11 +64,13 @@ from flowmark.pandoc_dialect import PANDOC_FORMAT
 from flowmark.pandoc_reader import (
     PandocJson,
     PandocParseError,
-    PandocUnavailableError as PandocUnavailableError,
     located_nodes,
     pandoc_executable,
     read_source_ast,
     reader_json,
+)
+from flowmark.pandoc_reader import (
+    PandocUnavailableError as PandocUnavailableError,
 )
 
 
@@ -583,32 +585,32 @@ def _normalize_quotes(
     return _canonical(_flatten_quoted(before)), _canonical(_flatten_quoted(after))
 
 
-_SUSPENSION_WORDS = frozenset({"and", "or", "to", "nor", "but", "through", "versus"})
-"""Mirrors `transforms.doc_cleanups._SUSPENSION_WORDS`.
-
-The two must agree: this decides what the gate will accept, that decides what the
-formatter does, and a rule the formatter applies but the gate refuses is a document
-that cannot be written.  `test_hyphen_join_scope_matches_the_cleanup` pins them.
+SUSPENSION_WORDS = frozenset({"and", "or", "to", "nor", "but", "through", "versus"})
+"""
+Words that mark suspended hyphenation after a line-final hyphen, as in `pre- and
+post-stable`. The hyphen cleanup does not join a break before one of these words,
+and the gate refuses a join there.
 """
 
 
-def _joinable_space(text: str, start: int, followed: bool) -> bool:
+def _joinable_space(text: str, start: int, following: PandocJson | None) -> bool:
     """
     Whether the space at `text[start]`, right after a hyphen, is in #18's scope.
 
-    `followed` says whether an inline comes after this `Str`: a trailing `- `
-    closes up only against one (`degree- ` then a `Math`), never at the end of a
-    paragraph.
+    `following` is the inline after this `Str`, if any: a trailing `- ` closes up
+    only against one (`degree- ` then a `Math`), never at the end of a paragraph.
     """
     rest = text[start:].lstrip()
     if not rest:
-        return followed
-    if rest.split()[0].strip(".,;:!?").lower() in _SUSPENSION_WORDS:
+        return following is not None
+    if rest.split()[0].strip(".,;:!?").lower() in SUSPENSION_WORDS:
         return False
     return rest[0].isdigit() or rest[0].islower()
 
 
-def _join_hyphen_text_toward(text: str, target: str, followed: bool) -> str:
+def _join_hyphen_text_toward(
+    text: str, target: str, following: PandocJson | None
+) -> str:
     """
     `target` if it is `text` with some in-scope hyphen spaces closed up, else `text`.
 
@@ -625,7 +627,7 @@ def _join_hyphen_text_toward(text: str, target: str, followed: bool) -> str:
         elif (
             text[i] == " "
             and text[i - 1 : i] == "-"
-            and _joinable_space(text, i, followed)
+            and _joinable_space(text, i, following)
         ):
             i += 1
         else:
@@ -663,7 +665,9 @@ def _join_hyphens_toward(node: PandocJson, target: PandocJson) -> PandocJson:
             and item.get("t") == goal.get("t") == "Str"
         ):
             text = _join_hyphen_text_toward(
-                str(item.get("c", "")), str(goal.get("c", "")), index + 1 < len(node)
+                str(item.get("c", "")),
+                str(goal.get("c", "")),
+                node[index + 1] if index + 1 < len(node) else None,
             )
             out.append({"t": "Str", "c": text})
             continue
@@ -701,7 +705,7 @@ def _normalize_lazy_list(
     return before, _walk_levels(_collapse_lazy_lists_at_level, before, after)
 
 
-_NORMALIZATIONS: list[tuple[str, str, Normalization]] = [
+NORMALIZATIONS: list[tuple[str, str, Normalization]] = [
     (UNBOLD_HEADING, "removed bold from a heading", _both(_unbold_headings)),
     (LIST_SPACING, "changed list spacing (tight/loose)", _both(_plain_to_para)),
     (SMART_QUOTES, "curled straight quotes", _normalize_quotes),
@@ -757,13 +761,13 @@ table, both:
   same shape -- that must still raise `MeaningChangedError`.
 
 `test_every_normalization_declares_its_contract` asserts the table covers
-`_NORMALIZATIONS` exactly, so an entry cannot be added without both cases.
+`NORMALIZATIONS` exactly, so an entry cannot be added without both cases.
 """
 
 
 def describe(normalization: str) -> str:
     """Human-readable text for a normalization identifier."""
-    return next(text for key, text, _ in _NORMALIZATIONS if key == normalization)
+    return next(text for key, text, _ in NORMALIZATIONS if key == normalization)
 
 
 def _block_type(block: PandocJson) -> str:
@@ -831,8 +835,8 @@ def check_meaning_preserved(
     # reconciles it.  Merely containing a construct a normalization rewrites
     # (a bold heading or tight list that formatting *preserved*) must not
     # count as that normalization having been applied.
-    for size in range(1, len(_NORMALIZATIONS) + 1):
-        for combo in combinations(_NORMALIZATIONS, size):
+    for size in range(1, len(NORMALIZATIONS) + 1):
+        for combo in combinations(NORMALIZATIONS, size):
             normalized_before, normalized_after = before_canon, after_canon
             for _key, _text, normalize in combo:
                 normalized_before, normalized_after = normalize(
@@ -847,7 +851,7 @@ def check_meaning_preserved(
     # bisection this diagnostic exists to prevent. Whatever still differs when the
     # gate is at its most permissive is what actually blocked acceptance.
     permissive_before, permissive_after = before_canon, after_canon
-    for _key, _text, normalize in _NORMALIZATIONS:
+    for _key, _text, normalize in NORMALIZATIONS:
         permissive_before, permissive_after = normalize(
             permissive_before, permissive_after
         )

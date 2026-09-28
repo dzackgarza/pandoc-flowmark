@@ -2,13 +2,8 @@
 
 from __future__ import annotations
 
-import sys
+import tomllib
 from pathlib import Path
-
-if sys.version_info >= (3, 11):
-    import tomllib  # pyright: ignore[reportUnreachable]
-else:
-    import tomli as tomllib  # type: ignore[no-redef]  # pyright: ignore[reportUnreachable]
 
 
 def test_cli_entrypoints() -> None:

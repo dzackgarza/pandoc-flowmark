@@ -14,7 +14,6 @@ import pytest
 from flowmark.preflight import MalformedInputError, preflight
 from flowmark.reformat_api import reformat_text
 
-
 # Pandoc reads an unclosed fence as paragraph text.
 AMBIGUOUS_FENCE = "Intro.\n\n```python\nx = 1\n\nmore   text   here\n"
 
@@ -70,7 +69,7 @@ def test_preflight_is_quiet_on_clean_input() -> None:
 def test_unclosed_fence_is_refused() -> None:
     assert [finding.line for finding in preflight(AMBIGUOUS_FENCE)] == [3]
     with pytest.raises(MalformedInputError, match="never closed"):
-        reformat_text(AMBIGUOUS_FENCE, semantic=True, verify=True)
+        reformat_text(AMBIGUOUS_FENCE)
 
 
 def test_preflight_accepts_inline_math_that_continues_on_the_next_line() -> None:

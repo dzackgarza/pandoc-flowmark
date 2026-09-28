@@ -11,6 +11,7 @@ to regular quote handling, preserving all content.
 
 from textwrap import dedent
 
+from flowmark import FormatOptions, Semantic
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
 
@@ -33,7 +34,7 @@ def test_basic_note_alert() -> None:
         + "\n"
     )
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc
 
 
@@ -57,7 +58,7 @@ def test_obsidian_callout_title_stays_on_header_line() -> None:
         + "\n"
     )
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc
 
 
@@ -67,7 +68,7 @@ def test_all_valid_alert_types() -> None:
 
     for alert_type in alert_types:
         input_doc = f"> [!{alert_type}]\n> Content for {alert_type.lower()} alert."
-        normalized_doc = fill_markdown(input_doc, semantic=True)
+        normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
         # Verify alert header is preserved
         assert f"> [!{alert_type}]" in normalized_doc, (
@@ -90,7 +91,7 @@ def test_lowercase_alert_normalized_to_uppercase() -> None:
         """
     ).strip()
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     # Should be normalized to uppercase
     assert "> [!NOTE]" in normalized_doc
@@ -113,7 +114,7 @@ def test_misspelled_alert_preserves_quote() -> None:
     ]
 
     for input_doc, misspelled_type in test_cases:
-        normalized_doc = fill_markdown(input_doc, semantic=True)
+        normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
         # Quote formatting MUST be preserved
         assert normalized_doc.startswith(">"), (
@@ -139,7 +140,7 @@ def test_unknown_alert_types_preserve_quote() -> None:
     ]
 
     for input_doc in test_cases:
-        normalized_doc = fill_markdown(input_doc, semantic=True)
+        normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
         # Quote formatting MUST be preserved
         assert normalized_doc.startswith(">"), (
@@ -156,7 +157,7 @@ def test_unknown_alert_types_preserve_quote() -> None:
 def test_empty_alert_type_preserves_quote() -> None:
     """Empty alert brackets should not cause quote formatting to be stripped."""
     input_doc = "> [!]\n> Some content"
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     assert normalized_doc.startswith(">"), "Quote formatting lost for empty alert type"
     assert "Some content" in normalized_doc
@@ -172,7 +173,7 @@ def test_malformed_alert_preserves_quote() -> None:
     ]
 
     for input_doc in test_cases:
-        normalized_doc = fill_markdown(input_doc, semantic=True)
+        normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
         # Quote formatting MUST be preserved
         assert normalized_doc.startswith(">"), (
             f"Quote formatting lost for: {input_doc[:30]}"
@@ -190,7 +191,7 @@ def test_alert_with_multiline_content() -> None:
         """
     ).strip()
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     assert "> [!NOTE]" in normalized_doc
     # Content should be wrapped but preserved
@@ -212,7 +213,7 @@ def test_alert_with_multiple_paragraphs() -> None:
     # Note: blank lines in quotes are rendered as "> " (with trailing space)
     expected_doc = "> [!TIP]\n> First paragraph.\n> \n> Second paragraph.\n"
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert normalized_doc == expected_doc
 
 
@@ -229,7 +230,7 @@ def test_alert_with_code_block() -> None:
         """
     ).strip()
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     assert "> [!WARNING]" in normalized_doc
     assert "```python" in normalized_doc
@@ -248,7 +249,7 @@ def test_alert_with_list() -> None:
         """
     ).strip()
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     assert "> [!IMPORTANT]" in normalized_doc
     assert "First item" in normalized_doc
@@ -269,7 +270,7 @@ def test_multiple_alerts_in_document() -> None:
         """
     ).strip()
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     assert "> [!NOTE]" in normalized_doc
     assert "> [!WARNING]" in normalized_doc
@@ -289,7 +290,7 @@ def test_alert_after_heading() -> None:
         """
     ).strip()
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     assert "## Section Title" in normalized_doc
     assert "> [!NOTE]" in normalized_doc
@@ -305,7 +306,7 @@ def test_regular_quote_still_works() -> None:
         """
     ).strip()
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     assert normalized_doc.startswith(">")
     assert "regular quote" in normalized_doc
@@ -319,7 +320,7 @@ def test_quote_with_link_like_content() -> None:
         """
     ).strip()
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     assert normalized_doc.startswith(">")
     assert "[!this link]" in normalized_doc or "this link" in normalized_doc

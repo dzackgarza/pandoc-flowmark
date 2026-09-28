@@ -12,14 +12,13 @@ discussion on why line wrapping this way is convenient.)
 from __future__ import annotations
 
 import sys
-from textwrap import dedent
 
-from flowmark.formats.options import ListSpacing
 from flowmark.formats.frontmatter import split_frontmatter
+from flowmark.formats.options import DEFAULT_OPTIONS, FormatOptions
 from flowmark.linewrapping.protocols import LineWrapper
-from flowmark.linewrapping.text_filling import DEFAULT_WRAP_WIDTH
-from flowmark.pandoc_source import format_sourced_markdown
 from flowmark.pandoc_reader import pandoc_executable
+from flowmark.pandoc_source import format_sourced_markdown
+from flowmark.pandoc_verify import check_meaning_preserved
 
 
 def _strip_blank_edges(text: str) -> str:
@@ -39,33 +38,18 @@ def _strip_blank_edges(text: str) -> str:
     return "\n".join(lines)
 
 
-def fill_markdown(
+def format_markdown(
     markdown_text: str,
-    dedent_input: bool = True,
-    width: int = DEFAULT_WRAP_WIDTH,
-    semantic: bool = False,
-    cleanups: bool = False,
-    smartquotes: bool = False,
-    ellipses: bool = False,
+    options: FormatOptions = DEFAULT_OPTIONS,
     line_wrapper: LineWrapper | None = None,
-    list_spacing: ListSpacing = ListSpacing.loose,
-    verify: bool = True,
 ) -> str:
     """
-    Normalize and wrap Markdown text filling paragraphs to the full width.
+    Normalize and wrap Markdown text as `options` selects, without checking that
+    the result reads as the input does; `fill_markdown` checks it.
 
-    Wraps lines and adds line breaks within paragraphs and on
-    best-guess estimations of sentences, to make diffs more readable.
-
-    With `list_spacing="loose"` (default), all lists have blank lines between items.
-    With `list_spacing="preserve"`, list spacing is kept as authored.
-    With `list_spacing="tight"`, lists are made tight where possible.
-
-    Optionally also dedents and strips the input, so it can be used
-    on docstrings.
-
-    With `semantic` enabled, the line breaks are wrapped approximately
-    by sentence boundaries, to make diffs more readable.
+    Wraps lines and adds line breaks within paragraphs and on best-guess
+    estimations of sentences, to make diffs more readable. `line_wrapper`, when
+    given, wraps every paragraph in place of the wrapping `options.wrap` selects.
 
     Template tags (Markdoc, Jinja, HTML comments) are always treated atomically
     and never broken across lines.
@@ -80,22 +64,13 @@ def fill_markdown(
     if frontmatter:
         markdown_text = content
 
-    if dedent_input:
-        markdown_text = _strip_blank_edges(dedent(markdown_text))
-
     markdown_text = _strip_blank_edges(markdown_text) + "\n"
 
     result, joined = format_sourced_markdown(
         markdown_text,
         pandoc_executable(),
-        width=width,
-        semantic=semantic,
-        cleanups=cleanups,
-        smartquotes=smartquotes,
-        ellipses=ellipses,
-        list_spacing=list_spacing,
-        line_wrapper=line_wrapper,
-        verify=verify,
+        options,
+        line_wrapper,
     )
     if joined:
         print(
@@ -113,4 +88,19 @@ def fill_markdown(
     if frontmatter:
         result = frontmatter + "\n" + result
 
+    return result
+
+
+def fill_markdown(
+    markdown_text: str,
+    options: FormatOptions = DEFAULT_OPTIONS,
+    line_wrapper: LineWrapper | None = None,
+) -> str:
+    """
+    `format_markdown`, checked: raise `MeaningChangedError` if Pandoc reads the
+    result differently than the input, beyond the normalizations flowmark makes.
+    """
+    result = format_markdown(markdown_text, options, line_wrapper)
+    if result != markdown_text:
+        check_meaning_preserved(markdown_text, result)
     return result

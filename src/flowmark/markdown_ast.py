@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from enum import StrEnum
 from typing import NamedTuple
 
 from flowmark.pandoc_reader import (
@@ -19,6 +20,28 @@ class Link(NamedTuple):
     text: str
     url: str
     title: str | None
+
+
+class LinkKind(StrEnum):
+    """The kinds of Pandoc node `extract_links` can report."""
+
+    link = "link"
+    """A `Link` written with brackets, inline or by reference."""
+    autolink = "autolink"
+    """A `Link` Pandoc read from an angle-bracket or bare URL (class `uri`)."""
+    image = "image"
+    """An `Image`."""
+
+
+LINKS_AND_AUTOLINKS = frozenset({LinkKind.link, LinkKind.autolink})
+
+
+def _link_kind(kind: str, classes: PandocJson) -> LinkKind:
+    if kind == "Image":
+        return LinkKind.image
+    if isinstance(classes, list) and "uri" in classes:
+        return LinkKind.autolink
+    return LinkKind.link
 
 
 def walk_elements(value: PandocJson) -> Iterator[dict[str, PandocJson]]:
@@ -66,11 +89,9 @@ def _raw_source(source: str, starts: list[int], position: SourceRange | None) ->
 
 def extract_links(
     markdown_text: str,
-    *,
-    include_autolinks: bool = True,
-    include_images: bool = False,
+    kinds: frozenset[LinkKind] = LINKS_AND_AUTOLINKS,
 ) -> list[Link]:
-    """Extract links as the configured Pandoc Markdown reader parses them."""
+    """Extract the links of `kinds` as the configured Pandoc Markdown reader parses them."""
     ast = read_source_ast(markdown_text, pandoc_executable())
     positions = {
         id(located.node): located.source_range for located in located_nodes(ast)
@@ -84,21 +105,13 @@ def extract_links(
         kind = node.get("t")
         if kind not in {"Link", "Image"}:
             continue
-        if kind == "Image" and not include_images:
-            continue
         content = node.get("c")
         if not isinstance(content, list) or len(content) != 3:
             continue
         attributes, inlines, target = content
         if not isinstance(attributes, list) or len(attributes) != 3:
             continue
-        classes = attributes[1]
-        if (
-            kind == "Link"
-            and not include_autolinks
-            and isinstance(classes, list)
-            and "uri" in classes
-        ):
+        if _link_kind(kind, attributes[1]) not in kinds:
             continue
         if not isinstance(target, list) or len(target) != 2:
             continue

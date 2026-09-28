@@ -11,6 +11,7 @@ be re-emitted as div body content.
 https://pandoc.org/MANUAL.html#divs-and-spans
 """
 
+from flowmark import FormatOptions, Semantic
 from flowmark.formats.flowmark_markdown import flowmark_markdown
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
@@ -145,9 +146,9 @@ def test_fenced_div_body_reflows_like_any_other_markdown() -> None:
     The #20 reproducer pair: the same paragraph must reflow the same way whether
     or not it is wrapped in a div.
     """
-    bare = fill_markdown(DIV_PARAGRAPH, semantic=True, dedent_input=False)
+    bare = fill_markdown(DIV_PARAGRAPH, FormatOptions(Semantic()))
     wrapped = fill_markdown(
-        f"::: {{.problem}}\n{DIV_PARAGRAPH}:::\n", semantic=True, dedent_input=False
+        f"::: {{.problem}}\n{DIV_PARAGRAPH}:::\n", FormatOptions(Semantic())
     )
 
     assert (

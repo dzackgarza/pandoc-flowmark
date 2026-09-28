@@ -33,10 +33,25 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from flowmark.config import ConfigError, find_config_file, load_config
-from flowmark.formats.options import ListSpacing
+from flowmark.formats.options import (
+    FormatOptions,
+    ListSpacing,
+    Pass,
+    Plain,
+    Semantic,
+    Width,
+)
 from flowmark.linewrapping.line_wrappers import DEFAULT_MIN_LINE_LEN
 from flowmark.linewrapping.text_filling import DEFAULT_WRAP_WIDTH
-from flowmark.reformat_api import reformat_files
+from flowmark.reformat_api import (
+    Destination,
+    InPlace,
+    Stdout,
+    ToFile,
+    reformat_files,
+    reformat_text,
+    reformat_text_unchecked,
+)
 
 # The settings `--auto` turns on. They are defaults beneath the config file, so a
 # config setting or an explicit flag overrides each of them.
@@ -91,6 +106,35 @@ class Options:
         if self.width is not None:
             return self.width
         return 0 if self.semantic and not self.plaintext else DEFAULT_WRAP_WIDTH
+
+    @property
+    def format_options(self) -> FormatOptions:
+        """The formatting the flags select."""
+        passes = {
+            Pass.cleanups: self.cleanups,
+            Pass.smartquotes: self.smartquotes,
+            Pass.ellipses: self.ellipses,
+        }
+        if self.plaintext:
+            wrap = Plain(self.line_width)
+        elif self.semantic:
+            wrap = Semantic(self.line_width)
+        else:
+            wrap = Width(self.line_width)
+        return FormatOptions(
+            wrap,
+            frozenset(name for name, enabled in passes.items() if enabled),
+            self.list_spacing,
+        )
+
+    @property
+    def destination(self) -> Destination:
+        """Where the flags send the result."""
+        if self.inplace:
+            return InPlace("" if self.nobackup else ".orig")
+        if self.output and self.output != "-":
+            return ToFile(Path(self.output))
+        return Stdout()
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -422,19 +466,10 @@ def main(args: list[str] | None = None) -> int:
 
     try:
         refused = reformat_files(
-            files=resolved_files,
-            output=options.output,
-            width=options.line_width,
-            inplace=options.inplace,
-            nobackup=options.nobackup,
-            plaintext=options.plaintext,
-            semantic=options.semantic,
-            cleanups=options.cleanups,
-            smartquotes=options.smartquotes,
-            ellipses=options.ellipses,
-            verify=options.verify,
-            make_parents=True,
-            list_spacing=options.list_spacing,
+            resolved_files,
+            options.destination,
+            options.format_options,
+            reformat_text if options.verify else reformat_text_unchecked,
         )
     except ValueError as e:
         # Handle errors reported by reformat_file, like using --inplace with stdin.

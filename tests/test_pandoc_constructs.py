@@ -14,9 +14,12 @@ and #8 (raw inline TeX). Fenced div attribute specs are in test_fenced_div.py
 (#3).
 """
 
+from dataclasses import replace
+
 import pytest
 
-from flowmark.reformat_api import reformat_text
+from flowmark import Semantic, Width
+from flowmark.reformat_api import REFORMAT_DEFAULTS, reformat_text
 
 # --- #5: footnote definitions ---------------------------------------------
 
@@ -273,7 +276,7 @@ def test_wrapping_never_starts_a_line_with_a_pandoc_list_marker(marker: str) -> 
     """
     source = f"- Transport step (4) is fully general; step {marker} is next.\n"
 
-    result = reformat_text(source, width=45, semantic=False)
+    result = reformat_text(source, replace(REFORMAT_DEFAULTS, wrap=Width(45)))
 
     assert result.count("\n") == 2, result
 
@@ -289,7 +292,7 @@ def test_a_sentence_break_never_starts_a_line_with_a_list_marker(width: int) -> 
         "enclosures of the solutions.\n"
     )
 
-    reformat_text(source, semantic=True, width=width)
+    reformat_text(source, replace(REFORMAT_DEFAULTS, wrap=Semantic(width)))
 
 
 def test_bars_only_inside_math_do_not_start_a_table() -> None:
@@ -336,7 +339,7 @@ def test_a_multiline_html_comment_block_is_kept_verbatim() -> None:
         "<!-- Generated from a file via\nscripts/gen.py.\n-->\n\n# Title\n\nText.\n"
     )
 
-    result = reformat_text(source, semantic=False, verify=True)
+    result = reformat_text(source, replace(REFORMAT_DEFAULTS, wrap=Width()))
 
     assert result.startswith("<!-- Generated from a file via\nscripts/gen.py.\n-->\n")
 
@@ -350,7 +353,7 @@ def test_a_table_in_an_ordered_list_item_stays_in_the_item() -> None:
         "3. Third step.\n"
     )
 
-    assert reformat_text(source, semantic=True, verify=True) == source
+    assert reformat_text(source) == source
 
 
 def test_backslash_paren_math_is_opaque() -> None:
@@ -361,4 +364,4 @@ def test_backslash_paren_math_is_opaque() -> None:
     math = r"\(O_{\mathrm{sn}_{K'}}(L)=O(L)\cap\ker\mathrm{sn}_{K'}\)"
     source = f"- Return {math} for the spinor norm.\n"
 
-    assert math in reformat_text(source, semantic=True, verify=True)
+    assert math in reformat_text(source)
