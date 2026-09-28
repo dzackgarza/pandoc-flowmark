@@ -56,7 +56,8 @@ _PIPE_ROW_TOKEN = re.compile(
 )
 
 
-def split_pipe_table_row(line: str) -> list[str]:
+def raw_pipe_table_cells(line: str) -> list[str]:
+    """The cells of a pipe table row, with the spaces around their text."""
     stripped = line.strip()
     bars = [
         match.start()
@@ -64,12 +65,16 @@ def split_pipe_table_row(line: str) -> list[str]:
         if match.group("bar")
     ]
     edges = [-1, *bars, len(stripped)]
-    cells = [stripped[start + 1 : end].strip() for start, end in zip(edges, edges[1:])]
+    cells = [stripped[start + 1 : end] for start, end in zip(edges, edges[1:])]
     if cells and stripped.startswith("|"):
         cells.pop(0)
-    if cells and not cells[-1] and stripped.endswith("|"):
+    if cells and not cells[-1].strip() and stripped.endswith("|"):
         cells.pop()
     return cells
+
+
+def split_pipe_table_row(line: str) -> list[str]:
+    return [cell.strip() for cell in raw_pipe_table_cells(line)]
 
 
 _FENCE = re.compile(r"^ {,3}(`{3,}|~{3,})(.*)$")

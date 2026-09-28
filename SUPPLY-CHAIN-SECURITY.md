@@ -65,6 +65,9 @@ uv lock --upgrade-package "certifi==<pre-cutoff>" --upgrade-package "idna==<pre-
 
 7. **No `curl | sh` from untrusted sources.** Verify the installer URL belongs to the documented project; check checksums/signatures where available.
 
+8. **Pin the Pandoc reader by tag and checksum.** CI installs `pandoc-flowmark` from a tagged release of [dzackgarza/pandoc](https://github.com/dzackgarza/pandoc) (branch `flowmark-sourcepos`), built by that repo's release workflow, and checks the tarball's SHA-256 recorded in `.github/workflows/ci.yml` before installing it.
+   Change the tag and the checksum together, in one reviewed commit.
+
 ## Exceptions
 
 When a version inside the 14-day window is genuinely needed (e.g. a same-week CVE patch):

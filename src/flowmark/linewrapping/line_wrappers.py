@@ -173,6 +173,10 @@ def line_wrap_by_sentence(
             current_column = initial_indent_len if first_line else subsequent_indent_len
             if len(lines) > 0 and length(lines[-1]) < min_line_len:
                 current_column += length(lines[-1])
+            elif lines and sentence.strip():
+                # The sentence starts a line after a line break, so its first word
+                # is escaped before wrapping measures it.
+                sentence = _escape_line_start(sentence.lstrip(), is_markdown)
 
             wrapped = wrap_paragraph_lines(
                 sentence,
@@ -192,10 +196,6 @@ def line_wrap_by_sentence(
                 lines[-1] += " " + wrapped[0]
                 wrapped.pop(0)
 
-            # A sentence's first line is a first line to the wrapper, which does
-            # not escape it, but in the paragraph it follows a line break.
-            if lines and wrapped:
-                wrapped[0] = _escape_line_start(wrapped[0], is_markdown)
             lines.extend(wrapped)
 
             first_line = False

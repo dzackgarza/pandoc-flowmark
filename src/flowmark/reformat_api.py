@@ -3,10 +3,12 @@ from pathlib import Path
 
 from strif import atomic_output_file
 
+from flowmark.formats.frontmatter import split_frontmatter
 from flowmark.formats.options import ListSpacing
 from flowmark.linewrapping.markdown_filling import fill_markdown
 from flowmark.linewrapping.text_filling import Wrap, fill_text
 from flowmark.linewrapping.text_wrapping import get_html_md_word_splitter
+from flowmark.pandoc_reader import PandocParseError
 from flowmark.pandoc_verify import (
     ALERT_TYPE,
     HYPHEN_JOIN,
@@ -66,12 +68,17 @@ def reformat_text(
     else:
         # Markdown mode. Math pandoc reads as text, or a fence never closed, is an
         # error in the document: formatting it would treat the author's TeX or
-        # code as prose.
+        # code as prose. YAML frontmatter is metadata, not Markdown, so only the
+        # body is checked; line numbers count from the top of the file.
+        frontmatter, body = split_frontmatter(text)
+        offset = frontmatter.count("\n")
         rejected = sorted(
-            [*rejected_math(text), *unclosed_fences(text)], key=lambda f: f.line
+            [*rejected_math(body), *unclosed_fences(body)], key=lambda f: f.line
         )
         if rejected:
-            named = "; ".join(f"{verify_label}:{f.line}: {f.message}" for f in rejected)
+            named = "; ".join(
+                f"{verify_label}:{f.line + offset}: {f.message}" for f in rejected
+            )
             raise MalformedInputError(
                 f"Refusing to write {verify_label}: {named}. The file is unchanged."
             )
@@ -319,6 +326,14 @@ def reformat_files(
             # The document was left byte-identical; a per-file refusal must not
             # abort the batch.
             print(f"Warning: {e}", file=sys.stderr)
+            refused += 1
+        except PandocParseError as e:
+            # Pandoc cannot read the document at all, so there is nothing to
+            # format; it is an error in the input, left byte-identical.
+            print(
+                f"Warning: Refusing to write {file_path}: pandoc cannot parse it: {e}",
+                file=sys.stderr,
+            )
             refused += 1
     if refused:
         print(

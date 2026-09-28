@@ -83,8 +83,79 @@ def read_source_ast(source: str, pandoc_exe: str) -> PandocJson:
         json.loads(reader_json(pandoc_exe, PANDOC_FORMAT + "+sourcepos", source)),
     )
     parts = source.split("\n")
+    if "\t" in source:
+        _to_character_columns(ast, parts)
     _clamp_ranges(ast, SourcePoint(len(parts), len(parts[-1]) + 1))
+    _end_blocks_at_line_start(ast, parts)
     return ast
+
+
+def _end_blocks_at_line_start(value: PandocJson, lines: list[str]) -> None:
+    """
+    Write a block range that ends at the end of a line's text as ending at the
+    start of the next line, as Pandoc writes every block that ends before a line
+    break it has read, so a block's end line is always the line after its last.
+    """
+    position = source_position(value)
+    if position is not None and isinstance(value, dict) and value.get("t") == "Div":
+        end = position.end
+        if (
+            end.column > 1
+            and end.line <= len(lines)
+            and end.column == len(lines[end.line - 1]) + 1
+        ):
+            content = cast(list[PandocJson], value["c"])
+            attributes = cast(list[PandocJson], cast(list[PandocJson], content[0])[2])
+            entry = cast(list[PandocJson], attributes[0])
+            entry[1] = f"{position.start.line}:{position.start.column}-{end.line + 1}:1"
+    if isinstance(value, dict):
+        for child in value.values():
+            _end_blocks_at_line_start(child, lines)
+    elif isinstance(value, list):
+        for child in value:
+            _end_blocks_at_line_start(child, lines)
+
+
+_TAB_STOP = 4
+"""Pandoc's tab stop for source positions (`Text.Pandoc.Sources.updateSourcePos`)."""
+
+
+def _character_column(line: str, column: int) -> int:
+    """The 1-based character column of Pandoc's tab-expanded `column` in `line`."""
+    expanded = 1
+    for index, char in enumerate(line):
+        if expanded >= column:
+            return index + 1
+        if char == "\t":
+            expanded += _TAB_STOP - (expanded - 1) % _TAB_STOP
+        else:
+            expanded += 1
+    return len(line) + 1 + max(0, column - expanded)
+
+
+def _to_character_columns(value: PandocJson, lines: list[str]) -> None:
+    """
+    Rewrite every range's columns from Pandoc's, which count a tab as advancing
+    to the next tab stop, to character columns, so a column minus one is an
+    offset into its line.
+    """
+    position = source_position(value)
+    if position is not None and isinstance(value, dict):
+
+        def convert(point: SourcePoint) -> str:
+            line = lines[point.line - 1] if point.line <= len(lines) else ""
+            return f"{point.line}:{_character_column(line, point.column)}"
+
+        content = cast(list[PandocJson], value["c"])
+        attributes = cast(list[PandocJson], cast(list[PandocJson], content[0])[2])
+        entry = cast(list[PandocJson], attributes[0])
+        entry[1] = f"{convert(position.start)}-{convert(position.end)}"
+    if isinstance(value, dict):
+        for child in value.values():
+            _to_character_columns(child, lines)
+    elif isinstance(value, list):
+        for child in value:
+            _to_character_columns(child, lines)
 
 
 def _point(value: str) -> SourcePoint:

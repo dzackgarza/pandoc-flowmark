@@ -29,7 +29,11 @@ from flowmark.pandoc_verify import (
     MeaningChangedError,
     check_meaning_preserved,
 )
-from flowmark.preflight import opens_fence, split_pipe_table_row
+from flowmark.preflight import (
+    opens_fence,
+    raw_pipe_table_cells,
+    split_pipe_table_row,
+)
 from flowmark.typography.smartquotes import smart_quotes
 from flowmark.typography.ellipses import ellipses
 
@@ -74,6 +78,8 @@ _MARKER_SPACING = re.compile(r"( *)([-+*]|\(?(?:\d+|[A-Za-z]+|#)[.)])( {1,4})")
 _LINK_DEFINITION = re.compile(r" {0,3}\[(?!\^)[^\]]+\]:[ \t]")
 # A footnote definition's label and the whitespace after it.
 _NOTE_DEFINITION = re.compile(r"(\[\^[^\]\s]+\]:)[ \t]*")
+# A backslash before a space, not itself escaped.
+_ESCAPED_SPACE = re.compile(r"(?<!\\)((?:\\\\)*)\\ ")
 _TRAILING_SPACE = re.compile(r"[ \t]+(?=\n)")
 # A line break in atom text other than code, with the indentation and quote
 # markers after it: all of it reads as one space.
@@ -88,25 +94,20 @@ def expand_sourced_leading_tabs(
     Write tabs in a line's indentation, quote markers, and list marker as spaces,
     to Pandoc's tab stop of 4 columns.
 
-    Pandoc reports columns with tabs expanded, so the later edits need lines
-    whose columns are character offsets. Code, raw, and math lines keep their
-    tabs, which are content there.
+    Code and raw blocks keep their tabs, which are content there, and so does a
+    line that begins inside a code, math, or raw span continued from the line
+    before.
     """
     lines = source.splitlines(keepends=True)
-    nodes = located_nodes(read_source_ast(source, pandoc_exe))
-
-    def line_indices(kinds: set[str]) -> set[int]:
-        return {
-            index
-            for node in nodes
-            if node.node.get("t") in kinds
-            for index in range(
-                node.source_range.start.line - 1,
-                min(node.source_range.end.line, len(lines) + 1),
-            )
-        }
-
-    kept = line_indices({"CodeBlock", "RawBlock", "Math"})
+    kept: set[int] = set()
+    for node in located_nodes(read_source_ast(source, pandoc_exe)):
+        kind = node.node.get("t")
+        first = node.source_range.start.line - 1
+        last = min(node.source_range.end.line, len(lines))
+        if kind in {"CodeBlock", "RawBlock"}:
+            kept.update(range(first, last))
+        elif kind in {"Math", "Code", "RawInline"}:
+            kept.update(range(first + 1, last))
     result: list[str] = []
     for index, line in enumerate(lines):
         prefix = _LIST_LINE_PREFIX.match(line)
@@ -223,7 +224,9 @@ def normalize_sourced_html_block_layout(
         ):
             continue
         first = located.source_range.start.line - 1
-        last = located.source_range.end.line - 1
+        # A block that ends at a line start ends on the line before it.
+        end = located.source_range.end
+        last = end.line - 1 - (1 if end.column == 1 else 0)
         if 0 < first < len(lines):
             opening = lines[first - 1].strip()
             if _HTML_OPEN_LINE.fullmatch(opening):
@@ -467,7 +470,13 @@ def _propose_paragraph_edits(
         for inline in paragraph_inlines:
             if "Note" in inline.ancestors:
                 continue
-            if inline.node.get("t") not in _WRAP_ATOMS:
+            # Pandoc reads the space after an abbreviation such as `e.g.`, and an
+            # escaped space, as a non-breaking space inside one `Str`; a line
+            # break there would read as an ordinary space.
+            nonbreaking = inline.node.get("t") == "Str" and "\u00a0" in str(
+                inline.node.get("c", "")
+            )
+            if inline.node.get("t") not in _WRAP_ATOMS and not nonbreaking:
                 continue
             if any(ancestor in _NESTING_ATOMS for ancestor in inline.ancestors):
                 continue
@@ -520,6 +529,10 @@ def _propose_paragraph_edits(
                 hidden = _TRAILING_SPACE.sub("", span).translate(_HIDE)
                 display_math.append(hidden)
             protected = protected[:begin] + hidden + protected[finish:]
+        # A backslash-escaped space is a non-breaking space to Pandoc.
+        protected = _ESCAPED_SPACE.sub(
+            lambda match: match.group(1) + "\\" + _SPACE, protected
+        )
         if inline_prefix:
             leading = " " if protected.startswith(" ") else ""
             content = protected.lstrip(" ")
@@ -1048,6 +1061,24 @@ def normalize_sourced_blank_gaps(
     return result
 
 
+def _pipe_table_is_wide(rows: list[str]) -> bool:
+    """
+    Whether Pandoc gives the pipe table `rows` relative column widths.
+
+    Pandoc's pipeTable reader does when the wider of the delimiter row's dash
+    widths and the widest row's cell widths, each summed over the header's
+    columns, plus one per pipe, exceeds its column limit.
+    """
+    columns = len(split_pipe_table_row(rows[1]))
+    dashes = sum(len(cell) for cell in split_pipe_table_row(rows[1]))
+    cells = max(
+        sum(len(cell) for cell in raw_pipe_table_cells(row)[:columns])
+        for index, row in enumerate(rows)
+        if index != 1
+    )
+    return max(dashes, cells) + columns + 1 > _PANDOC_TABLE_COLUMNS
+
+
 def normalize_sourced_pipe_tables(
     source: str, pandoc_exe: str, *, verify: bool = True
 ) -> str:
@@ -1083,7 +1114,7 @@ def normalize_sourced_pipe_tables(
         # Past Pandoc's column limit, the delimiter row's dash counts set the
         # relative column widths (Pandoc manual, "pipe_tables"), so it stays as
         # written; a table the rewrite would move across the limit stays whole.
-        wide = any(len(raw) > _PANDOC_TABLE_COLUMNS for raw in authored)
+        wide = _pipe_table_is_wide(authored)
         rows: list[str] = []
         for offset, raw in enumerate(authored):
             cells = split_pipe_table_row(raw)
@@ -1098,7 +1129,7 @@ def normalize_sourced_pipe_tables(
                     for cell in cells
                 ]
             rows.append("| " + " | ".join(cells) + " |")
-        if wide != any(len(row) > _PANDOC_TABLE_COLUMNS for row in rows):
+        if wide != _pipe_table_is_wide(rows):
             continue
         for offset, (raw, row) in enumerate(zip(authored, rows, strict=True)):
             if row != raw:
