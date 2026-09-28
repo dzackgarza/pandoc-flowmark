@@ -40,7 +40,6 @@ dependencies = [
     "pathspec>=0.12.1",
     "platformdirs>=4.2",
     "rapidfuzz>=3.9",
-    "regex>=2024.11.6",
     "strif>=3.0.1",
     "tomli>=2.0.0; python_version < '3.11'",
     "typing-extensions>=4.12.2",
@@ -56,7 +55,6 @@ dev = [
     "rich>=14.0.0",
     "basedpyright==1.29.5",  # TODO: Upgrade when Cursor supports it.
     "funlog>=0.2.1",
-    "types-regex>=2024.11.6",  # type stubs for `regex`, consumed by global QC mypy
 ]
 
 
