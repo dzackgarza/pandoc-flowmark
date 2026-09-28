@@ -38,10 +38,10 @@ class SentenceSplitter(Protocol):
 
 
 def split_sentences_no_min_length(text: str) -> list[str]:
-    # A link, code span or math span arrives with no whitespace in it (the renderer
-    # writes parsed elements `unbreakable`), so a "St." inside link text is not a word
-    # end and cannot trip the end-of-sentence heuristic. Tags have no parse node, so
-    # they are kept whole by pattern.
+    # A link, code span or math span arrives with no whitespace in it (the sourced
+    # wrapper hides the whitespace in each atom Pandoc locates), so a "St." inside
+    # link text is not a word end and cannot trip the end-of-sentence heuristic.
+    # Tags have no parse node, so they are kept whole by pattern.
     return [
         span.text
         for span in split_sentences_with_spans(

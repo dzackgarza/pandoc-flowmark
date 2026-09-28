@@ -215,10 +215,10 @@ HTML_CLOSE_TAG = AtomicPattern(
 
 # Template and HTML tags, in priority order: paired before single.
 #
-# These are what flowmark's own wrapper matches by pattern. They have no Markdown
-# element behind them -- marko reads a Jinja or Markdoc tag as paragraph text -- so
-# nothing else can say they are one unit. Code spans, math, raw TeX and links are
-# kept whole by the parse instead (`flowmark.linewrapping.unbreakable`, #28).
+# These are what flowmark's own wrapper matches by pattern. A tag inside a line of
+# text has no Markdown element behind it -- Pandoc reads it as paragraph text -- so
+# nothing else can say it is one unit. Code spans, math, raw TeX, and links are
+# kept whole from Pandoc's source positions instead (`flowmark.pandoc_source`).
 TEMPLATE_TAG_PATTERNS: tuple[AtomicPattern, ...] = (
     PAIRED_JINJA_TAG,
     PAIRED_JINJA_COMMENT,

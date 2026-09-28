@@ -38,13 +38,14 @@ class _HtmlMdWordSplitter:
     Word splitter for Markdown/HTML that keeps certain constructs together.
 
     This handles LINE WRAPPING, not Markdown parsing. The distinction matters:
-    - Markdown parsing (handled by Marko): Interprets code spans, applies escaping
-      rules, converts line breaks to spaces per CommonMark spec
-    - Line wrapping (this code): Decides where to break lines in source text
+    - Markdown parsing (Pandoc's reader): interprets code spans, escapes, and line
+      breaks
+    - Line wrapping (this code): decides where to break lines in source text
 
     Splits on whitespace via `iter_atomic_words`, which keeps template and HTML tags
-    whole. Code spans, math, raw TeX and links reach this already free of whitespace:
-    the renderer writes each parsed element `unbreakable`.
+    whole. Code spans, math, raw TeX, and links reach this already free of
+    whitespace: the sourced wrapper hides the whitespace inside each atom Pandoc
+    locates (`flowmark.pandoc_source`).
     """
 
     def __call__(self, text: str) -> list[str]:

@@ -320,29 +320,12 @@ def add_tag_newline_handling(
     This enables compatibility with Markdoc, Markform, and similar systems
     that use block-level tags like `{% field %}...{% /field %}`.
 
-    The `tags` parameter is retained for API compatibility but currently unused.
     Both atomic and wrap modes apply the multiline tag fix (workaround for
     Markdoc parser bug - see GitHub issue #17).
 
-    IMPORTANT LIMITATION: This operates at the line-wrapping level, AFTER
-    Markdown parsing. If the Markdown parser (Marko) has already interpreted
-    content as part of a block element (e.g., list item continuation), we
-    cannot undo that structure. For example:
-
-        - list item
-        {% /tag %}
-
-    The parser may treat `{% /tag %}` as list continuation, causing it to
-    be indented. The newline IS preserved, but indentation is added.
-
-    WORKAROUND: Use blank lines around block elements inside tags:
-
-        {% field %}
-
-        - Item 1
-        - Item 2
-
-        {% /field %}
+    This operates on paragraph text. A tag alone on its unindented line is a block
+    of its own to Pandoc's `flowmark_tags` reader, so it never reaches a paragraph
+    here; the lines kept apart are those where a tag shares a line with text.
     """
 
     def enhanced_wrapper(text: str, initial_indent: str, subsequent_indent: str) -> str:
