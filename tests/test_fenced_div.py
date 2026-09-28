@@ -174,11 +174,8 @@ def test_fenced_div_body_may_define_a_footnote() -> None:
     """
     A footnote *definition* inside a div must round-trip (#34).
 
-    The div body is parsed through its own ``Source`` rooted at the div, so the
-    div is what ``marko.ext.footnote.FootnoteDef.parse`` registers into via
-    ``source.root.footnotes[label]``. A reference alone never hits that path;
-    the definition does, and without the mapping the whole run aborts with
-    ``AttributeError`` instead of formatting the file.
+    The definition and its reference both sit inside the div, and the div's
+    source is left byte-identical.
     """
     md = flowmark_markdown()
 

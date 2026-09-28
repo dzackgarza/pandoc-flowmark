@@ -2,12 +2,7 @@
 
 Regression tests for https://github.com/jlevy/flowmark/issues/45
 
-marko's inline.Link element does not preserve the original reference style
-(inline, full, collapsed, or shortcut); it only stores ``dest`` and ``title``.
-flowmark reconstructs a reference link by matching the destination/title back
-to a link reference definition.
-
-When the link text equals the matched label, the link must NOT be collapsed to
+When the link text equals the reference label, the link must NOT be collapsed to
 the shortcut form ``[label]``: a shortcut reference is fragile because it merges
 with a following ``(...)`` (becoming an inline link) or a following ``[...]``
 (becoming a full/collapsed reference), silently changing or dropping links.
