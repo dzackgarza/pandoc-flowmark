@@ -53,3 +53,16 @@ format:
 # Build the distribution.
 build:
     @make build
+
+# The release tag and the tarball's SHA-256 change together; see SUPPLY-CHAIN-SECURITY.md.
+# Install the pinned pandoc-flowmark reader into /usr/local/bin (CI runners).
+install-pandoc-flowmark:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tag=flowmark-3.10.2-4
+    dir="$(mktemp -d)"
+    curl -sSfL -o "$dir/pandoc-flowmark.tar.gz" "https://github.com/dzackgarza/pandoc/releases/download/$tag/$tag-linux-amd64.tar.gz"
+    echo "50ce56aa651ce19e94a7c9f2d0376f3b09510396659f5e39a56fff9f3a83d2a9  $dir/pandoc-flowmark.tar.gz" | sha256sum -c -
+    tar xzf "$dir/pandoc-flowmark.tar.gz" -C "$dir"
+    sudo install -m755 "$dir/$tag-linux-amd64/pandoc-flowmark" /usr/local/bin/pandoc-flowmark
+    pandoc-flowmark --version | head -1

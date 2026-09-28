@@ -70,18 +70,16 @@ jobs:
       - name: Run linting
         run: uv run python devtools/lint.py
 
+      - name: Install just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        with:
+          github-token: ${{ github.token }}
+
       - name: Install pandoc-flowmark (pinned)
         # Flowmark parses, lints, and verifies with the pandoc-flowmark reader, a
         # static build of the Pandoc fork dzackgarza/pandoc (branch
-        # flowmark-sourcepos). The release tag and the tarball's SHA-256 change
-        # together; see SUPPLY-CHAIN-SECURITY.md.
-        run: |
-          tag=flowmark-3.10.2-4
-          curl -sSL -o /tmp/pandoc-flowmark.tar.gz "https://github.com/dzackgarza/pandoc/releases/download/$tag/$tag-linux-amd64.tar.gz"
-          echo "50ce56aa651ce19e94a7c9f2d0376f3b09510396659f5e39a56fff9f3a83d2a9  /tmp/pandoc-flowmark.tar.gz" | sha256sum -c -
-          tar xzf /tmp/pandoc-flowmark.tar.gz -C /tmp
-          sudo install -m755 "/tmp/$tag-linux-amd64/pandoc-flowmark" /usr/local/bin/pandoc-flowmark
-          pandoc-flowmark --version | head -1
+        # flowmark-sourcepos). The justfile recipe owns the release tag and checksum.
+        run: just install-pandoc-flowmark
 
       - name: Run tests
         run: uv run pytest
