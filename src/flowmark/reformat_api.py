@@ -145,7 +145,7 @@ def reformat_text(text: str, options: FormatOptions = REFORMAT_DEFAULTS, label: 
         LAZY_LIST: False,
     }
     for normalization in applied:
-        if not requested.get(normalization, False):
+        if not requested[normalization]:
             print(
                 f"Warning: {label}: {describe(normalization)} without being asked to",
                 file=sys.stderr,
