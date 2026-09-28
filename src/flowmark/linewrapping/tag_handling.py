@@ -162,10 +162,6 @@ def _blocks(lines: Sequence[str]) -> list[dict[str, PandocJson]]:
     ]
 
 
-def _is_list_or_table(element: dict[str, PandocJson]) -> bool:
-    return element.get("t") in {"BulletList", "OrderedList", "Table"}
-
-
 def _is_list_item_line(line: str) -> bool:
     """Whether the parser reads `line`, on its own, as the start of a list."""
     blocks = _blocks([line])
@@ -178,7 +174,10 @@ def _table_length(lines: Sequence[str]) -> int:
     if they do not open one.
     """
     # The header and delimiter rows alone decide whether a table opens here, so the
-    # whole run is parsed only when one does.
+    # whole run is parsed only when one does. Both rows of a pipe table contain a
+    # pipe (Pandoc manual, "pipe_tables").
+    if len(lines) < 2 or "|" not in lines[0] or "|" not in lines[1]:
+        return 0
     first = _blocks(lines[:2])
     if not first or first[0].get("t") != "Table":
         return 0
@@ -196,77 +195,6 @@ def _table_length(lines: Sequence[str]) -> int:
         if isinstance(body, list) and len(body) == 4 and isinstance(body[3], list):
             rows += len(body[3])
     return rows + 2
-
-
-def _run_between_tags(lines: Sequence[str], start: int, step: int) -> list[str]:
-    """
-    The lines from `start`, walking by `step` (1 or -1) until a blank or tag-only
-    line, in document order.
-    """
-    run: list[str] = []
-    i = start
-    while 0 <= i < len(lines) and lines[i].strip() and not is_tag_only_line(lines[i]):
-        run.append(lines[i])
-        i += step
-    return run if step > 0 else run[::-1]
-
-
-def preprocess_tag_block_spacing(text: str) -> str:
-    """
-    Preprocess text to ensure proper blank lines around block content within tags.
-
-    When block content (lists, tables) appears directly after an opening tag or
-    directly before a closing tag, the CommonMark parser may use lazy continuation
-    to merge them incorrectly. This function inserts blank lines to prevent this.
-
-    This preprocessing must happen BEFORE Markdown parsing, as the parser's
-    structure cannot be fixed after the fact.
-
-    Example transformation:
-        {% field %}
-        - item 1
-        - item 2
-        {% /field %}
-
-    Becomes:
-        {% field %}
-
-        - item 1
-        - item 2
-
-        {% /field %}
-
-    Whether the content beside a tag is a list or table is the parser's reading of
-    that content, taken up to the next blank or tag-only line.
-    """
-    lines = text.split("\n")
-    result_lines: list[str] = []
-
-    # Check if there are any tag-only lines in the text
-    has_tag_only_lines = any(is_tag_only_line(line) for line in lines)
-    if not has_tag_only_lines:
-        return text
-
-    for i, line in enumerate(lines):
-        # Check if we need to add a blank line BEFORE this line
-        if i > 0 and lines[i - 1].strip():
-            # Case 1: a tag-only line, then content that opens with a list or table
-            # (need blank line after opening tag before list/table)
-            if is_tag_only_line(lines[i - 1]):
-                after = _run_between_tags(lines, i, 1)
-                if after and _is_list_or_table(_blocks(after)[0]):
-                    result_lines.append("")
-
-            # Case 2: content that closes with a list or table, then a tag-only line
-            # (need blank line after list/table before closing tag)
-            if is_tag_only_line(line):
-                before = _run_between_tags(lines, i - 1, -1)
-                if before and _is_list_or_table(_blocks(before)[-1]):
-                    result_lines.append("")
-
-        result_lines.append(line)
-
-    return "\n".join(result_lines)
 
 
 def line_ends_with_tag(line: str) -> bool:

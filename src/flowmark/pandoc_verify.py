@@ -61,7 +61,6 @@ from itertools import combinations
 from typing import cast
 
 from flowmark.formats.frontmatter import split_frontmatter
-from flowmark.linewrapping.tag_handling import is_tag_only_line
 from flowmark.pandoc_reader import (
     PANDOC_FORMAT,
     PandocJson,
@@ -69,6 +68,7 @@ from flowmark.pandoc_reader import (
     PandocUnavailableError as PandocUnavailableError,
     pandoc_executable,
 )
+
 
 class MeaningChangedError(ValueError):
     """
@@ -494,146 +494,6 @@ def _collapse_lazy_lists_at_level(
     return out
 
 
-def _tag_line_inlines(block: PandocJson) -> list[PandocJson] | None:
-    """
-    The inlines `block` becomes when pandoc reads it as a lazy continuation line,
-    or None if `block` is not a tag-only line (`is_tag_only_line`).
-
-    An HTML comment alone on its line reads as a `RawBlock`; a Markdoc or Jinja tag
-    reads as a paragraph of text, which `_canonical` has merged into one `Str`.
-    """
-    if not isinstance(block, dict):
-        return None
-    content = block.get("c")
-    if block.get("t") == "RawBlock" and isinstance(content, list):
-        fmt, text = content
-        if isinstance(fmt, str) and isinstance(text, str) and is_tag_only_line(text):
-            return [{"t": "RawInline", "c": [fmt, text]}]
-        return None
-    if block.get("t") in _PARAGRAPH_BLOCKS and isinstance(content, list):
-        match content:
-            case [{"t": "Str", "c": str(text)}] if is_tag_only_line(text):
-                return content
-            case _:
-                return None
-    return None
-
-
-def _extend_last_paragraph(
-    block: PandocJson, inlines: list[PandocJson]
-) -> PandocJson | None:
-    """
-    `block` with `inlines` appended to its last paragraph, as a lazy continuation
-    line appends to the innermost open paragraph; None if `block` does not end in one.
-    """
-    if not isinstance(block, dict):
-        return None
-    kind, content = block.get("t"), block.get("c")
-    if kind in _PARAGRAPH_BLOCKS and isinstance(content, list):
-        paragraph: dict[str, PandocJson] = {
-            "t": kind,
-            "c": [*content, {"t": "Space"}, *inlines],
-        }
-        return paragraph
-    items = content
-    if kind == "OrderedList" and isinstance(content, list) and len(content) == 2:
-        items = content[1]
-    elif kind != "BulletList":
-        return None
-    if not isinstance(items, list) or not items or not isinstance(items[-1], list):
-        return None
-    last_item = items[-1]
-    if not last_item:
-        return None
-    extended = _extend_last_paragraph(last_item[-1], inlines)
-    if extended is None:
-        return None
-    new_items: list[PandocJson] = [*items[:-1], [*last_item[:-1], extended]]
-    rebuilt: dict[str, PandocJson] = {"t": kind, "c": new_items}
-    if kind == "OrderedList" and isinstance(content, list):
-        rebuilt["c"] = [content[0], new_items]
-    return rebuilt
-
-
-def _fold_tag_lines_at_level(
-    before: list[PandocJson], after: list[PandocJson]
-) -> list[PandocJson]:
-    """
-    Rewrite `after` so a list followed by tag-only blocks becomes the single list
-    `before` has there -- but only when folding them back into the list's last
-    paragraph reproduces `before` exactly.
-
-    The list may itself be one that flowmark made out of a lazy paragraph
-    continuation (`{% field %}` / `- a` / `{% /field %}` is one paragraph to
-    pandoc). Then `before` has a paragraph where `after` has a paragraph and the
-    list, and the fold is accepted when flattening the folded list into that
-    paragraph reproduces it. The flattening itself stays `LAZY_LIST`'s, which runs
-    after this, so both opinions are reported.
-    """
-    out: list[PandocJson] = []
-    before_index = 0
-    after_index = 0
-    while after_index < len(after):
-        original = before[before_index] if before_index < len(before) else None
-        block = after[after_index]
-        folded, candidate = _fold_tag_run(
-            after, after_index, lambda folded: _canonical(folded) == original
-        )
-        if folded:
-            out.append(original)
-            after_index += 1 + folded
-            before_index += 1
-            continue
-        if (
-            isinstance(block, dict)
-            and isinstance(original, dict)
-            and block.get("t") in _PARAGRAPH_BLOCKS
-            and original.get("t") in _PARAGRAPH_BLOCKS
-        ):
-            para = block
-            wanted = _canonical(original.get("c"))
-
-            def flattens_to_original(list_block: PandocJson) -> bool:
-                return isinstance(list_block, dict) and any(
-                    _canonical(flat) == wanted
-                    for flat in _flatten_list_into_paragraph(para, list_block)
-                )
-
-            folded, candidate = _fold_tag_run(
-                after, after_index + 1, flattens_to_original
-            )
-            if folded:
-                out += [block, _canonical(candidate)]
-                after_index += 2 + folded
-                before_index += 1
-                continue
-        out.append(block)
-        after_index += 1
-        before_index += 1
-    return out
-
-
-def _fold_tag_run(
-    after: list[PandocJson], start: int, accept: Callable[[PandocJson], bool]
-) -> tuple[int, PandocJson]:
-    """
-    Fold the tag-only blocks after `after[start]` into its last paragraph, one at a
-    time, and return the longest fold `accept` takes (0 and None for none).
-    """
-    if start >= len(after):
-        return 0, None
-    candidate: PandocJson | None = after[start]
-    best: tuple[int, PandocJson] = (0, None)
-    for offset, block in enumerate(after[start + 1 :], start=1):
-        inlines = _tag_line_inlines(block)
-        if inlines is None or candidate is None:
-            break
-        candidate = _extend_last_paragraph(candidate, inlines)
-        if candidate is not None and accept(candidate):
-            best = (offset, candidate)
-    return best
-
-
 def _walk_levels(
     at_level: Callable[[list[PandocJson], list[PandocJson]], list[PandocJson]],
     before: PandocJson,
@@ -672,15 +532,6 @@ LAZY_LIST = "lazy_list"
 Never requested: no flag asks for it, so it is always reported.  The author wrote
 bullets under a paragraph line and pandoc's dialect read them as prose; flowmark
 gives them the list they drew, and says so.
-"""
-
-TAG_LINE_SPLIT = "tag_line_split"
-"""Identifier for moving a tag-only line out of the list item above it.
-
-Never requested, so it is always reported.  An HTML comment or Markdoc tag on the
-line right after a list item is that item's text to pandoc and a block of its own
-to CommonMark.  The block is what a `<!--toc:end-->` marker or a closing
-`{% /tag %}` means, so flowmark writes it as one (`preprocess_tag_block_spacing`).
 """
 
 Normalization = Callable[[PandocJson, PandocJson], tuple[PandocJson, PandocJson]]
@@ -839,30 +690,10 @@ def _normalize_lazy_list(
     return before, _walk_levels(_collapse_lazy_lists_at_level, before, after)
 
 
-def _normalize_tag_line_split(
-    before: PandocJson, after: PandocJson
-) -> tuple[PandocJson, PandocJson]:
-    """
-    Fold tag-only blocks `after` split out of `before`'s last list item back in.
-
-    Directional, like `LAZY_LIST`: only `after` is rewritten, and only where the
-    fold reproduces `before` exactly, so a tag line the formatter pulled *into* a
-    list item still raises.
-    """
-    return before, _walk_levels(_fold_tag_lines_at_level, before, after)
-
-
 _NORMALIZATIONS: list[tuple[str, str, Normalization]] = [
     (UNBOLD_HEADING, "removed bold from a heading", _both(_unbold_headings)),
     (LIST_SPACING, "changed list spacing (tight/loose)", _both(_plain_to_para)),
     (SMART_QUOTES, "curled straight quotes", _normalize_quotes),
-    # Before LAZY_LIST: a tag split out of a list that was itself a lazy
-    # continuation must be folded back before the list can be flattened.
-    (
-        TAG_LINE_SPLIT,
-        "moved a comment or tag line out of the list item above it",
-        _normalize_tag_line_split,
-    ),
     (
         LAZY_LIST,
         "made a list out of a lazy paragraph continuation",

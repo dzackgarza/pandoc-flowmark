@@ -501,15 +501,14 @@ def test_html_comment_multiline_closing() -> None:
     assert "-->\n<!-- /f:field -->" in result, f"HTML closing tag not split: {result}"
 
 
-def test_preprocess_tag_block_spacing_lists() -> None:
+def test_tag_block_spacing_lists() -> None:
     """
     Test that blank lines are added around lists inside tags.
 
     This prevents CommonMark lazy continuation from merging tags with lists.
     """
-    from flowmark.linewrapping.tag_handling import (
-        preprocess_tag_block_spacing,
-    )
+    from flowmark.pandoc_reader import pandoc_executable
+    from flowmark.pandoc_source import set_sourced_tag_block_spacing
 
     # Input without blank lines around list
     text = dedent("""
@@ -519,7 +518,7 @@ def test_preprocess_tag_block_spacing_lists() -> None:
         {% /field %}
         """).strip()
 
-    result = preprocess_tag_block_spacing(text)
+    result = set_sourced_tag_block_spacing(text, pandoc_executable())
 
     # Should have blank line after opening tag
     assert "{% field" in result
@@ -529,11 +528,10 @@ def test_preprocess_tag_block_spacing_lists() -> None:
     assert "\n\n{% /field" in result, f"Missing blank line before closing tag: {result}"
 
 
-def test_preprocess_tag_block_spacing_tables() -> None:
+def test_tag_block_spacing_tables() -> None:
     """Test that blank lines are added around tables inside tags."""
-    from flowmark.linewrapping.tag_handling import (
-        preprocess_tag_block_spacing,
-    )
+    from flowmark.pandoc_reader import pandoc_executable
+    from flowmark.pandoc_source import set_sourced_tag_block_spacing
 
     # Input without blank lines around table
     text = dedent("""
@@ -544,7 +542,7 @@ def test_preprocess_tag_block_spacing_tables() -> None:
         {% /table %}
         """).strip()
 
-    result = preprocess_tag_block_spacing(text)
+    result = set_sourced_tag_block_spacing(text, pandoc_executable())
 
     # Should have blank line after opening tag
     assert "%}\n\n|" in result, f"Missing blank line after opening tag: {result}"
@@ -555,11 +553,10 @@ def test_preprocess_tag_block_spacing_tables() -> None:
     )
 
 
-def test_preprocess_tag_block_spacing_already_spaced() -> None:
+def test_tag_block_spacing_already_spaced() -> None:
     """Test that already-spaced content is not double-spaced."""
-    from flowmark.linewrapping.tag_handling import (
-        preprocess_tag_block_spacing,
-    )
+    from flowmark.pandoc_reader import pandoc_executable
+    from flowmark.pandoc_source import set_sourced_tag_block_spacing
 
     # Input already has proper blank lines
     text = dedent("""
@@ -571,17 +568,16 @@ def test_preprocess_tag_block_spacing_already_spaced() -> None:
         {% /field %}
         """).strip()
 
-    result = preprocess_tag_block_spacing(text)
+    result = set_sourced_tag_block_spacing(text, pandoc_executable())
 
     # Should not add extra blank lines (no triple newlines)
     assert "\n\n\n" not in result, f"Extra blank lines added: {result}"
 
 
-def test_preprocess_tag_block_spacing_inline_tags() -> None:
+def test_tag_block_spacing_inline_tags() -> None:
     """Test that inline tags in list items don't trigger extra spacing."""
-    from flowmark.linewrapping.tag_handling import (
-        preprocess_tag_block_spacing,
-    )
+    from flowmark.pandoc_reader import pandoc_executable
+    from flowmark.pandoc_source import set_sourced_tag_block_spacing
 
     # List items with inline tags - should NOT add blank lines between items
     text = dedent("""
@@ -593,7 +589,7 @@ def test_preprocess_tag_block_spacing_inline_tags() -> None:
         {% /field %}
         """).strip()
 
-    result = preprocess_tag_block_spacing(text)
+    result = set_sourced_tag_block_spacing(text, pandoc_executable())
 
     # Should NOT have blank lines between list items
     assert "{% #item1 %}\n- Item 2" in result, (
