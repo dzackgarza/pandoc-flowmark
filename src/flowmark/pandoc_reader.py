@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import shutil
@@ -57,10 +58,14 @@ def pandoc_executable() -> str:
     return executable
 
 
-def read_source_ast(source: str, pandoc_exe: str) -> PandocJson:
-    """Parse with the configured Pandoc dialect and its position extension."""
+@functools.lru_cache(maxsize=32)
+def reader_json(pandoc_exe: str, reader_format: str, source: str) -> str:
+    """
+    Pandoc's JSON reading of `source`. Formatting passes that change nothing leave
+    the text as it was, so the next pass reuses this reading.
+    """
     result = subprocess.run(
-        [pandoc_exe, "-f", PANDOC_FORMAT + "+sourcepos", "-t", "json"],
+        [pandoc_exe, "-f", reader_format, "-t", "json"],
         input=source,
         capture_output=True,
         text=True,
@@ -68,7 +73,15 @@ def read_source_ast(source: str, pandoc_exe: str) -> PandocJson:
     )
     if result.returncode:
         raise PandocParseError(result.stderr.strip())
-    ast = cast(PandocJson, json.loads(result.stdout))
+    return result.stdout
+
+
+def read_source_ast(source: str, pandoc_exe: str) -> PandocJson:
+    """Parse with the configured Pandoc dialect and its position extension."""
+    ast = cast(
+        PandocJson,
+        json.loads(reader_json(pandoc_exe, PANDOC_FORMAT + "+sourcepos", source)),
+    )
     parts = source.split("\n")
     _clamp_ranges(ast, SourcePoint(len(parts), len(parts[-1]) + 1))
     return ast

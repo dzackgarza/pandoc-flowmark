@@ -53,10 +53,9 @@ degrades when pandoc is missing: callers asking to verify get an error.
 """
 
 import json
-import os
 import re
-import subprocess
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from itertools import combinations
 from typing import cast
 
@@ -66,7 +65,10 @@ from flowmark.pandoc_reader import (
     PandocJson,
     PandocParseError,
     PandocUnavailableError as PandocUnavailableError,
+    located_nodes,
     pandoc_executable,
+    read_source_ast,
+    reader_json,
 )
 
 
@@ -92,28 +94,19 @@ class MeaningChangedError(ValueError):
         self.block = block
 
 
-def _spawn_pandoc(pandoc_exe: str) -> subprocess.Popen[str]:
-    return subprocess.Popen(
-        [pandoc_exe, "-f", PANDOC_FORMAT, "-t", "json"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-
-
-def _collect_blocks(
-    proc: subprocess.Popen[str], markdown_text: str
-) -> list[PandocJson]:
+def _body_blocks(pandoc_exe: str, markdown_text: str) -> list[PandocJson]:
     # YAML frontmatter is document metadata, not body. The formatter (via the same
     # split_frontmatter) preserves it verbatim, so it can never be the source of a
     # meaning change; and it is frequently lax YAML that pandoc's metadata reader
     # rejects outright (a Cursor/agent-rule `globs: *.py` reads as a YAML alias and
     # aborts the parse). Compare the body only, so frontmatter never reaches pandoc.
     _frontmatter, content = split_frontmatter(markdown_text)
-    stdout, stderr = proc.communicate(content)
-    if proc.returncode != 0:
-        raise PandocParseError(f"pandoc could not parse the document: {stderr.strip()}")
+    try:
+        stdout = reader_json(pandoc_exe, PANDOC_FORMAT, content)
+    except PandocParseError as error:
+        raise PandocParseError(
+            f"pandoc could not parse the document: {error}"
+        ) from error
     blocks: list[PandocJson] = json.loads(stdout)["blocks"]
     return blocks
 
@@ -126,28 +119,23 @@ def pandoc_ast(markdown_text: str) -> list[PandocJson]:
         PandocUnavailableError: if the pandoc binary is not on PATH.
         PandocParseError: if pandoc ran but could not parse the document.
     """
-    return _collect_blocks(_spawn_pandoc(pandoc_executable()), markdown_text)
+    return _body_blocks(pandoc_executable(), markdown_text)
 
 
 def block_indices(markdown_text: str, lines: list[int]) -> list[int]:
     """
-    The 0-based top-level block that each 1-based line of `markdown_text` is in.
-
-    Pandoc's `markdown` reader records no source positions, so a line's block is
-    found by parsing the text up to and including that line: the line belongs to
-    the last block of that prefix. The prefixes parse concurrently, a few at a time.
+    The 0-based top-level block that each 1-based line of `markdown_text` is in:
+    the last top-level block that starts at or before the line in Pandoc's
+    source-position reading of the body.
     """
-    text_lines = markdown_text.split("\n")
-    pandoc_exe = pandoc_executable()
-    batch = os.cpu_count() or 1
-    indices: list[int] = []
-    for start in range(0, len(lines), batch):
-        running = [
-            (_spawn_pandoc(pandoc_exe), "\n".join(text_lines[:line]) + "\n")
-            for line in lines[start : start + batch]
-        ]
-        indices += [len(_collect_blocks(proc, prefix)) - 1 for proc, prefix in running]
-    return indices
+    frontmatter, content = split_frontmatter(markdown_text)
+    offset = frontmatter.count("\n")
+    starts = [
+        node.source_range.start.line + offset
+        for node in located_nodes(read_source_ast(content, pandoc_executable()))
+        if not node.ancestors
+    ]
+    return [max(0, sum(1 for start in starts if start <= line) - 1) for line in lines]
 
 
 def _pandoc_ast_pair(
@@ -160,15 +148,11 @@ def _pandoc_ast_pair(
     cost, so overlapping the two runs roughly halves verification latency.
     """
     pandoc_exe = pandoc_executable()
-    source_proc = _spawn_pandoc(pandoc_exe)
-    result_proc = _spawn_pandoc(pandoc_exe)
-    try:
-        source_blocks = _collect_blocks(source_proc, source)
-    except Exception:
-        result_proc.kill()
-        result_proc.communicate()
-        raise
-    return source_blocks, _collect_blocks(result_proc, result)
+    with ThreadPoolExecutor(2) as pool:
+        source_blocks, result_blocks = pool.map(
+            lambda text: _body_blocks(pandoc_exe, text), (source, result)
+        )
+    return source_blocks, result_blocks
 
 
 _SPACE_INLINES = frozenset({"Space", "SoftBreak"})

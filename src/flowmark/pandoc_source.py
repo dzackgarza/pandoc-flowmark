@@ -77,8 +77,9 @@ _MARKER_SPACING = re.compile(r"( *)([-+*]|\(?(?:\d+|[A-Za-z]+|#)[.)])( {1,4})")
 # A footnote definition's label and the whitespace after it.
 _NOTE_DEFINITION = re.compile(r"(\[\^[^\]\s]+\]:)[ \t]*")
 _TRAILING_SPACE = re.compile(r"[ \t]+(?=\n)")
-_CODE_BREAK = re.compile(r"\n[ \t]*")
-_QUOTED_CODE_BREAK = re.compile(r"\n[ \t>]*")
+# A line break in atom text other than code, with the indentation and quote
+# markers after it: all of it reads as one space.
+_TEXT_BREAK = re.compile(r"\n[ \t>]*")
 _ALERT_MARKER = re.compile(r"\[!([A-Za-z][\w-]*)\][+-]?(?:[ \t][^\n]*)?\n")
 
 
@@ -186,7 +187,16 @@ def normalize_sourced_spelling(source: str, pandoc_exe: str) -> str:
 
     # A backslash before a period can be removed only when Pandoc still reads
     # the same document. In particular, a period at a wrapped line start can
-    # otherwise open a list. The lexical match proposes an edit; Pandoc decides.
+    # otherwise open a list. The lexical match proposes an edit; Pandoc decides,
+    # first for all of them at once and, if that changes the reading, one by one.
+    unescaped = _ESCAPED_PERIOD.sub(".", result)
+    if unescaped != result:
+        try:
+            check_meaning_preserved(result, unescaped)
+        except MeaningChangedError:
+            pass
+        else:
+            return unescaped
     for match in reversed(list(_ESCAPED_PERIOD.finditer(result))):
         candidate = result[: match.start()] + result[match.start() + 1 :]
         try:
@@ -234,12 +244,14 @@ def normalize_sourced_html_block_layout(
 
 def _span_kind(node: dict[str, PandocJson]) -> str:
     """
-    How the wrapper treats an inline atom: `joined` onto one line, `display` math,
-    or kept as written (`other`).
+    How the wrapper treats an inline atom: `code` or other `joined` text written
+    on one line, `display` math, or kept as written (`other`).
 
     Pandoc reads a line break inside code, link, image, citation, span, and note
     text as one space, so those atoms are written on one line.
     """
+    if node.get("t") == "Code":
+        return "code"
     if node.get("t") in _JOINED_ATOMS:
         return "joined"
     content = node.get("c")
@@ -360,6 +372,23 @@ def _propose_paragraph_edits(
         for node in nodes
         if node.node.get("t") == "RawBlock"
     }
+    # A paragraph still holding a line that opens a list on its own is one whose
+    # list could not be set off (`separate_sourced_lazy_lists`); wrapping would
+    # run the list into prose, so it is left as written.
+    top_paragraphs = [
+        node
+        for node in nodes
+        if node.node.get("t") == "Para" and set(node.ancestors) <= {"Div"}
+    ]
+    interrupting = _interrupting_list_lines(lines, top_paragraphs, pandoc_exe)
+    unwrapped_paragraphs = {
+        (node.source_range.start.line, node.source_range.start.column)
+        for node in top_paragraphs
+        if any(
+            node.source_range.start.line < line < node.source_range.end.line
+            for line in interrupting
+        )
+    }
     for located in nodes:
         is_list = any(
             ancestor in {"BulletList", "OrderedList"} for ancestor in located.ancestors
@@ -368,6 +397,11 @@ def _propose_paragraph_edits(
         if located.node.get("t") not in {"Para", "Plain"}:
             continue
         if located.node.get("t") == "Plain" and "Table" in located.ancestors:
+            continue
+        if (
+            located.source_range.start.line,
+            located.source_range.start.column,
+        ) in unwrapped_paragraphs:
             continue
         first = located.source_range.start
         if first.line > len(lines):
@@ -468,19 +502,30 @@ def _propose_paragraph_edits(
                 (begin_offset - start, finish_offset - start, _span_kind(inline.node))
             )
         if prefix_width and any(
-            "\n" in old[begin:finish] and kind == "other"
+            "\n" in old[begin:finish] and kind in {"other", "display"}
             for begin, finish, kind in inline_spans
         ):
             continue
-        # Pandoc reads a line break in a joined atom, with the next line's
-        # indentation and quote markers, as one space; writing the space keeps
-        # the atom on one line.
-        code_break = _QUOTED_CODE_BREAK if is_quote else _CODE_BREAK
+        # Pandoc reads a line break in a joined atom as one space, so writing the
+        # space keeps the atom on one line. In code, only the container's
+        # prefix after the break goes with it: the quote markers, each with one
+        # optional space, then the list indentation up to the content column.
+        physical = lines[first.line - 1][:prefix_width]
+        quote_width = physical.rfind(">") + 1
+        if quote_width and physical[quote_width : quote_width + 1] == " ":
+            quote_width += 1
+        code_break = re.compile(
+            r"\n"
+            + (r"(?: {0,3}> ?)*" if is_quote else "")
+            + " {0,%d}" % (prefix_width - quote_width)
+        )
         display_math: list[str] = []
         for begin, finish, kind in sorted(inline_spans, reverse=True):
             span = protected[begin:finish]
-            if kind == "joined":
+            if kind == "code":
                 span = code_break.sub(" ", span)
+            elif kind == "joined":
+                span = _TEXT_BREAK.sub(" ", span)
             hidden = span.translate(_HIDE)
             if kind == "display" and "\n" in span:
                 # Display math written over several lines keeps its authored
@@ -770,7 +815,9 @@ def set_sourced_list_spacing(
         )
         if loose and nested:
             line_index = located.source_range.start.line - 1
-            if 0 < line_index < len(lines) and lines[line_index - 1].strip():
+            if 0 < line_index < len(lines) and lines[line_index - 1].strip(
+                " \t\r\n>" if quoted else " \t\r\n"
+            ):
                 blank = ">\n" if quoted else "\n"
                 edits.append(SourceEdit(starts[line_index], starts[line_index], blank))
         content = located.node.get("c")
@@ -1335,6 +1382,47 @@ def set_sourced_tag_block_spacing(
     return result
 
 
+def _interrupting_list_lines(
+    lines: list[str], paragraphs: list[LocatedNode], pandoc_exe: str
+) -> set[int]:
+    """
+    The 1-based lines after the first of `paragraphs` that open a list when read
+    on their own: a bullet list, or an ordered list starting at 1, the lists
+    CommonMark lets interrupt a paragraph.
+    """
+    candidates = [
+        line_number
+        for node in paragraphs
+        for line_number in range(
+            node.source_range.start.line + 1,
+            min(node.source_range.end.line, len(lines) + 1),
+        )
+        if lines[line_number - 1].strip()
+    ]
+    if not candidates:
+        return set()
+    # Probe every candidate line in one parse, each on its own between unindented
+    # paragraphs that close any list the line before opened.
+    probe = "".join(
+        f"x\n\n{lines[line_number - 1].rstrip()}\n\n" for line_number in candidates
+    )
+    list_starts: set[int] = set()
+    for located in located_nodes(read_source_ast(probe, pandoc_exe)):
+        if located.ancestors:
+            continue
+        kind = located.node.get("t")
+        content = located.node.get("c")
+        opens_list = kind == "BulletList" or (
+            kind == "OrderedList"
+            and isinstance(content, list)
+            and cast(list[PandocJson], content[0])[0] == 1
+        )
+        if opens_list:
+            probe_index = (located.source_range.start.line - 3) // 4
+            list_starts.add(candidates[probe_index])
+    return list_starts
+
+
 def separate_sourced_lazy_lists(
     source: str, pandoc_exe: str, *, verify: bool = True
 ) -> str:
@@ -1356,36 +1444,9 @@ def separate_sourced_lazy_lists(
         for node in located_nodes(read_source_ast(source, pandoc_exe))
         if node.node.get("t") == "Para" and set(node.ancestors) <= {"Div"}
     ]
-    candidates = [
-        line_number
-        for node in paragraphs
-        for line_number in range(
-            node.source_range.start.line + 1,
-            min(node.source_range.end.line, len(lines) + 1),
-        )
-        if lines[line_number - 1].strip()
-    ]
-    if not candidates:
+    list_starts = _interrupting_list_lines(lines, paragraphs, pandoc_exe)
+    if not list_starts:
         return source
-    # Probe every candidate line in one parse, each on its own between unindented
-    # paragraphs that close any list the line before opened.
-    probe = "".join(
-        f"x\n\n{lines[line_number - 1].rstrip()}\n\n" for line_number in candidates
-    )
-    list_starts: set[int] = set()
-    for located in located_nodes(read_source_ast(probe, pandoc_exe)):
-        if located.ancestors:
-            continue
-        kind = located.node.get("t")
-        content = located.node.get("c")
-        opens_list = kind == "BulletList" or (
-            kind == "OrderedList"
-            and isinstance(content, list)
-            and cast(list[PandocJson], content[0])[0] == 1
-        )
-        if opens_list:
-            probe_index = (located.source_range.start.line - 3) // 4
-            list_starts.add(candidates[probe_index])
     blank_before = {
         min(
             line
@@ -1398,13 +1459,33 @@ def separate_sourced_lazy_lists(
             for line in list_starts
         )
     }
-    result = source
-    for line_number in sorted(blank_before, reverse=True):
-        offset = starts[line_number - 1]
-        result = result[:offset] + "\n" + result[offset:]
-    if verify and result != source:
-        check_meaning_preserved(source, result)
-    return result
+
+    def separated(lines_before: set[int]) -> str:
+        result = source
+        for line_number in sorted(lines_before, reverse=True):
+            offset = starts[line_number - 1]
+            result = result[:offset] + "\n" + result[offset:]
+        return result
+
+    # The new list must read as the paragraph text it replaces, which the
+    # lazy_list normalization checks; a list holding a fenced code block does
+    # not, and its paragraph is left as written. Pandoc decides, first for all
+    # lists at once and, if that fails, one by one.
+    candidate = separated(blank_before)
+    if candidate == source:
+        return source
+    try:
+        check_meaning_preserved(source, candidate)
+    except MeaningChangedError:
+        accepted: set[int] = set()
+        for line_number in sorted(blank_before):
+            try:
+                check_meaning_preserved(source, separated({line_number}))
+            except MeaningChangedError:
+                continue
+            accepted.add(line_number)
+        candidate = separated(accepted)
+    return candidate
 
 
 def format_sourced_markdown(
