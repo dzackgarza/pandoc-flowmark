@@ -100,8 +100,7 @@ def test_preflight_reads_display_math_as_pandoc_does(middle: str) -> None:
     `$` as text.
     """
     text = f"Text.\n{middle}\nMore text.\n"
-    literal_dollar = any(
-        node["t"] == "Str" and "$" in node["c"] for node in walk_pandoc(pandoc_ast(text))
-    )
+    strs = [node["c"] for node in walk_pandoc(pandoc_ast(text)) if node["t"] == "Str"]
+    literal_dollar = any(isinstance(s, str) and "$" in s for s in strs)
 
     assert bool(preflight(text)) == literal_dollar
