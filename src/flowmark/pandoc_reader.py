@@ -73,43 +73,67 @@ def reader_json(pandoc_exe: str, reader_format: str, source: str) -> str:
 
 
 def read_source_ast(source: str, pandoc_exe: str) -> PandocJson:
-    """Parse with the configured Pandoc dialect and its position extension."""
+    """
+    Parse with the configured Pandoc dialect and its position extension, with every
+    range settled by `_settle_ranges`.
+
+    Each call returns a new tree, so a caller may change it.
+    """
     ast = cast(
         PandocJson,
         json.loads(reader_json(pandoc_exe, PANDOC_FORMAT + "+sourcepos", source)),
     )
-    parts = source.split("\n")
-    if "\t" in source:
-        _to_character_columns(ast, parts)
-    _clamp_ranges(ast, SourcePoint(len(parts), len(parts[-1]) + 1))
-    _end_blocks_at_line_start(ast, parts)
+    _settle_ranges(ast, source.split("\n"), tabs="\t" in source)
     return ast
 
 
-def _end_blocks_at_line_start(value: PandocJson, lines: list[str]) -> None:
+@functools.lru_cache(maxsize=32)
+def located_source_nodes(source: str, pandoc_exe: str) -> tuple[LocatedNode, ...]:
     """
-    Write a block range that ends at the end of a line's text as ending at the
-    start of the next line, as Pandoc writes every block that ends before a line
-    break it has read, so a block's end line is always the line after its last.
+    `located_nodes` of `read_source_ast(source, pandoc_exe)`, read once for each
+    text: a pass that changes nothing leaves the text as it was, so the next pass
+    reuses this reading. Every caller shares the nodes, so they must not be changed.
+    """
+    return tuple(located_nodes(read_source_ast(source, pandoc_exe)))
+
+
+def _settle_ranges(value: PandocJson, lines: list[str], *, tabs: bool) -> None:
+    """
+    Rewrite each range in one walk of the tree:
+
+    - Columns become character columns, so a column minus one is an offset into its
+      line. Pandoc counts a tab as advancing to the next tab stop.
+    - A range that runs past the end of the text ends at the end of the text.
+    - A block range that ends at the end of a line's text ends at the start of the
+      next line, as Pandoc writes every block that ends before a line break it has
+      read, so a block's end line is always the line after its last.
     """
     position = source_position(value)
-    if position is not None and isinstance(value, dict) and value.get("t") == "Div":
-        end = position.end
+    if position is not None and isinstance(value, dict):
+        start, end = position.start, position.end
+        if tabs:
+            start, end = _character_point(start, lines), _character_point(end, lines)
+        eof = (len(lines), len(lines[-1]) + 1)
+        if (start.line, start.column) <= eof < (end.line, end.column):
+            end = SourcePoint(*eof)
         if (
-            end.column > 1
+            value.get("t") == "Div"
+            and end.column > 1
             and end.line <= len(lines)
             and end.column == len(lines[end.line - 1]) + 1
         ):
+            end = SourcePoint(end.line + 1, 1)
+        if SourceRange(start, end) != position:
             content = cast(list[PandocJson], value["c"])
             attributes = cast(list[PandocJson], cast(list[PandocJson], content[0])[2])
             entry = cast(list[PandocJson], attributes[0])
-            entry[1] = f"{position.start.line}:{position.start.column}-{end.line + 1}:1"
+            entry[1] = f"{start.line}:{start.column}-{end.line}:{end.column}"
     if isinstance(value, dict):
         for child in value.values():
-            _end_blocks_at_line_start(child, lines)
+            _settle_ranges(child, lines, tabs=tabs)
     elif isinstance(value, list):
         for child in value:
-            _end_blocks_at_line_start(child, lines)
+            _settle_ranges(child, lines, tabs=tabs)
 
 
 _TAB_STOP = 4
@@ -129,29 +153,10 @@ def _character_column(line: str, column: int) -> int:
     return len(line) + 1 + max(0, column - expanded)
 
 
-def _to_character_columns(value: PandocJson, lines: list[str]) -> None:
-    """
-    Rewrite every range's columns from Pandoc's, which count a tab as advancing
-    to the next tab stop, to character columns, so a column minus one is an
-    offset into its line.
-    """
-    position = source_position(value)
-    if position is not None and isinstance(value, dict):
-
-        def convert(point: SourcePoint) -> str:
-            line = lines[point.line - 1] if point.line <= len(lines) else ""
-            return f"{point.line}:{_character_column(line, point.column)}"
-
-        content = cast(list[PandocJson], value["c"])
-        attributes = cast(list[PandocJson], cast(list[PandocJson], content[0])[2])
-        entry = cast(list[PandocJson], attributes[0])
-        entry[1] = f"{convert(position.start)}-{convert(position.end)}"
-    if isinstance(value, dict):
-        for child in value.values():
-            _to_character_columns(child, lines)
-    elif isinstance(value, list):
-        for child in value:
-            _to_character_columns(child, lines)
+def _character_point(point: SourcePoint, lines: list[str]) -> SourcePoint:
+    """`point` with Pandoc's tab-expanded column as a character column."""
+    line = lines[point.line - 1] if point.line <= len(lines) else ""
+    return SourcePoint(point.line, _character_column(line, point.column))
 
 
 def _point(value: str) -> SourcePoint:
@@ -179,28 +184,6 @@ def source_position(value: PandocJson) -> SourceRange | None:
         return None
     start, end = raw.split("-", maxsplit=1)
     return SourceRange(_point(start), _point(end))
-
-
-def _clamp_ranges(value: PandocJson, eof: SourcePoint) -> None:
-    position = source_position(value)
-    if (
-        position is not None
-        and (position.start.line, position.start.column) <= (eof.line, eof.column)
-        and (position.end.line, position.end.column) > (eof.line, eof.column)
-        and isinstance(value, dict)
-    ):
-        content = cast(list[PandocJson], value["c"])
-        attributes = cast(list[PandocJson], cast(list[PandocJson], content[0])[2])
-        entry = cast(list[PandocJson], attributes[0])
-        entry[1] = (
-            f"{position.start.line}:{position.start.column}-{eof.line}:{eof.column}"
-        )
-    if isinstance(value, dict):
-        for child in value.values():
-            _clamp_ranges(child, eof)
-    elif isinstance(value, list):
-        for child in value:
-            _clamp_ranges(child, eof)
 
 
 def located_nodes(value: PandocJson) -> list[LocatedNode]:

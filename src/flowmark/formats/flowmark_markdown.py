@@ -9,8 +9,8 @@ from flowmark.linewrapping.line_wrappers import line_wrap_by_sentence
 from flowmark.linewrapping.protocols import LineWrapper
 from flowmark.linewrapping.text_filling import DEFAULT_WRAP_WIDTH
 from flowmark.pandoc_reader import (
+    located_source_nodes,
     PandocJson,
-    located_nodes,
     pandoc_executable,
     read_source_ast,
 )
@@ -45,7 +45,7 @@ class FlowmarkMarkdown:
         )
         top_level = [
             node
-            for node in located_nodes(read_source_ast(result, pandoc_executable()))
+            for node in located_source_nodes(result, pandoc_executable())
             if not node.ancestors
         ]
         if top_level and top_level[-1].node.get("t") == "Header":
