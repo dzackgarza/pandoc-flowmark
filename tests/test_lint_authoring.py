@@ -501,3 +501,75 @@ def test_cli_config_loads_relative_macro_sources(
         and item["data"] == {"candidates": ["\\ProjectMacro"]}
         for item in diagnostics
     )
+
+
+def wikilink_context(resolutions: dict[str, object]) -> dict[str, object]:
+    return {"wikilinks": {"resolutions": resolutions}}
+
+
+def test_wikilinks_report_by_the_host_resolution() -> None:
+    source = (
+        "See [[../a/cusp-chain.md#Main result|the chain]], [[notes]], "
+        "[[moduli]] and [[halphen]].\n"
+    )
+    diagnostics = lint_text(
+        source,
+        options(
+            wikilink_context(
+                {
+                    "../a/cusp-chain.md": {
+                        "status": "resolved",
+                        "path": "/w/a/cusp-chain.md",
+                        "canonical": "cusp-chain",
+                        "relative": True,
+                    },
+                    "notes": {"status": "missing"},
+                    "moduli": {
+                        "status": "ambiguous",
+                        "candidates": [
+                            {"path": "/w/a/moduli.md", "canonical": "a/moduli"},
+                            {"path": "/w/b/moduli.md", "canonical": "b/moduli"},
+                        ],
+                    },
+                    "halphen": {
+                        "status": "resolved",
+                        "path": "/w/halphen.md",
+                        "canonical": "halphen",
+                        "relative": False,
+                    },
+                }
+            )
+        ),
+        source_path=Path("/w/c/doc.md"),
+    )
+    by_rule = {
+        diagnostic.rule: diagnostic
+        for diagnostic in diagnostics
+        if diagnostic.rule.startswith("link/")
+    }
+    assert set(by_rule) == {
+        "link/relative-wikilink",
+        "link/missing-wikilink-target",
+        "link/ambiguous-wikilink",
+    }
+
+    relative = by_rule["link/relative-wikilink"]
+    assert [s.replacement for s in relative.suggestions] == ["cusp-chain"]
+    assert source[relative.column - 1 : relative.end_column - 1] == "../a/cusp-chain.md"
+
+    ambiguous = by_rule["link/ambiguous-wikilink"]
+    assert ambiguous.severity.value == "error"
+    assert [s.replacement for s in ambiguous.suggestions] == ["a/moduli", "b/moduli"]
+    assert source[ambiguous.column - 1 : ambiguous.end_column - 1] == "moduli"
+
+    missing = by_rule["link/missing-wikilink-target"]
+    assert source[missing.column - 1 : missing.end_column - 1] == "notes"
+
+
+def test_wikilinks_without_host_context_report_nothing() -> None:
+    diagnostics = lint_text(
+        "See [[../a/cusp-chain.md#Main result|the chain]] and [[notes]].\n",
+        options({}),
+        source_path=Path("/w/c/doc.md"),
+    )
+    assert [d.rule for d in diagnostics if d.rule.startswith("link/")] == []
