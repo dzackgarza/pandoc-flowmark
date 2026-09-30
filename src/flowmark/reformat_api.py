@@ -11,10 +11,9 @@ from flowmark.linewrapping.markdown_filling import format_markdown
 from flowmark.linewrapping.text_filling import Wrap, fill_text
 from flowmark.linewrapping.text_wrapping import get_html_md_word_splitter
 from flowmark.pandoc_reader import (
+    located_source_nodes,
     PandocParseError,
-    located_nodes,
     pandoc_executable,
-    read_source_ast,
 )
 from flowmark.pandoc_verify import (
     ALERT_TYPE,
@@ -42,7 +41,7 @@ def _without_raw_blocks(body: str) -> str:
     TeX or code is not checked as Markdown math. Line numbers are kept.
     """
     lines = body.split("\n")
-    for node in located_nodes(read_source_ast(body, pandoc_executable())):
+    for node in located_source_nodes(body, pandoc_executable()):
         if node.node.get("t") not in {"RawBlock", "CodeBlock"}:
             continue
         end = node.source_range.end

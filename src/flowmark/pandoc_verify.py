@@ -62,11 +62,10 @@ from typing import cast
 from flowmark.formats.frontmatter import split_frontmatter
 from flowmark.pandoc_dialect import PANDOC_FORMAT
 from flowmark.pandoc_reader import (
+    located_source_nodes,
     PandocJson,
     PandocParseError,
-    located_nodes,
     pandoc_executable,
-    read_source_ast,
     reader_json,
 )
 from flowmark.pandoc_reader import (
@@ -88,7 +87,9 @@ class MeaningChangedError(ValueError):
     block: int | None
     """The 0-based top-level block of the source that pandoc reads differently."""
 
-    def __init__(self, message: str, detail: str = "", block: int | None = None) -> None:
+    def __init__(
+        self, message: str, detail: str = "", block: int | None = None
+    ) -> None:
         super().__init__(message)
         self.detail = detail
         self.block = block
@@ -104,7 +105,9 @@ def _body_blocks(pandoc_exe: str, markdown_text: str) -> list[PandocJson]:
     try:
         stdout = reader_json(pandoc_exe, PANDOC_FORMAT, content)
     except PandocParseError as error:
-        raise PandocParseError(f"pandoc could not parse the document: {error}") from error
+        raise PandocParseError(
+            f"pandoc could not parse the document: {error}"
+        ) from error
     blocks: list[PandocJson] = json.loads(stdout)["blocks"]
     return blocks
 
@@ -128,11 +131,17 @@ def block_indices(markdown_text: str, lines: list[int]) -> list[int]:
     """
     frontmatter, content = split_frontmatter(markdown_text)
     offset = frontmatter.count("\n")
-    starts = [node.source_range.start.line + offset for node in located_nodes(read_source_ast(content, pandoc_executable())) if not node.ancestors]
+    starts = [
+        node.source_range.start.line + offset
+        for node in located_source_nodes(content, pandoc_executable())
+        if not node.ancestors
+    ]
     return [max(0, sum(1 for start in starts if start <= line) - 1) for line in lines]
 
 
-def _pandoc_ast_pair(source: str, result: str) -> tuple[list[PandocJson], list[PandocJson]]:
+def _pandoc_ast_pair(
+    source: str, result: str
+) -> tuple[list[PandocJson], list[PandocJson]]:
     """
     Parse both documents with two concurrent pandoc processes.
 
@@ -365,17 +374,27 @@ def _list_items_and_markers(
 
     if kind == "OrderedList" and isinstance(content, list) and len(content) == 2:
         attrs, ordered_items = content
-        if not isinstance(attrs, list) or len(attrs) != 3 or not isinstance(ordered_items, list):
+        if (
+            not isinstance(attrs, list)
+            or len(attrs) != 3
+            or not isinstance(ordered_items, list)
+        ):
             return [], []
         start, delim = attrs[0], attrs[2]
         first = start if isinstance(start, int) else 1
-        suffix = ")" if isinstance(delim, dict) and delim.get("t") == "OneParen" else "."
-        return ordered_items, [[f"{first + offset}{suffix}" for offset in range(len(ordered_items))]]
+        suffix = (
+            ")" if isinstance(delim, dict) and delim.get("t") == "OneParen" else "."
+        )
+        return ordered_items, [
+            [f"{first + offset}{suffix}" for offset in range(len(ordered_items))]
+        ]
 
     return [], []
 
 
-def _flatten_list_into_paragraph(para: dict[str, PandocJson], list_block: dict[str, PandocJson]) -> list[list[PandocJson]]:
+def _flatten_list_into_paragraph(
+    para: dict[str, PandocJson], list_block: dict[str, PandocJson]
+) -> list[list[PandocJson]]:
     """
     Spell `para` followed by `list_block` back out as one paragraph's inlines, once
     per candidate marker set.
@@ -398,12 +417,18 @@ def _flatten_list_into_paragraph(para: dict[str, PandocJson], list_block: dict[s
     return candidates
 
 
-def _flatten_list(list_block: dict[str, PandocJson], bullet: str, checked: str | None = None) -> list[PandocJson] | None:
+def _flatten_list(
+    list_block: dict[str, PandocJson], bullet: str, checked: str | None = None
+) -> list[PandocJson] | None:
     """`list_block` spelled as the inlines of lazy paragraph lines, or None."""
     items, marker_candidates = _list_items_and_markers(list_block)
     if not marker_candidates:
         return None
-    markers = [bullet] * len(items) if list_block.get("t") == "BulletList" else marker_candidates[0]
+    markers = (
+        [bullet] * len(items)
+        if list_block.get("t") == "BulletList"
+        else marker_candidates[0]
+    )
     flat: list[PandocJson] = []
     for marker, item in zip(markers, items, strict=False):
         if not isinstance(item, list):
@@ -435,7 +460,9 @@ def _flatten_list(list_block: dict[str, PandocJson], bullet: str, checked: str |
     return flat
 
 
-def _collapse_lazy_lists_at_level(before: list[PandocJson], after: list[PandocJson]) -> list[PandocJson]:
+def _collapse_lazy_lists_at_level(
+    before: list[PandocJson], after: list[PandocJson]
+) -> list[PandocJson]:
     """
     Rewrite `after` so a paragraph that grew a list beside it becomes the single
     paragraph `before` has there -- but only when flattening reproduces `before`
@@ -454,7 +481,10 @@ def _collapse_lazy_lists_at_level(before: list[PandocJson], after: list[PandocJs
             and isinstance(follows, dict)
             and original.get("t") in _PARAGRAPH_BLOCKS
             and para.get("t") in _PARAGRAPH_BLOCKS
-            and any(_canonical(flat) == _canonical(original.get("c")) for flat in _flatten_list_into_paragraph(para, follows))
+            and any(
+                _canonical(flat) == _canonical(original.get("c"))
+                for flat in _flatten_list_into_paragraph(para, follows)
+            )
         ):
             out.append(original)
             after_index += 2
@@ -473,10 +503,16 @@ def _walk_levels(
 ) -> PandocJson:
     """Walk both trees in parallel, rewriting each of `after`'s node lists with `at_level`."""
     if isinstance(before, dict) and isinstance(after, dict):
-        return {key: _walk_levels(at_level, before.get(key), value) for key, value in after.items()}
+        return {
+            key: _walk_levels(at_level, before.get(key), value)
+            for key, value in after.items()
+        }
     if isinstance(before, list) and isinstance(after, list):
         rewritten = at_level(before, after)
-        return [_walk_levels(at_level, before[index] if index < len(before) else None, item) for index, item in enumerate(rewritten)]
+        return [
+            _walk_levels(at_level, before[index] if index < len(before) else None, item)
+            for index, item in enumerate(rewritten)
+        ]
     return after
 
 
@@ -498,7 +534,9 @@ ALERT_TYPE = "alert_type"
 GFM_ALERT_TYPES = frozenset({"note", "tip", "important", "warning", "caution"})
 """The alert types GitHub renders, matched case-insensitively."""
 
-_GFM_ALERT_MARKER = re.compile(r"^\[!(?:" + "|".join(sorted(GFM_ALERT_TYPES)) + r")\](?=\s|$)", re.IGNORECASE)
+_GFM_ALERT_MARKER = re.compile(
+    r"^\[!(?:" + "|".join(sorted(GFM_ALERT_TYPES)) + r")\](?=\s|$)", re.IGNORECASE
+)
 
 LAZY_LIST = "lazy_list"
 """Identifier for materializing a list out of a lazy paragraph continuation.
@@ -524,13 +562,17 @@ same way necessarily accepts the corruption that undoes the opinion.
 def _both(node_transform: Callable[[PandocJson], PandocJson]) -> Normalization:
     """Lift a symmetric node transform into a `Normalization` over both trees."""
 
-    def normalize(before: PandocJson, after: PandocJson) -> tuple[PandocJson, PandocJson]:
+    def normalize(
+        before: PandocJson, after: PandocJson
+    ) -> tuple[PandocJson, PandocJson]:
         return node_transform(before), node_transform(after)
 
     return normalize
 
 
-def _normalize_quotes(before: PandocJson, after: PandocJson) -> tuple[PandocJson, PandocJson]:
+def _normalize_quotes(
+    before: PandocJson, after: PandocJson
+) -> tuple[PandocJson, PandocJson]:
     """
     Flatten `Quoted` spans on both sides, then re-canonicalize.
 
@@ -565,7 +607,9 @@ def _joinable_space(text: str, start: int, following: PandocJson | None) -> bool
     return rest[0].isdigit() or rest[0].islower()
 
 
-def _join_hyphen_text_toward(text: str, target: str, following: PandocJson | None) -> str:
+def _join_hyphen_text_toward(
+    text: str, target: str, following: PandocJson | None
+) -> str:
     """
     `target` if it is `text` with some in-scope hyphen spaces closed up, else `text`.
 
@@ -579,7 +623,11 @@ def _join_hyphen_text_toward(text: str, target: str, following: PandocJson | Non
         if j < len(target) and text[i] == target[j]:
             i += 1
             j += 1
-        elif text[i] == " " and text[i - 1 : i] == "-" and _joinable_space(text, i, following):
+        elif (
+            text[i] == " "
+            and text[i - 1 : i] == "-"
+            and _joinable_space(text, i, following)
+        ):
             i += 1
         else:
             return text
@@ -595,14 +643,26 @@ def _join_hyphens_toward(node: PandocJson, target: PandocJson) -> PandocJson:
     hyphen and a space and the next inline is structure (`degree- ` followed by a
     `Math`, from `degree-` / `$4$`). Trees that differ in shape are left alone.
     """
-    if isinstance(node, dict) and isinstance(target, dict) and node.keys() == target.keys():
-        return {key: _join_hyphens_toward(value, target[key]) for key, value in node.items()}
-    if not (isinstance(node, list) and isinstance(target, list) and len(node) == len(target)):
+    if (
+        isinstance(node, dict)
+        and isinstance(target, dict)
+        and node.keys() == target.keys()
+    ):
+        return {
+            key: _join_hyphens_toward(value, target[key]) for key, value in node.items()
+        }
+    if not (
+        isinstance(node, list) and isinstance(target, list) and len(node) == len(target)
+    ):
         return node
 
     out: list[PandocJson] = []
     for index, (item, goal) in enumerate(zip(node, target, strict=True)):
-        if isinstance(item, dict) and isinstance(goal, dict) and item.get("t") == goal.get("t") == "Str":
+        if (
+            isinstance(item, dict)
+            and isinstance(goal, dict)
+            and item.get("t") == goal.get("t") == "Str"
+        ):
             text = _join_hyphen_text_toward(
                 str(item["c"]),
                 str(goal["c"]),
@@ -614,7 +674,9 @@ def _join_hyphens_toward(node: PandocJson, target: PandocJson) -> PandocJson:
     return out
 
 
-def _normalize_hyphen_join(before: PandocJson, after: PandocJson) -> tuple[PandocJson, PandocJson]:
+def _normalize_hyphen_join(
+    before: PandocJson, after: PandocJson
+) -> tuple[PandocJson, PandocJson]:
     """
     Close up `before`'s hyphen-and-space so it matches a result that joined it.
 
@@ -627,7 +689,9 @@ def _normalize_hyphen_join(before: PandocJson, after: PandocJson) -> tuple[Pando
     return _canonical(_join_hyphens_toward(before, after)), after
 
 
-def _normalize_lazy_list(before: PandocJson, after: PandocJson) -> tuple[PandocJson, PandocJson]:
+def _normalize_lazy_list(
+    before: PandocJson, after: PandocJson
+) -> tuple[PandocJson, PandocJson]:
     """
     Collapse lists `after` materialized out of `before`'s lazy continuations.
 
@@ -710,7 +774,9 @@ def _block_type(block: PandocJson) -> str:
     return str(block.get("t", "?")) if isinstance(block, dict) else "?"
 
 
-def _first_difference(before: list[PandocJson], after: list[PandocJson]) -> tuple[int, str]:
+def _first_difference(
+    before: list[PandocJson], after: list[PandocJson]
+) -> tuple[int, str]:
     """
     Locate the first block the two documents disagree about: its index, and a
     description of what changed.
@@ -725,7 +791,9 @@ def _first_difference(before: list[PandocJson], after: list[PandocJson]) -> tupl
     # `strict=False` is the point rather than an oversight: a document that gained
     # or lost a block is exactly the case this has to describe, and the length
     # difference is reported below once the common prefix is known to match.
-    for index, (before_block, after_block) in enumerate(zip(before, after, strict=False)):
+    for index, (before_block, after_block) in enumerate(
+        zip(before, after, strict=False)
+    ):
         if before_block == after_block:
             continue
         before_type, after_type = _block_type(before_block), _block_type(after_block)
@@ -738,11 +806,15 @@ def _first_difference(before: list[PandocJson], after: list[PandocJson]) -> tupl
     index = min(len(before), len(after))
     counts = f"{len(after)} blocks vs {len(before)}"
     if len(after) > len(before):
-        return index, (f"block {index}: (absent) -> {_block_type(after[index])}, {counts}")
+        return index, (
+            f"block {index}: (absent) -> {_block_type(after[index])}, {counts}"
+        )
     return index, f"block {index}: {_block_type(before[index])} -> (absent), {counts}"
 
 
-def check_meaning_preserved(source: str, result: str, label: str = "input") -> list[str]:
+def check_meaning_preserved(
+    source: str, result: str, label: str = "input"
+) -> list[str]:
     """
     Check that `result` means what `source` did, allowing flowmark's intentional
     style normalizations.
@@ -754,37 +826,78 @@ def check_meaning_preserved(source: str, result: str, label: str = "input") -> l
         MeaningChangedError: if the two differ by anything else.
     """
     source_ast, result_ast = _pandoc_ast_pair(source, result)
-    before_canon, after_canon = _canonical(source_ast), _canonical(result_ast)
+    # Canonicalizing a block list always yields a block list.
+    before_canon = cast("list[PandocJson]", _canonical(source_ast))
+    after_canon = cast("list[PandocJson]", _canonical(result_ast))
     if before_canon == after_canon:
         return []
 
-    # Attribute the difference to the smallest set of normalizations that
-    # reconciles it.  Merely containing a construct a normalization rewrites
-    # (a bold heading or tight list that formatting *preserved*) must not
-    # count as that normalization having been applied.
-    for size in range(1, len(NORMALIZATIONS) + 1):
-        for combo in combinations(NORMALIZATIONS, size):
-            normalized_before, normalized_after = before_canon, after_canon
-            for _key, _text, normalize in combo:
-                normalized_before, normalized_after = normalize(normalized_before, normalized_after)
-            if normalized_before == normalized_after:
-                return [key for key, _text, _normalize in combo]
+    # Every normalization rewrites inside blocks and pairs the two block lists by
+    # index, so the equal blocks at either end reconcile under any of them and
+    # cannot change the outcome. Only the span from the first to the last differing
+    # block is normalized; on a long document that span is a few blocks.
+    lead = next(
+        (
+            index
+            for index, (before_block, after_block) in enumerate(
+                zip(before_canon, after_canon, strict=False)
+            )
+            if before_block != after_block
+        ),
+        min(len(before_canon), len(after_canon)),
+    )
+    trail = 0
+    while (
+        trail < min(len(before_canon), len(after_canon)) - lead
+        and before_canon[-1 - trail] == after_canon[-1 - trail]
+    ):
+        trail += 1
+    before_span = before_canon[lead : len(before_canon) - trail]
+    after_span = after_canon[lead : len(after_canon) - trail]
 
-    # Locate the difference against *every* normalization applied, not against the
-    # raw trees. A block that a declared opinion reconciles is not the problem, and
-    # naming it sends the reader to a block that is fine -- which costs exactly the
-    # bisection this diagnostic exists to prevent. Whatever still differs when the
-    # gate is at its most permissive is what actually blocked acceptance.
-    permissive_before, permissive_after = before_canon, after_canon
+    # Apply *every* normalization first. If the gate at its most permissive still
+    # sees a difference, no subset reconciles it, and the difference is located
+    # against these trees, not the raw ones. A block that a declared opinion
+    # reconciles is not the problem, and naming it sends the reader to a block that
+    # is fine -- which costs exactly the bisection this diagnostic exists to
+    # prevent.
+    permissive_before: PandocJson = before_span
+    permissive_after: PandocJson = after_span
     for _key, _text, normalize in NORMALIZATIONS:
-        permissive_before, permissive_after = normalize(permissive_before, permissive_after)
+        permissive_before, permissive_after = normalize(
+            permissive_before, permissive_after
+        )
+    if permissive_before == permissive_after:
+        # Attribute the difference to the smallest set of normalizations that
+        # reconciles it.  Merely containing a construct a normalization rewrites
+        # (a bold heading or tight list that formatting *preserved*) must not
+        # count as that normalization having been applied.
+        for size in range(1, len(NORMALIZATIONS)):
+            for combo in combinations(NORMALIZATIONS, size):
+                normalized_before: PandocJson = before_span
+                normalized_after: PandocJson = after_span
+                for _key, _text, normalize in combo:
+                    normalized_before, normalized_after = normalize(
+                        normalized_before, normalized_after
+                    )
+                if normalized_before == normalized_after:
+                    return [key for key, _text, _normalize in combo]
+        return [key for key, _text, _normalize in NORMALIZATIONS]
 
-    # Canonicalizing or normalizing a block list always yields a block list.
-    # The normalizations rewrite `before` only inside blocks, so its block indices
+    # Normalizing a block list always yields a block list, and the normalizations
+    # rewrite only inside blocks, so with the equal ends restored the block indices
     # are still the source document's.
     block, detail = _first_difference(
-        cast("list[PandocJson]", permissive_before),
-        cast("list[PandocJson]", permissive_after),
+        [
+            *before_canon[:lead],
+            *cast("list[PandocJson]", permissive_before),
+            *before_canon[len(before_canon) - trail :],
+        ],
+        [
+            *after_canon[:lead],
+            *cast("list[PandocJson]", permissive_after),
+            *after_canon[len(after_canon) - trail :],
+        ],
     )
     raise MeaningChangedError(
         f"Refusing to write {label}: reformatting would change what pandoc reads "

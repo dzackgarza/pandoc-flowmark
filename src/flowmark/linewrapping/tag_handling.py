@@ -28,10 +28,9 @@ from flowmark.linewrapping.atomic_patterns import (
 )
 from flowmark.linewrapping.protocols import LineWrapper
 from flowmark.pandoc_reader import (
+    located_source_nodes,
     PandocJson,
-    located_nodes,
     pandoc_executable,
-    read_source_ast,
 )
 
 # Pattern to match complete template tags (for protecting content inside tags).
@@ -156,7 +155,11 @@ def is_tag_only_line(line: str) -> bool:
 def _blocks(lines: Sequence[str]) -> list[dict[str, PandocJson]]:
     """Top-level blocks from Flowmark's Pandoc reader."""
     source = "\n".join(lines) + "\n"
-    return [node.node for node in located_nodes(read_source_ast(source, pandoc_executable())) if not node.ancestors]
+    return [
+        node.node
+        for node in located_source_nodes(source, pandoc_executable())
+        if not node.ancestors
+    ]
 
 
 def _is_list_item_line(line: str) -> bool:
@@ -200,7 +203,11 @@ def line_ends_with_tag(line: str) -> bool:
     if not stripped:
         return False
     # Check for Jinja-style tags
-    if stripped.endswith(SINGLE_JINJA_TAG.close_delim) or stripped.endswith(SINGLE_JINJA_COMMENT.close_delim) or stripped.endswith(SINGLE_JINJA_VAR.close_delim):
+    if (
+        stripped.endswith(SINGLE_JINJA_TAG.close_delim)
+        or stripped.endswith(SINGLE_JINJA_COMMENT.close_delim)
+        or stripped.endswith(SINGLE_JINJA_VAR.close_delim)
+    ):
         return True
     # Check for HTML comments
     if stripped.endswith(SINGLE_HTML_COMMENT.close_delim):
@@ -214,7 +221,11 @@ def line_starts_with_tag(line: str) -> bool:
     if not stripped:
         return False
     # Check for Jinja-style tags
-    if stripped.startswith(SINGLE_JINJA_TAG.open_delim) or stripped.startswith(SINGLE_JINJA_COMMENT.open_delim) or stripped.startswith(SINGLE_JINJA_VAR.open_delim):
+    if (
+        stripped.startswith(SINGLE_JINJA_TAG.open_delim)
+        or stripped.startswith(SINGLE_JINJA_COMMENT.open_delim)
+        or stripped.startswith(SINGLE_JINJA_VAR.open_delim)
+    ):
         return True
     # Check for HTML comments
     if stripped.startswith(SINGLE_HTML_COMMENT.open_delim):
@@ -263,7 +274,9 @@ def _no_list_item(_line: str) -> bool:
     return False
 
 
-def _segments(lines: Sequence[str], is_list_item: Callable[[str], bool]) -> list[_Segment]:
+def _segments(
+    lines: Sequence[str], is_list_item: Callable[[str], bool]
+) -> list[_Segment]:
     """
     Split a paragraph's lines where a tag or a block begins or ends.
 
@@ -275,7 +288,9 @@ def _segments(lines: Sequence[str], is_list_item: Callable[[str], bool]) -> list
     while i < len(lines):
         table_length = _table_length(lines[i:])
         if table_length:
-            segments.append(_Segment(list(lines[i : i + table_length]), _SegmentKind.table))
+            segments.append(
+                _Segment(list(lines[i : i + table_length]), _SegmentKind.table)
+            )
             i += table_length
             continue
         line = lines[i]
@@ -338,7 +353,9 @@ def add_tag_newline_handling(
 
         # Check if there are any tags in the text - only split off list items
         # when tags are present to avoid changing normal markdown behavior.
-        has_tags = any(line_ends_with_tag(line) or line_starts_with_tag(line) for line in lines)
+        has_tags = any(
+            line_ends_with_tag(line) or line_starts_with_tag(line) for line in lines
+        )
 
         segments = _segments(lines, _is_list_item_line if has_tags else _no_list_item)
 
@@ -355,9 +372,14 @@ def add_tag_newline_handling(
         for i, segment in enumerate(segments):
             cur_initial_indent = initial_indent if i == 0 else subsequent_indent
             if segment.kind is _SegmentKind.table:
-                wrapped = "\n".join((cur_initial_indent if j == 0 else subsequent_indent) + line for j, line in enumerate(segment.lines))
+                wrapped = "\n".join(
+                    (cur_initial_indent if j == 0 else subsequent_indent) + line
+                    for j, line in enumerate(segment.lines)
+                )
             else:
-                wrapped = base_wrapper("\n".join(segment.lines), cur_initial_indent, subsequent_indent)
+                wrapped = base_wrapper(
+                    "\n".join(segment.lines), cur_initial_indent, subsequent_indent
+                )
             wrapped_segments.append(wrapped)
 
         # Rejoin segments, normalizing newlines around block content.
@@ -372,7 +394,9 @@ def add_tag_newline_handling(
             # dedented below.
             curr_is_tag = _is_unindented_tag_line(curr.lines[0])
             curr_is_closing_tag = _is_closing_tag(curr.lines[0])
-            if (prev_is_tag and curr.is_block) or (prev.is_block and (curr_is_tag or curr_is_closing_tag)):
+            if (prev_is_tag and curr.is_block) or (
+                prev.is_block and (curr_is_tag or curr_is_closing_tag)
+            ):
                 result_parts.append("")  # Empty string creates blank line when joined
             result_parts.append(wrapped)
 
@@ -394,7 +418,12 @@ def add_tag_newline_handling(
 def _is_closing_tag(line: str) -> bool:
     """Check if a line is a closing tag."""
     stripped = line.lstrip()
-    return stripped.startswith("{% /") or stripped.startswith("{# /") or stripped.startswith("{{ /") or stripped.startswith("<!-- /")
+    return (
+        stripped.startswith("{% /")
+        or stripped.startswith("{# /")
+        or stripped.startswith("{{ /")
+        or stripped.startswith("<!-- /")
+    )
 
 
 def _dedent_closing_tags(text: str) -> str:
@@ -402,7 +431,9 @@ def _dedent_closing_tags(text: str) -> str:
     Strip indentation from closing tags, which the Markdown parser may have
     indented as list continuation.
     """
-    return "\n".join(line.lstrip() if _is_closing_tag(line) else line for line in text.split("\n"))
+    return "\n".join(
+        line.lstrip() if _is_closing_tag(line) else line for line in text.split("\n")
+    )
 
 
 # Pattern to detect closing delimiter of opening tag followed by a closing tag.

@@ -1338,6 +1338,15 @@ def _pandoc_semantic_findings(
         ):
             continue
         destination = target[0]
+        # A wikilink names a workspace document, not a path; the host resolves it
+        # and the `link/*-wikilink*` authoring rules report on it.
+        attributes = content[0]
+        is_wikilink = (
+            isinstance(attributes, list)
+            and len(attributes) == 3
+            and isinstance(attributes[1], list)
+            and "wikilink" in attributes[1]
+        )
         start, end = _locate_after(
             text,
             (
@@ -1381,7 +1390,7 @@ def _pandoc_semantic_findings(
                     end,
                 )
             )
-        if kind == "Link" and destination.startswith("#"):
+        if kind == "Link" and not is_wikilink and destination.startswith("#"):
             fragment = unquote(destination[1:])
             if fragment and fragment not in all_ids:
                 findings.append(
@@ -1393,7 +1402,7 @@ def _pandoc_semantic_findings(
                         end,
                     )
                 )
-        if kind == "Link":
+        if kind == "Link" and not is_wikilink:
             local_finding = _local_destination_finding(
                 destination, start, end, source_path
             )

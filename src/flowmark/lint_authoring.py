@@ -188,6 +188,10 @@ def _references(context: RuleContext) -> Mapping[str, object]:
     return _section(context, "references")
 
 
+def _wikilinks(context: RuleContext) -> Mapping[str, object]:
+    return _section(context, "wikilinks")
+
+
 def _compiler(context: RuleContext) -> Mapping[str, object]:
     return _section(context, "compiler")
 
@@ -1483,6 +1487,110 @@ def _citation_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
     return findings
 
 
+def _wikilink_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
+    """Report wikilinks by the host's resolution of their targets.
+
+    The host owns the workspace, so `wikilinks.resolutions` maps each target, the
+    text before `#` and `|`, to `{"status": "resolved", "relative": bool,
+    "canonical": str}`, `{"status": "ambiguous", "candidates": [{"path",
+    "canonical"}]}` or `{"status": "missing"}`. Without that context there is no
+    workspace to resolve against, and the rules report nothing.
+    """
+    resolutions = _mapping(_wikilinks(context).get("resolutions"))
+    findings: list[RuleFinding] = []
+    cursor = 0
+    for node in walk_pandoc(context.pandoc_document):
+        if node.get("t") != "Link":
+            continue
+        content = node.get("c")
+        if not isinstance(content, list) or len(content) != 3:
+            continue
+        attributes, _label, target = content
+        if not (
+            isinstance(attributes, list)
+            and len(attributes) == 3
+            and isinstance(attributes[1], list)
+            and "wikilink" in attributes[1]
+            and isinstance(target, list)
+            and isinstance(target[0], str)
+        ):
+            continue
+        name = target[0].split("#", 1)[0].strip()
+        if not name:
+            continue
+        opener = context.text.find("[[" + name, cursor)
+        if opener < 0:
+            continue
+        start = opener + 2
+        end = start + len(name)
+        cursor = end
+        resolution = _mapping(resolutions.get(name))
+        status = resolution.get("status")
+        if rule == "link/missing-wikilink-target" and status == "missing":
+            findings.append(
+                RuleFinding(
+                    rule,
+                    "warning",
+                    f"No workspace document is named `{name}`.",
+                    start,
+                    end,
+                )
+            )
+        if rule == "link/ambiguous-wikilink" and status == "ambiguous":
+            candidates = [
+                _mapping(candidate)
+                for candidate in cast(Sequence[object], resolution.get("candidates", ()))
+            ]
+            findings.append(
+                RuleFinding(
+                    rule,
+                    "error",
+                    f"`{name}` names more than one document: "
+                    + ", ".join(f"`{candidate.get('path')}`" for candidate in candidates)
+                    + ".",
+                    start,
+                    end,
+                    suggestions=tuple(
+                        Suggestion(
+                            f"Link to `{candidate['canonical']}`",
+                            str(candidate["canonical"]),
+                        )
+                        for candidate in candidates
+                    ),
+                )
+            )
+        if (
+            rule == "link/relative-wikilink"
+            and status == "resolved"
+            and resolution.get("relative") is True
+        ):
+            canonical = str(resolution["canonical"])
+            findings.append(
+                RuleFinding(
+                    rule,
+                    "warning",
+                    f"`{name}` is a relative path; a move breaks it. "
+                    f"Link to `{canonical}`.",
+                    start,
+                    end,
+                    suggestions=(Suggestion(f"Use `{canonical}`", canonical),),
+                )
+            )
+    return findings
+
+
+def _wikilink_check(rule: str) -> RuleCheck:
+    def check(
+        context: RuleContext,
+        options: Mapping[str, object],
+        /,
+    ) -> Iterable[RuleFinding]:
+        del options
+        return _wikilink_findings(context, rule)
+
+    return check
+
+
 def _tikz_compile_errors(
     context: RuleContext,
     _options: Mapping[str, object],
@@ -1629,6 +1737,22 @@ def register_authoring_rules(registry: RuleRegistry) -> None:
                 "Citation key is not in the bibliography.",
                 RuleLevel.ERROR,
                 _citation_check("citation/missing-bibliography-entry"),
+            ),
+            LintRule(
+                "link/missing-wikilink-target",
+                "Wikilink names no workspace document.",
+                check=_wikilink_check("link/missing-wikilink-target"),
+            ),
+            LintRule(
+                "link/ambiguous-wikilink",
+                "Wikilink names more than one workspace document.",
+                RuleLevel.ERROR,
+                _wikilink_check("link/ambiguous-wikilink"),
+            ),
+            LintRule(
+                "link/relative-wikilink",
+                "Wikilink is a relative path instead of a workspace name.",
+                check=_wikilink_check("link/relative-wikilink"),
             ),
             LintRule(
                 "tikz/compile-error",
