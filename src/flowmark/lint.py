@@ -80,6 +80,7 @@ class LintDiagnostic:
     end_line: int
     end_column: int
     suggestions: tuple[Suggestion, ...] = ()
+    fix: Suggestion | None = None
     data: Mapping[str, object] = field(default_factory=_empty_object_mapping)
 
     def to_json(self) -> dict[str, object]:
@@ -143,6 +144,7 @@ def _diagnostics_from_findings(
                 end_line=end_line,
                 end_column=end_column,
                 suggestions=finding.suggestions,
+                fix=finding.fix,
                 data=finding.data,
             )
         )
@@ -297,12 +299,72 @@ def lint_text(
     return diagnostics
 
 
+_MAX_FIX_PASSES = 10
+
+
+@dataclass(frozen=True)
+class FixResult:
+    """A document after its machine-applicable fixes."""
+
+    text: str
+    applied: tuple[LintDiagnostic, ...]
+    remaining: list[LintDiagnostic]
+
+
+def fix_text(
+    text: str,
+    options: LintOptions | None = None,
+    *,
+    source_path: Path | None = None,
+) -> FixResult:
+    """Apply every diagnostic's ``fix``, lint again, and repeat until none is left.
+
+    After ESLint's ``--fix``: a pass applies the fixes in source order and skips
+    one that overlaps a fix already applied, which the next pass reconsiders; at
+    most 10 passes run (``SourceCodeFixer`` and ``MAX_AUTOFIX_PASSES`` in
+    eslint/lib/linter).
+    """
+    applied: list[LintDiagnostic] = []
+    diagnostics = lint_text(text, options, source_path=source_path)
+    for _ in range(_MAX_FIX_PASSES):
+        edits = sorted(
+            (
+                (
+                    _point_to_offset(text, item.line, item.column),
+                    _point_to_offset(text, item.end_line, item.end_column),
+                    item,
+                )
+                for item in diagnostics
+                if item.fix is not None
+            ),
+            key=lambda edit: (edit[0], edit[1]),
+        )
+        pieces: list[str] = []
+        cursor = 0
+        applied_now: list[LintDiagnostic] = []
+        for start, end, item in edits:
+            assert item.fix is not None
+            if start < cursor:
+                continue
+            pieces += [text[cursor:start], item.fix.replacement]
+            cursor = end
+            applied_now.append(item)
+        if not applied_now:
+            break
+        text = "".join(pieces) + text[cursor:]
+        applied += applied_now
+        diagnostics = lint_text(text, options, source_path=source_path)
+    return FixResult(text, tuple(applied), diagnostics)
+
+
 __all__ = (
+    "FixResult",
     "LintDiagnostic",
     "LintOptions",
     "RuleLevel",
     "Severity",
     "StyleRule",
+    "fix_text",
     "lint_rules",
     "lint_text",
 )

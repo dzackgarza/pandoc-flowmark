@@ -555,6 +555,8 @@ def test_wikilinks_report_by_the_host_resolution() -> None:
 
     relative = by_rule["link/relative-wikilink"]
     assert [s.replacement for s in relative.suggestions] == ["cusp-chain"]
+    assert relative.fix == relative.suggestions[0]
+    assert by_rule["link/ambiguous-wikilink"].fix is None
     assert source[relative.column - 1 : relative.end_column - 1] == "../a/cusp-chain.md"
 
     ambiguous = by_rule["link/ambiguous-wikilink"]
