@@ -174,25 +174,22 @@ def _blank(match: re.Match[str]) -> str:
     return re.sub(r"[^\n]", " ", match.group(0))
 
 
-def _prose_paragraphs(lines: list[str]) -> tuple[list[list[int]], bool]:
+def _prose_paragraphs(lines: list[str]) -> list[list[int]]:
     """
-    The 0-based line indices of each run of prose lines, and whether display math is
-    left open.
+    The 0-based line indices of each run of prose lines.
 
-    Lines inside a fenced code block and inside `$$` display math are not prose, and
-    a line that is exactly `$$` is a display-math delimiter.
+    A blank line or a line inside a fenced code block ends a run. `$$` display math
+    is inline to pandoc: it closes at the next `$$` in the same paragraph, so its
+    lines belong to the run and `DOLLAR_MATH` reads the span.
     """
     fenced = _fenced_line_numbers(lines)
     paragraphs: list[list[int]] = [[]]
-    display_open = False
     for offset, line in enumerate(lines):
-        if not (offset in fenced or display_open or line.strip() in ("", "$$")):
-            paragraphs[-1].append(offset)
+        if offset in fenced or not line.strip():
+            paragraphs.append([])
             continue
-        paragraphs.append([])
-        if offset not in fenced and line.strip() == "$$":
-            display_open = not display_open
-    return [p for p in paragraphs if p], display_open
+        paragraphs[-1].append(offset)
+    return [p for p in paragraphs if p]
 
 
 def _rejected_in(lines: list[str], paragraph: list[int]) -> list[Finding]:
@@ -227,8 +224,7 @@ def rejected_math(text: str) -> list[Finding]:
     format around: `reformat_text` refuses a document with one.
     """
     lines = text.split("\n")
-    paragraphs, _display_open = _prose_paragraphs(lines)
-    return [f for p in paragraphs for f in _rejected_in(lines, p)]
+    return [f for p in _prose_paragraphs(lines) for f in _rejected_in(lines, p)]
 
 
 def _stray_dollars(lines: list[str], paragraph: list[int]) -> list[Finding]:
@@ -254,11 +250,7 @@ def _stray_dollars(lines: list[str], paragraph: list[int]) -> list[Finding]:
 
 def _math_findings(lines: list[str]) -> list[Finding]:
     """Report a `$` that opens no math span pandoc would read."""
-    paragraphs, display_open = _prose_paragraphs(lines)
-    findings = [f for p in paragraphs for f in _stray_dollars(lines, p)]
-    if display_open:
-        findings.append(Finding(len(lines), "unterminated `$$` display math"))
-    return findings
+    return [f for p in _prose_paragraphs(lines) for f in _stray_dollars(lines, p)]
 
 
 def _fenced_line_numbers(lines: list[str]) -> frozenset[int]:
