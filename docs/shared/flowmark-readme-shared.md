@@ -395,7 +395,16 @@ reports `\(...\)` and `\[...\]`, which pandoc's `markdown` reads as a literal
 parenthesis or bracket, not math. `pandoc/ambiguous-input`
 adds the high-confidence ambiguity checks from Flowmark's preflight, while
 `format/canonical` reports remaining source ranges that differ from Flowmark's canonical
-rendering. The linter does not edit files.
+rendering.
+
+A diagnostic may carry `suggestions`, edits an editor offers for the author to choose,
+and a `fix`, the one edit that needs no choice and keeps the document's meaning (ESLint's
+`fix` beside its `suggestions`). `flowmark-lint --fix` applies every `fix`, writes the
+file, and reports the diagnostics that remain; `flowmark.fix_text()` is the Python API.
+The rules with a `fix` are `math/bare-operator` (`sin` → `\sin`), `style/bare-url`
+(`<url>`), `style/unordered-list-marker` (the majority marker),
+`link/relative-wikilink` (the canonical name) and `citation/mixed-reference-types`
+(a group without locators split into a cross-reference and a citation).
 
 Pure house-style policies are opt-in instead of being treated as Markdown correctness:
 

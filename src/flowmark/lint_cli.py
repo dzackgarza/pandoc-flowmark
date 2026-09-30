@@ -10,7 +10,14 @@ from typing import TypedDict, cast
 
 from flowmark.config import ConfigError, LintConfig, find_config_file, load_lint_config
 from flowmark.file_resolver import FileResolver, FileResolverConfig
-from flowmark.lint import LintOptions, RuleLevel, StyleRule, lint_rules, lint_text
+from flowmark.lint import (
+    LintOptions,
+    RuleLevel,
+    StyleRule,
+    fix_text,
+    lint_rules,
+    lint_text,
+)
 from flowmark.lint_engine import LintRule
 
 
@@ -19,6 +26,7 @@ class LintFileResult(TypedDict):
 
     path: str
     diagnostics: list[dict[str, object]]
+    fixes: int
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -31,6 +39,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--format", choices=("text", "json"), default="text", dest="output_format"
+    )
+    parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="Apply every machine-applicable fix to the files, then report what is left",
     )
     parser.add_argument(
         "--exit-zero",
@@ -267,6 +280,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("at least one Markdown file/directory or '-' is required")
 
     paths = _resolve_files(args.files)
+    if args.fix and "-" in paths:
+        parser.error("--fix rewrites files; it cannot read stdin")
     results: list[LintFileResult] = []
     diagnostic_count = 0
 
@@ -278,12 +293,19 @@ def main(argv: list[str] | None = None) -> int:
             if path == "-" and args.source_path is not None
             else (None if path == "-" else Path(path))
         )
-        diagnostics = [
-            diagnostic.to_json()
-            for diagnostic in lint_text(_read(path), options, source_path=source_path)
-        ]
+        text = _read(path)
+        fixes = 0
+        if args.fix:
+            fixed = fix_text(text, options, source_path=source_path)
+            if fixed.text != text:
+                Path(path).write_text(fixed.text)
+            found = fixed.remaining
+            fixes = len(fixed.applied)
+        else:
+            found = lint_text(text, options, source_path=source_path)
+        diagnostics = [diagnostic.to_json() for diagnostic in found]
         diagnostic_count += len(diagnostics)
-        results.append({"path": path, "diagnostics": diagnostics})
+        results.append({"path": path, "diagnostics": diagnostics, "fixes": fixes})
 
     if args.output_format == "json":
         json.dump({"version": 1, "files": results}, sys.stdout, ensure_ascii=False)

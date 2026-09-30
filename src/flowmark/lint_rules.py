@@ -623,6 +623,7 @@ def _mathematical_findings(
                 if name in _LATEX_OPERATOR_COMMANDS
                 else f"\\operatorname{{{name}}}"
             )
+            fix = Suggestion(f"Use `{command}`", command)
             findings.append(
                 RuleFinding(
                     "math/bare-operator",
@@ -631,7 +632,8 @@ def _mathematical_findings(
                     + f"For the operator, write `{command}`.",
                     start + match.start("name"),
                     start + match.end("name"),
-                    suggestions=(Suggestion(f"Use `{command}`", command),),
+                    suggestions=(fix,),
+                    fix=fix,
                 )
             )
     return findings
@@ -1521,6 +1523,7 @@ def _style_findings(
             end = match.start() + len(url)
             if _overlaps(protected, match.start(), end):
                 continue
+            fix = Suggestion(f"Use `<{url}>`", f"<{url}>")
             findings.append(
                 RuleFinding(
                     "style/bare-url",
@@ -1528,7 +1531,8 @@ def _style_findings(
                     f"Bare URL `{url}`. Write it as a link: `<{url}>`.",
                     match.start(),
                     end,
-                    suggestions=(Suggestion(f"Use `<{url}>`", f"<{url}>"),),
+                    suggestions=(fix,),
+                    fix=fix,
                 )
             )
     if StyleRule.UNORDERED_LIST_MARKER in styles:
@@ -1543,6 +1547,7 @@ def _style_findings(
             marker = match.group("marker")
             expected = markers_by_indent.setdefault(indent, marker)
             if marker != expected:
+                fix = Suggestion(f"Use `{expected}`", expected)
                 findings.append(
                     RuleFinding(
                         "style/unordered-list-marker",
@@ -1551,7 +1556,8 @@ def _style_findings(
                         + f"indentation use `{expected}`.",
                         line.start + match.start("marker"),
                         line.start + match.end("marker"),
-                        suggestions=(Suggestion(f"Use `{expected}`", expected),),
+                        suggestions=(fix,),
+                        fix=fix,
                     )
                 )
     if StyleRule.NO_INLINE_HTML in styles:

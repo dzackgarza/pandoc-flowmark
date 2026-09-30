@@ -5,6 +5,8 @@ __all__ = (
     "first_sentences",
     "flowmark_markdown",
     "lint_text",
+    "fix_text",
+    "FixResult",
     "LintDiagnostic",
     "LintRule",
     "LintOptions",
@@ -35,7 +37,14 @@ __all__ = (
 )
 
 from flowmark.formats.flowmark_markdown import flowmark_markdown
-from flowmark.lint import LintDiagnostic, LintOptions, StyleRule, lint_text
+from flowmark.lint import (
+    FixResult,
+    LintDiagnostic,
+    LintOptions,
+    StyleRule,
+    fix_text,
+    lint_text,
+)
 from flowmark.lint_engine import (
     LintRule,
     RuleContext,
