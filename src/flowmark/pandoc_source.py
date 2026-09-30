@@ -17,6 +17,7 @@ from flowmark.linewrapping.tag_handling import (
     is_tag_only_line,
 )
 from flowmark.pandoc_reader import (
+    located_source_nodes,
     LocatedNode,
     PandocJson,
     located_nodes,
@@ -102,7 +103,7 @@ def expand_sourced_leading_tabs(
     """
     lines = source.splitlines(keepends=True)
     kept: set[int] = set()
-    for node in located_nodes(read_source_ast(source, pandoc_exe)):
+    for node in located_source_nodes(source, pandoc_exe):
         kind = node.node.get("t")
         first = node.source_range.start.line - 1
         last = min(node.source_range.end.line, len(lines))
@@ -129,7 +130,7 @@ def normalize_sourced_spelling(source: str, pandoc_exe: str) -> str:
     for line in lines:
         starts.append(starts[-1] + len(line))
     edits: list[SourceEdit] = []
-    nodes = located_nodes(read_source_ast(source, pandoc_exe))
+    nodes = located_source_nodes(source, pandoc_exe)
     for located in nodes:
         begin = located.source_range.start
         finish = located.source_range.end
@@ -217,7 +218,7 @@ def normalize_sourced_html_block_layout(
     for line in lines:
         starts.append(starts[-1] + len(line))
     edits: list[SourceEdit] = []
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") != "Plain":
             continue
         if any(
@@ -356,7 +357,7 @@ def _propose_paragraph_edits(
         starts.append(starts[-1] + len(line))
 
     edits: list[SourceEdit] = []
-    nodes = located_nodes(read_source_ast(source, pandoc_exe))
+    nodes = located_source_nodes(source, pandoc_exe)
     raw_block_ends = {
         (node.source_range.end.line, node.source_range.end.column)
         for node in nodes
@@ -438,7 +439,7 @@ def _propose_paragraph_edits(
                 node.node.get("t") == "Table"
                 and not node.ancestors
                 and node.source_range.start.line == 1
-                for node in located_nodes(read_source_ast(suffix, pandoc_exe))
+                for node in located_source_nodes(suffix, pandoc_exe)
             ):
                 end_line = index
                 break
@@ -681,7 +682,7 @@ def unbold_sourced_headings(
         starts.append(starts[-1] + len(line))
 
     edits: list[SourceEdit] = []
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") != "Header":
             continue
         content = located.node.get("c")
@@ -812,7 +813,7 @@ def set_sourced_list_spacing(
         starts.append(starts[-1] + len(line))
 
     edits: list[SourceEdit] = []
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    for located in located_source_nodes(source, pandoc_exe):
         kind = located.node.get("t")
         if kind not in {"BulletList", "OrderedList"}:
             continue
@@ -897,7 +898,7 @@ def normalize_sourced_marker_spacing(
     for line in lines:
         starts.append(starts[-1] + len(line))
     edits: list[SourceEdit] = []
-    nodes = located_nodes(read_source_ast(source, pandoc_exe))
+    nodes = located_source_nodes(source, pandoc_exe)
     for located in nodes:
         if located.node.get("t") not in {"BulletList", "OrderedList"}:
             continue
@@ -963,7 +964,7 @@ def normalize_sourced_list_indentation(
     for line in lines:
         starts.append(starts[-1] + len(line))
     shifts: dict[int, int] = {}
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") not in {"BulletList", "OrderedList"}:
             continue
         if any(ancestor in {"BlockQuote", "Note"} for ancestor in located.ancestors):
@@ -1003,7 +1004,7 @@ def normalize_sourced_indented_code(
     for line in lines:
         starts.append(starts[-1] + len(line))
     edits: list[SourceEdit] = []
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") != "CodeBlock" or located.ancestors:
             continue
         first = located.source_range.start.line - 1
@@ -1044,7 +1045,7 @@ def normalize_sourced_blank_gaps(
     for line in lines:
         starts.append(starts[-1] + len(line))
     protected: set[int] = set()
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") not in {"CodeBlock", "RawBlock", "Math"}:
             continue
         first = located.source_range.start.line - 1
@@ -1106,7 +1107,7 @@ def normalize_sourced_pipe_tables(
     for line in lines:
         starts.append(starts[-1] + len(line))
     edits: list[SourceEdit] = []
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") != "Table" or not set(located.ancestors) <= {"Div"}:
             continue
         first = located.source_range.start.line
@@ -1164,7 +1165,7 @@ def normalize_sourced_rules(
     for line in lines:
         starts.append(starts[-1] + len(line))
     edits: list[SourceEdit] = []
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") != "HorizontalRule":
             continue
         if not set(located.ancestors) <= {"Div"}:
@@ -1191,7 +1192,7 @@ def separate_sourced_note_definitions(
         starts.append(starts[-1] + len(line))
     definition_lines = {
         located.source_range.start.line
-        for located in located_nodes(read_source_ast(source, pandoc_exe))
+        for located in located_source_nodes(source, pandoc_exe)
         if located.ancestors and located.ancestors[-1] == "Note"
     }
     blank_before = [
@@ -1220,7 +1221,7 @@ def normalize_sourced_quote_blank_lines(
     for line in lines:
         starts.append(starts[-1] + len(line))
     edits: set[SourceEdit] = set()
-    nodes = located_nodes(read_source_ast(source, pandoc_exe))
+    nodes = located_source_nodes(source, pandoc_exe)
     # Blank lines inside a quoted list or code block keep the bare marker.
     kept_lines = {
         index
@@ -1286,7 +1287,7 @@ def _apply_smart_quotes_once(source: str, pandoc_exe: str) -> str:
         end = starts[finish.line - 1] + finish.column - 1
         return (start, end) if 0 <= start < end <= len(source) else None
 
-    nodes = located_nodes(read_source_ast(source, pandoc_exe))
+    nodes = located_source_nodes(source, pandoc_exe)
     # Quotes pair within one block of text, so each paragraph, plain block,
     # heading, and table row is styled on its own; a stray quote elsewhere
     # cannot pair with them.
@@ -1340,7 +1341,7 @@ def apply_sourced_ellipses(source: str, pandoc_exe: str, *, verify: bool = True)
         starts.append(starts[-1] + len(line))
 
     edits: list[SourceEdit] = []
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") != "Str" or "…" not in str(located.node.get("c", "")):
             continue
         begin = located.source_range.start
@@ -1397,7 +1398,7 @@ def set_sourced_heading_spacing(
         starts.append(starts[-1] + len(line))
 
     edits: list[SourceEdit] = []
-    for located in located_nodes(read_source_ast(source, pandoc_exe)):
+    for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") != "Header":
             continue
         next_line = located.source_range.end.line
@@ -1447,7 +1448,7 @@ def set_sourced_tag_block_spacing(
         starts.append(starts[-1] + len(line))
     nodes = [
         node
-        for node in located_nodes(read_source_ast(source, pandoc_exe))
+        for node in located_source_nodes(source, pandoc_exe)
         if set(node.ancestors) <= {"Div"}
     ]
     tags = [
@@ -1514,7 +1515,7 @@ def _interrupting_list_lines(
         f"x\n\n{lines[line_number - 1].rstrip()}\n\n" for line_number in candidates
     )
     list_starts: set[int] = set()
-    for located in located_nodes(read_source_ast(probe, pandoc_exe)):
+    for located in located_source_nodes(probe, pandoc_exe):
         if located.ancestors:
             continue
         kind = located.node.get("t")
@@ -1546,7 +1547,7 @@ def separate_sourced_lazy_lists(source: str, pandoc_exe: str) -> str:
         starts.append(starts[-1] + len(line))
     paragraphs = [
         node
-        for node in located_nodes(read_source_ast(source, pandoc_exe))
+        for node in located_source_nodes(source, pandoc_exe)
         if node.node.get("t") == "Para" and set(node.ancestors) <= {"Div"}
     ]
     list_starts = _interrupting_list_lines(lines, paragraphs, pandoc_exe)

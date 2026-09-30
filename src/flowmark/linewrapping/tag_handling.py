@@ -27,10 +27,9 @@ from flowmark.linewrapping.atomic_patterns import (
 )
 from flowmark.linewrapping.protocols import LineWrapper
 from flowmark.pandoc_reader import (
+    located_source_nodes,
     PandocJson,
-    located_nodes,
     pandoc_executable,
-    read_source_ast,
 )
 
 # Pattern to match complete template tags (for protecting content inside tags).
@@ -157,7 +156,7 @@ def _blocks(lines: Sequence[str]) -> list[dict[str, PandocJson]]:
     source = "\n".join(lines) + "\n"
     return [
         node.node
-        for node in located_nodes(read_source_ast(source, pandoc_executable()))
+        for node in located_source_nodes(source, pandoc_executable())
         if not node.ancestors
     ]
 

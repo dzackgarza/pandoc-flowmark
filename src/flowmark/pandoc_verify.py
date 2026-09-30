@@ -62,12 +62,11 @@ from typing import cast
 from flowmark.formats.frontmatter import split_frontmatter
 from flowmark.pandoc_dialect import PANDOC_FORMAT
 from flowmark.pandoc_reader import (
+    located_source_nodes,
     PandocJson,
     PandocParseError,
     PandocUnavailableError as PandocUnavailableError,
-    located_nodes,
     pandoc_executable,
-    read_source_ast,
     reader_json,
 )
 
@@ -132,7 +131,7 @@ def block_indices(markdown_text: str, lines: list[int]) -> list[int]:
     offset = frontmatter.count("\n")
     starts = [
         node.source_range.start.line + offset
-        for node in located_nodes(read_source_ast(content, pandoc_executable()))
+        for node in located_source_nodes(content, pandoc_executable())
         if not node.ancestors
     ]
     return [max(0, sum(1 for start in starts if start <= line) - 1) for line in lines]
@@ -823,41 +822,78 @@ def check_meaning_preserved(
         MeaningChangedError: if the two differ by anything else.
     """
     source_ast, result_ast = _pandoc_ast_pair(source, result)
-    before_canon, after_canon = _canonical(source_ast), _canonical(result_ast)
+    # Canonicalizing a block list always yields a block list.
+    before_canon = cast("list[PandocJson]", _canonical(source_ast))
+    after_canon = cast("list[PandocJson]", _canonical(result_ast))
     if before_canon == after_canon:
         return []
 
-    # Attribute the difference to the smallest set of normalizations that
-    # reconciles it.  Merely containing a construct a normalization rewrites
-    # (a bold heading or tight list that formatting *preserved*) must not
-    # count as that normalization having been applied.
-    for size in range(1, len(_NORMALIZATIONS) + 1):
-        for combo in combinations(_NORMALIZATIONS, size):
-            normalized_before, normalized_after = before_canon, after_canon
-            for _key, _text, normalize in combo:
-                normalized_before, normalized_after = normalize(
-                    normalized_before, normalized_after
-                )
-            if normalized_before == normalized_after:
-                return [key for key, _text, _normalize in combo]
+    # Every normalization rewrites inside blocks and pairs the two block lists by
+    # index, so the equal blocks at either end reconcile under any of them and
+    # cannot change the outcome. Only the span from the first to the last differing
+    # block is normalized; on a long document that span is a few blocks.
+    lead = next(
+        (
+            index
+            for index, (before_block, after_block) in enumerate(
+                zip(before_canon, after_canon, strict=False)
+            )
+            if before_block != after_block
+        ),
+        min(len(before_canon), len(after_canon)),
+    )
+    trail = 0
+    while (
+        trail < min(len(before_canon), len(after_canon)) - lead
+        and before_canon[-1 - trail] == after_canon[-1 - trail]
+    ):
+        trail += 1
+    before_span = before_canon[lead : len(before_canon) - trail]
+    after_span = after_canon[lead : len(after_canon) - trail]
 
-    # Locate the difference against *every* normalization applied, not against the
-    # raw trees. A block that a declared opinion reconciles is not the problem, and
-    # naming it sends the reader to a block that is fine -- which costs exactly the
-    # bisection this diagnostic exists to prevent. Whatever still differs when the
-    # gate is at its most permissive is what actually blocked acceptance.
-    permissive_before, permissive_after = before_canon, after_canon
+    # Apply *every* normalization first. If the gate at its most permissive still
+    # sees a difference, no subset reconciles it, and the difference is located
+    # against these trees, not the raw ones. A block that a declared opinion
+    # reconciles is not the problem, and naming it sends the reader to a block that
+    # is fine -- which costs exactly the bisection this diagnostic exists to
+    # prevent.
+    permissive_before: PandocJson = before_span
+    permissive_after: PandocJson = after_span
     for _key, _text, normalize in _NORMALIZATIONS:
         permissive_before, permissive_after = normalize(
             permissive_before, permissive_after
         )
+    if permissive_before == permissive_after:
+        # Attribute the difference to the smallest set of normalizations that
+        # reconciles it.  Merely containing a construct a normalization rewrites
+        # (a bold heading or tight list that formatting *preserved*) must not
+        # count as that normalization having been applied.
+        for size in range(1, len(_NORMALIZATIONS)):
+            for combo in combinations(_NORMALIZATIONS, size):
+                normalized_before: PandocJson = before_span
+                normalized_after: PandocJson = after_span
+                for _key, _text, normalize in combo:
+                    normalized_before, normalized_after = normalize(
+                        normalized_before, normalized_after
+                    )
+                if normalized_before == normalized_after:
+                    return [key for key, _text, _normalize in combo]
+        return [key for key, _text, _normalize in _NORMALIZATIONS]
 
-    # Canonicalizing or normalizing a block list always yields a block list.
-    # The normalizations rewrite `before` only inside blocks, so its block indices
+    # Normalizing a block list always yields a block list, and the normalizations
+    # rewrite only inside blocks, so with the equal ends restored the block indices
     # are still the source document's.
     block, detail = _first_difference(
-        cast("list[PandocJson]", permissive_before),
-        cast("list[PandocJson]", permissive_after),
+        [
+            *before_canon[:lead],
+            *cast("list[PandocJson]", permissive_before),
+            *before_canon[len(before_canon) - trail :],
+        ],
+        [
+            *after_canon[:lead],
+            *cast("list[PandocJson]", permissive_after),
+            *after_canon[len(after_canon) - trail :],
+        ],
     )
     raise MeaningChangedError(
         f"Refusing to write {label}: reformatting would change what pandoc reads "
