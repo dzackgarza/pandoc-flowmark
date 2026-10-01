@@ -302,7 +302,33 @@ _HEADING_PUNCTUATION = frozenset(".,;:!?")
 # imitates an amsthm environment by typeface alone.
 _BOLD_LABEL_MAX_WORDS = 12
 _BOLD_LABEL_RUN_IN = (".", ":")
-_BOLD_LABEL_OPENER = re.compile(r"^(?:[ \t]{0,3}>[ \t]?)*(?:\*\*|__)")
+_NUMBERED_SECTION_TITLE = re.compile(r"\d+(?:\.\d+)*\.?\s")
+# Quarto's theorem and proof div classes
+# (https://quarto.org/docs/authoring/cross-references.html#theorems-and-proofs)
+# plus the other amsthm environment names common in mathematical notes.
+_THEOREM_ENVIRONMENTS = frozenset(
+    {
+        "theorem",
+        "lemma",
+        "corollary",
+        "proposition",
+        "conjecture",
+        "definition",
+        "example",
+        "exercise",
+        "proof",
+        "remark",
+        "solution",
+        "claim",
+        "fact",
+        "notation",
+        "note",
+        "observation",
+        "problem",
+        "question",
+        "warning",
+    }
+)
 
 
 def _lines(text: str) -> list[_Line]:
@@ -1196,51 +1222,63 @@ def _bold_label(inlines: list[PandocJson]) -> str | None:
     return None
 
 
-def _paragraph_bold_openers(
-    text: str, lines: list[_Line], protected: bytearray
-) -> list[tuple[int, int]]:
-    """Source ranges of the bold runs that open a paragraph, in document order."""
-    openers: list[tuple[int, int]] = []
-    previous = ""
-    for line in lines:
-        match = _BOLD_LABEL_OPENER.match(line.text)
-        context = previous.replace(">", "").strip()
-        previous = line.text
-        if (
-            match is None
-            or _overlaps(protected, line.start, line.end)
-            or (context and not context.startswith((":::", "#")))
-        ):
+def _bold_label_anchor(strong: PandocJson) -> re.Pattern[str]:
+    """Source pattern from a bold marker to the first word or formula of its label."""
+    for node in walk_pandoc(strong):
+        content = node.get("c")
+        if node.get("t") == "Str" and isinstance(content, str):
+            anchor = content
+        elif node.get("t") == "Math" and isinstance(content, list):
+            anchor = str(content[1])
+        else:
             continue
-        start = line.start + match.end() - 2
-        closing = text.find(text[start : start + 2], start + 2)
-        openers.append((start, closing + 2 if closing >= 0 else line.end))
-    return openers
+        return re.compile(r"(?:\*\*|__)[^\n]*?" + re.escape(anchor))
+    return re.compile(r"\*\*|__")
+
+
+def _bold_label_environment(label: str) -> str | None:
+    """The theorem-like div class a bold label names, if any."""
+    words = [word.casefold() for word in re.findall(r"[A-Za-z]+", label)]
+    named = next((word for word in words if word in _THEOREM_ENVIRONMENTS), None)
+    if named is not None:
+        return named
+    bare = label.rstrip("".join(_BOLD_LABEL_RUN_IN))
+    return bare.casefold() if bare.isalpha() else None
 
 
 def _bold_label_findings(
     text: str,
     pandoc_document: dict[str, PandocJson],
-    lines: list[_Line],
     protected: bytearray,
 ) -> list[RuleFinding]:
     findings: list[RuleFinding] = []
-    paragraphs = _bold_opened_paragraphs(pandoc_document.get("blocks"))
-    openers = _paragraph_bold_openers(text, lines, protected)
-    for index, inlines in enumerate(paragraphs):
+    cursor = 0
+    for inlines in _bold_opened_paragraphs(pandoc_document.get("blocks")):
         label = _bold_label(inlines)
         if label is None:
             continue
-        start, end = openers[index] if index < len(openers) else (0, 0)
-        name = label.rstrip("".join(_BOLD_LABEL_RUN_IN))
-        environment = name.casefold() if name.isalpha() else "remark"
+        start, end = 0, 0
+        for match in _bold_label_anchor(inlines[0]).finditer(text, cursor):
+            if not _overlaps(protected, match.start(), match.start() + 2):
+                start, end = match.span()
+                cursor = end
+                break
+        environment = _bold_label_environment(label)
+        if environment is not None:
+            fix = f"a theorem-like fenced div: `::: {{.{environment}}}`"
+        elif _NUMBERED_SECTION_TITLE.match(label):
+            fix = "a Markdown heading"
+        else:
+            fix = (
+                "a theorem-like fenced div, e.g. `::: {.theorem}`, "
+                + "`::: {.definition}` or `::: {.remark}`"
+            )
         findings.append(
             RuleFinding(
                 "structure/bold-label",
                 "warning",
                 f'Bold label "{label}" sets only the typeface and encodes no '
-                + "structure. Use a theorem-like fenced div, e.g. "
-                + f"`::: {{.{environment}}}`.",
+                + f"structure. Use {fix}.",
                 start,
                 end,
                 data={"label": label},
@@ -1279,7 +1317,7 @@ def _pandoc_semantic_findings(
             )
         )
 
-    findings.extend(_bold_label_findings(text, pandoc_document, lines, protected))
+    findings.extend(_bold_label_findings(text, pandoc_document, protected))
 
     headers_with_depth = _pandoc_headers_with_div_depth(pandoc_document)
     headers = [

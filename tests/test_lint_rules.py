@@ -162,7 +162,8 @@ def bold_label_findings(source: str) -> list[tuple[int, int, str]]:
         ("**Question.** What is $x$?\n", "question"),
         ("__Proof.__ Trivial.\n", "proof"),
         ("**Remark**: The map is open.\n", "remark"),
-        ("**Main Theorem.** Every group acts.\n", "remark"),
+        ("**Main Theorem.** Every group acts.\n", "theorem"),
+        ("**Definition 1.2 (Weyl).** A group.\n", "definition"),
         ("**Exercise**\n\nShow that $G$ is abelian.\n", "exercise"),
         ("> **Note.** Quoted.\n", "note"),
         ("::: {.example}\n**Warning.** Careful.\n:::\n", "warning"),
@@ -199,6 +200,29 @@ def test_bold_label_location_skips_earlier_unflagged_bold_paragraphs() -> None:
         "**Question.** What?\n"
     )
     assert [finding[:2] for finding in bold_label_findings(source)] == [(5, 1)]
+
+
+def test_bold_label_location_follows_lists_and_display_math() -> None:
+    source = (
+        "- **Item.** In a list.\n"
+        "**Lemma.** Lazy continuation.\n\n"
+        "$$\nx\n$$\n\n"
+        "**$G$-sets.** Defined here.\n\n"
+        "  **Theorem.** Indented.\n"
+    )
+    assert [finding[:2] for finding in bold_label_findings(source)] == [(8, 1), (10, 3)]
+
+
+def test_bold_label_without_environment_name_lists_choices() -> None:
+    (finding,) = bold_label_findings(
+        "**Why care** about this?\n\nText.\n\n**Why care**\n"
+    )
+    assert "`::: {.theorem}`, `::: {.definition}` or `::: {.remark}`" in finding[2]
+
+
+def test_bold_numbered_section_title_suggests_heading() -> None:
+    (finding,) = bold_label_findings("**1.4. Not the whole story.**\n")
+    assert finding[2].endswith("Use a Markdown heading.")
 
 
 def test_sibling_fenced_divs_do_not_warn_as_nested() -> None:
