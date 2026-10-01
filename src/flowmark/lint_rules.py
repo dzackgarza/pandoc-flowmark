@@ -306,12 +306,22 @@ _BOLD_LABEL_RUN_IN = (".", ":")
 _NUMBERED_SECTION_TITLE = re.compile(r"\d+(?:\.\d+)*\.?\s")
 # Words that name a numbered item: environments, document divisions, and their
 # usual abbreviations.
+_NUMBERED_KIND_ABBREVIATIONS = (
+    "thm|prop|lem|cor|conj|defn|def|exer|ex|rem|eqn|eq|sec|fig|tab"
+)
 _NUMBERED_KINDS = (
     "theorem|lemma|corollary|proposition|conjecture|definition|example|exercise|"
     + "remark|claim|fact|notation|note|observation|problem|question|warning|"
     + "section|chapter|part|appendix|equation|figure|table|"
-    + "thm|prop|lem|cor|conj|defn|def|exer|ex|rem|eqn|eq|sec|fig|tab"
+    + _NUMBERED_KIND_ABBREVIATIONS
 )
+# A cross-reference ID such as `lem:main`: an abbreviated kind, a colon, a name.
+# pandoc-crossref adds the `tbl` and `lst` prefixes
+# (https://lierdakil.github.io/pandoc-crossref/#syntax).
+_CROSS_REFERENCE_ID = (
+    rf"(?:{_NUMBERED_KIND_ABBREVIATIONS}|tbl|lst):[A-Za-z0-9](?:[\w.:-]*\w)?"
+)
+_BARE_CROSS_REFERENCE = re.compile(rf"(?<![\w@#:/.-]){_CROSS_REFERENCE_ID}(?![\w:/])")
 _MANUAL_NUMBER = r"\d+(?:\.\d+)*[a-z]?(?!\w|\.\d)"
 _NUMBERED_LABEL = re.compile(
     rf"(?P<kind>(?i:{_NUMBERED_KINDS}))\.?\s+(?P<number>{_MANUAL_NUMBER})\b"
@@ -1594,6 +1604,63 @@ def _file_path_findings(
     return findings
 
 
+def _uncited_cross_references(value: PandocJson) -> list[tuple[str, bool]]:
+    """Cross-reference IDs written as prose or inline code, in document order.
+
+    Each item is the ID and whether it sits in inline code. Citations and links
+    already refer to their target, so IDs inside them are skipped.
+    """
+    if isinstance(value, list):
+        return [found for item in value for found in _uncited_cross_references(item)]
+    if not isinstance(value, dict) or value.get("t") in {"Link", "Cite"}:
+        return []
+    content = value.get("c")
+    if value.get("t") == "Code" and isinstance(content, list) and len(content) == 2:
+        code = str(content[1]).strip()
+        if re.fullmatch(_CROSS_REFERENCE_ID, code):
+            return [(code, True)]
+        return []
+    if value.get("t") == "Str" and isinstance(content, str):
+        return [
+            (match.group(0), False) for match in _BARE_CROSS_REFERENCE.finditer(content)
+        ]
+    return [
+        found for child in value.values() for found in _uncited_cross_references(child)
+    ]
+
+
+def _reference_format_findings(
+    text: str, pandoc_document: dict[str, PandocJson], protected: bytearray
+) -> list[RuleFinding]:
+    """Cross-reference IDs that are not written as `@` citations."""
+    findings: list[RuleFinding] = []
+    cursor = 0
+    for identifier, in_code in _uncited_cross_references(pandoc_document.get("blocks")):
+        escaped = re.escape(identifier)
+        if in_code:
+            source = re.compile(rf"`+[ \t]*{escaped}[ \t]*`+")
+        else:
+            source = re.compile(rf"(?<![\w@#:/.-]){escaped}(?![\w:/])")
+        start, end = 0, 0
+        for located in source.finditer(text, cursor):
+            if in_code or not _overlaps(protected, located.start(), located.end()):
+                start, end = located.span()
+                cursor = end
+                break
+        findings.append(
+            RuleFinding(
+                "link/reference-format",
+                "error",
+                f'"{identifier}" names a cross-reference ID but does not cite it. '
+                + f"Write `@{identifier}`; the renderer links it and fills in "
+                + "the number.",
+                start,
+                end,
+            )
+        )
+    return findings
+
+
 def _pandoc_semantic_findings(
     text: str,
     pandoc_document: dict[str, PandocJson],
@@ -1627,6 +1694,7 @@ def _pandoc_semantic_findings(
     findings.extend(_bold_label_findings(text, pandoc_document, protected))
     findings.extend(_yaml_in_body_findings(text, pandoc_document, protected))
     findings.extend(_file_path_findings(text, pandoc_document))
+    findings.extend(_reference_format_findings(text, pandoc_document, protected))
 
     headers_with_depth = _pandoc_headers_with_div_depth(pandoc_document)
     headers = [
@@ -2294,6 +2362,12 @@ _BUILTIN_RULES = (
         "Inline code hard-codes a file path instead of linking the file.",
         RuleLevel.ERROR,
         _correctness_check("link/file-path"),
+    ),
+    LintRule(
+        "link/reference-format",
+        "Cross-reference ID is written without `@`.",
+        RuleLevel.ERROR,
+        _correctness_check("link/reference-format"),
     ),
     LintRule(
         "link/invalid-fragment",
