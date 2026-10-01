@@ -12,6 +12,8 @@ __all__ = (
     "first_sentences",
     "flowmark_markdown",
     "lint_text",
+    "fix_text",
+    "FixResult",
     "LintDiagnostic",
     "LintRule",
     "LintOptions",
@@ -78,7 +80,14 @@ from flowmark.linewrapping.text_wrapping import (
     wrap_paragraph,
     wrap_paragraph_lines,
 )
-from flowmark.lint import LintDiagnostic, LintOptions, StyleRule, lint_text
+from flowmark.lint import (
+    FixResult,
+    LintDiagnostic,
+    LintOptions,
+    StyleRule,
+    fix_text,
+    lint_text,
+)
 from flowmark.lint_engine import (
     LintRule,
     RuleContext,

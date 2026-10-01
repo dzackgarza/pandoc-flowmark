@@ -1438,6 +1438,11 @@ def _citation_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
             if families[0] is None:
                 parts.reverse()
             rewrite = " and ".join(parts)
+            fix = (
+                Suggestion(f"Use `{rewrite}`", rewrite)
+                if _cite_is_plain(node_mapping)
+                else None
+            )
             findings.append(
                 RuleFinding(
                     rule,
@@ -1447,7 +1452,8 @@ def _citation_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
                     + f"item comes from the cited work. Write `{rewrite}` instead.",
                     start,
                     end,
-                    suggestions=((Suggestion(f"Use `{rewrite}`", rewrite),) if _cite_is_plain(node_mapping) else ()),
+                    suggestions=() if fix is None else (fix,),
+                    fix=fix,
                 )
             )
         if rule == "citation/missing-bibliography-entry" and citation_keys is not None:
@@ -1539,14 +1545,18 @@ def _wikilink_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
         if rule == "link/ambiguous-wikilink" and status == "ambiguous":
             candidates = [
                 _mapping(candidate)
-                for candidate in cast(Sequence[object], resolution.get("candidates", ()))
+                for candidate in cast(
+                    Sequence[object], resolution.get("candidates", ())
+                )
             ]
             findings.append(
                 RuleFinding(
                     rule,
                     "error",
                     f"`{name}` names more than one document: "
-                    + ", ".join(f"`{candidate.get('path')}`" for candidate in candidates)
+                    + ", ".join(
+                        f"`{candidate.get('path')}`" for candidate in candidates
+                    )
                     + ".",
                     start,
                     end,
@@ -1565,6 +1575,7 @@ def _wikilink_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
             and resolution.get("relative") is True
         ):
             canonical = str(resolution["canonical"])
+            fix = Suggestion(f"Use `{canonical}`", canonical)
             findings.append(
                 RuleFinding(
                     rule,
@@ -1573,7 +1584,8 @@ def _wikilink_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
                     f"Link to `{canonical}`.",
                     start,
                     end,
-                    suggestions=(Suggestion(f"Use `{canonical}`", canonical),),
+                    suggestions=(fix,),
+                    fix=fix,
                 )
             )
     return findings

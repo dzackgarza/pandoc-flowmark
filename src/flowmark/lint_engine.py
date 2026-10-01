@@ -57,6 +57,10 @@ class RuleFinding:
     start: int
     end: int
     suggestions: tuple[Suggestion, ...] = ()
+    fix: Suggestion | None = None
+    """The edit a batch fix applies without asking. A rule sets it only when
+    the edit needs no choice and keeps the document's meaning: ESLint's
+    ``fix`` beside its ``suggestions``, ruff's safe fixes."""
     data: Mapping[str, object] = field(default_factory=_empty_mapping)
 
 
@@ -237,6 +241,7 @@ def apply_rule_policy(
                 start=finding.start,
                 end=finding.end,
                 suggestions=finding.suggestions,
+                fix=finding.fix,
                 data=finding.data,
             )
         )
@@ -270,6 +275,7 @@ def run_registered_rules(
                     start=finding.start,
                     end=finding.end,
                     suggestions=finding.suggestions,
+                    fix=finding.fix,
                     data=finding.data,
                 )
             )
