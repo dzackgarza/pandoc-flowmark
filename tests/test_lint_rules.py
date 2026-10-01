@@ -281,7 +281,7 @@ def test_references_to_hand_numbers_in_the_document_are_errors() -> None:
         "**Lemma 2.1.** Text.\n\n"
         "$$\nx \\tag{4}\n$$\n\n"
         "By Lemma 2.1, Equation (4) and § 2, but not Theorem 7.\n"
-        "See [@book, Lemma 2.1].\n"
+        "See [@book, Lemma 2.1] and Lemma 2.1 of [Man99].\n"
     )
     assert [line for line, _text in manual_numbering(source)] == [1, 3, 6, 9, 9, 9]
 

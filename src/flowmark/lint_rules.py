@@ -344,6 +344,8 @@ def _numbering_family(kind: str | None, unnamed: str) -> str:
 
 
 _EQUATION_TAG = re.compile(r"\\tag\*?\s*\{\s*(?P<number>" + _MANUAL_NUMBER + r")\s*\}")
+# `Chapter 2 of [Man99]`, `Theorem 3 in @key`: the number belongs to another work.
+_EXTERNAL_SOURCE = re.compile(r"\s+(?:of|in|from)\s+[\[@]")
 # Quarto's theorem and proof div classes
 # (https://quarto.org/docs/authoring/cross-references.html#theorems-and-proofs)
 # plus the other amsthm environment names common in mathematical notes.
@@ -1454,6 +1456,7 @@ def _manual_numbering_findings(
             or _overlaps(protected, match.start(), match.end())
             or any(start <= match.start() < end for start, end in declarations)
             or _inside_citation(text, match.start())
+            or _EXTERNAL_SOURCE.match(text, match.end()) is not None
         ):
             continue
         findings.append(
