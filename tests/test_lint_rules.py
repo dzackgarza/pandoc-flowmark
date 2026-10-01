@@ -291,6 +291,26 @@ def test_references_match_hand_numbers_only_within_their_family() -> None:
     assert [line for line, _text in manual_numbering(source)] == [1]
 
 
+def test_nested_div_opener_without_space_before_attributes_is_located() -> None:
+    source = "::::{.outer}\n\n:::{.inner}\nText.\n:::\n::::\n"
+    (finding,) = [
+        diagnostic
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "structure/nested-fenced-div"
+    ]
+    assert finding.line == 3
+
+
+def test_heading_changed_by_smart_typography_is_located() -> None:
+    source = "# Notes\n\n## Borel's theor-- \"fixed\" points...\n\n## Borel's theorem\n\n## Borel's theorem\n"
+    (finding,) = [
+        diagnostic
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "heading/duplicate"
+    ]
+    assert finding.line == 7
+
+
 def test_sibling_fenced_divs_do_not_warn_as_nested() -> None:
     source = "::: {.first}\nOne.\n:::\n\n::: {.second}\nTwo.\n:::\n"
     assert "structure/nested-fenced-div" not in rule_ids(source)
