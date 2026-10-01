@@ -106,7 +106,7 @@ _SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?P<marks>=+|-+)[ \t]*$")
 _ATTR_ID = re.compile(r"(?:^|\s)#(?P<id>[A-Za-z][A-Za-z0-9_.:-]*)")
 _FENCE_OPEN = re.compile(r"^(?P<indent> {0,3})(?P<marker>`{3,}|~{3,})(?P<info>.*)$")
 _DIV_FENCE_OPEN = re.compile(
-    r"^(?P<indent> {0,3})(?P<marker>:{3,})(?P<info>[ \t]+\S.*)$"
+    r"^(?P<indent> {0,3})(?P<marker>:{3,})(?P<info>[ \t]*[^\s:].*)$"
 )
 _LATEX_BEGIN = re.compile(r"\\begin\{(?P<name>[A-Za-z*]+)\}")
 _LATEX_END_TEMPLATE = r"\\end\{%s\}"
@@ -1058,6 +1058,17 @@ def _fenced_div_openers(
     return result
 
 
+def _heading_match_key(text: str) -> str:
+    """Heading text with Pandoc's `smart` extension substitutions undone.
+
+    Pandoc turns `--`, `---` and `...` into dashes and an ellipsis, and turns
+    straight quotes into curly ones or `Quoted` nodes whose marks plain text drops.
+    """
+    for typographic, ascii_form in (("—", "---"), ("–", "--"), ("…", "...")):
+        text = text.replace(typographic, ascii_form)
+    return re.sub(r"[\"'‘’“”]", "", text).casefold()
+
+
 def _reconcile_heading_locations(
     headers: list[tuple[int, str, str]],
     candidates: list[_Heading],
@@ -1066,14 +1077,14 @@ def _reconcile_heading_locations(
     locations: list[tuple[int, int]] = []
     cursor = 0
     for level, text, _identifier in headers:
-        wanted = text.casefold()
+        wanted = _heading_match_key(text)
         found: _Heading | None = None
         while cursor < len(candidates):
             candidate = candidates[cursor]
             cursor += 1
             if candidate.level != level:
                 continue
-            if _plain_inline_text(candidate.text).casefold() != wanted:
+            if _heading_match_key(_plain_inline_text(candidate.text)) != wanted:
                 continue
             found = candidate
             break
