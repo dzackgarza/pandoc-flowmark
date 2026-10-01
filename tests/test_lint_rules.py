@@ -407,7 +407,11 @@ def test_tex_and_math_examples_inside_code_fences_are_literal() -> None:
 
 
 def test_valid_reference_footnote_fragment_and_image_are_quiet() -> None:
-    source = "# Target Heading\n\n[reference][ref] and [fragment](#target-heading) and ![diagram](image.png).\n\nText[^note].\n\n[ref]: https://example.com\n[^note]: Footnote.\n"
+    source = (
+        "# Target Heading\n\n"
+        "[reference][ref] and [fragment](#target-heading) and ![diagram](image.png).\n\n"
+        "Text[^note].\n\n[ref]: https://example.com\n[^note]: Footnote.\n"
+    )
     assert lint_text(source) == []
 
 

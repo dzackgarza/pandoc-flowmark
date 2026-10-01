@@ -520,8 +520,8 @@ def _build_protected_map(
                 _mark(protected, block.start() + span.start, block.start() + span.end)
 
     literal = _build_literal_protected_map(text, frontmatter, fences)
-    for span in iter_pandoc_math_spans(text, blocked=literal):
-        _mark(protected, span.start, span.end)
+    for math_span in iter_pandoc_math_spans(text, blocked=literal):
+        _mark(protected, math_span.start, math_span.end)
 
     for match in _RAW_TEX_COMMAND.finditer(text):
         _mark(protected, match.start(), match.end())
@@ -1305,7 +1305,7 @@ def _bold_label_anchor(strong: PandocJson) -> re.Pattern[str]:
 
 def _bold_label_environment(label: str) -> str | None:
     """The theorem-like div class a bold label names, if any."""
-    words = [word.casefold() for word in re.findall(r"[A-Za-z]+", label)]
+    words = [word.group(0).casefold() for word in re.finditer(r"[A-Za-z]+", label)]
     named = next((word for word in words if word in _THEOREM_ENVIRONMENTS), None)
     if named is not None:
         return named
@@ -2002,11 +2002,11 @@ def _style_findings(
         for line in lines:
             if _overlaps(protected, line.start, line.end):
                 continue
-            match = _UNORDERED_MARKER.match(line.text)
-            if match is None:
+            item = _UNORDERED_MARKER.match(line.text)
+            if item is None:
                 continue
-            indent = len(match.group("indent"))
-            marker = match.group("marker")
+            indent = len(item.group("indent"))
+            marker = item.group("marker")
             expected = markers_by_indent.setdefault(indent, marker)
             if marker != expected:
                 fix = Suggestion(f"Use `{expected}`", expected)
@@ -2016,8 +2016,8 @@ def _style_findings(
                         "warning",
                         f"List item uses `{marker}`, but earlier items at this "
                         + f"indentation use `{expected}`.",
-                        line.start + match.start("marker"),
-                        line.start + match.end("marker"),
+                        line.start + item.start("marker"),
+                        line.start + item.end("marker"),
                         suggestions=(fix,),
                         fix=fix,
                     )
