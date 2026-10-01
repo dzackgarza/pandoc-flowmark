@@ -73,7 +73,6 @@ def test_semantic_diagnostics_do_not_depend_on_formatter_spelling() -> None:
         "[text][missing]\n",
         "[unused]: /target\n",
         "Text[^missing].\n",
-        "---\ntitle: A\n",
         "Text\n```python\nx=1\n```\nAfter\n",
         "Text\n| a | b |\n| --- | --- |\n| x | y |\nAfter\n",
     ],
@@ -601,3 +600,65 @@ def test_math_notation_rules_are_quiet_on_prose_code_math_and_urls() -> None:
     rules = rule_ids(source)
     assert "math/outside-math-mode" not in rules
     assert "math/unicode-symbol" not in rules
+
+
+def rule_lines(source: str, rule: str) -> list[int]:
+    return [
+        diagnostic.line
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == rule and diagnostic.severity == "error"
+    ]
+
+
+def test_yaml_keys_after_the_front_matter_are_errors() -> None:
+    source = (
+        "---\ntitle: Candidates\ntags:\n  - coble\n---\n"
+        "notes: |-\n  Provenance: a notebook.\n\n"
+        "# Candidates\n\n"
+        "status: partial\nunit: computation\n\n"
+        "::: {.remark}\naliases:\n  - other\n:::\n"
+    )
+    assert rule_lines(source, "structure/yaml-in-body") == [6, 11, 15]
+
+
+def test_unclosed_front_matter_is_yaml_in_body() -> None:
+    assert rule_lines("---\ntitle: A\n", "structure/yaml-in-body") == [2]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "---\nnotes: |-\n  Text.\n---\n\nBody.\n",
+        "Note: this is prose.\n",
+        "Here are the keys:\n\n- one\n",
+        "```yaml\nnotes: |-\n  Text.\n```\n",
+        "- item: value\n",
+        "See https://example.com for more.\n",
+    ],
+)
+def test_prose_and_literal_yaml_are_not_yaml_in_body(source: str) -> None:
+    assert rule_lines(source, "structure/yaml-in-body") == []
+
+
+def test_file_paths_in_inline_code_are_errors() -> None:
+    source = (
+        "Provenance: `/home/user/notebooks/Coble Lattice Invariants.ipynb` and\n"
+        "`.../sage-scripts/init.sage`.\n\n"
+        "`content_pandoc/sections/Open_Problems/Open_Problems.md` records it.\n\n"
+        "See `~/notes/x.md`, `../draft.tex` and `README.md`.\n"
+    )
+    assert rule_lines(source, "link/file-path") == [1, 2, 4, 6, 6, 6]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Call `np.array` on `x/y`.\n",
+        "The `and/or` case and `https://example.com/a.md`.\n",
+        "[`notes/a.md`](notes/a.md) is a link.\n",
+        "```sh\ncat /home/user/a.md\n```\n",
+        "Run `lem:divisibilityTcoOne` and `1/2`.\n",
+    ],
+)
+def test_code_that_is_not_a_file_path_passes(source: str) -> None:
+    assert rule_lines(source, "link/file-path") == []

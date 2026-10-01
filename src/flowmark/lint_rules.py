@@ -14,12 +14,13 @@ by the caller.
 
 from __future__ import annotations
 
+import mimetypes
 import re
 import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import cast
 from urllib.parse import unquote, urlsplit
 
@@ -346,6 +347,15 @@ def _numbering_family(kind: str | None, unnamed: str) -> str:
 _EQUATION_TAG = re.compile(r"\\tag\*?\s*\{\s*(?P<number>" + _MANUAL_NUMBER + r")\s*\}")
 # `Chapter 2 of [Man99]`, `Theorem 3 in @key`: the number belongs to another work.
 _EXTERNAL_SOURCE = re.compile(r"\s+(?:of|in|from)\s+[\[@]")
+# A YAML mapping key that opens a body paragraph, e.g. `notes:` or `tags:`.
+# Prose opens with a capital, so only lower-case keys count.
+_YAML_KEY = re.compile(r"[a-z_][A-Za-z0-9_-]*:")
+# A path that starts at a root: `/a`, `~/a`, `./a`, `../a`, or an elided `.../a`.
+_ROOTED_PATH = re.compile(r"(?:~|\.{1,3}|…)?/[\w.~-]")
+_FILE_EXTENSION = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,7}")
+_BARE_FILE_NAME = re.compile(r"[\w.-]+")
+# Python's built-in extension table only; the system tables vary by machine.
+_FILE_TYPES = mimetypes.MimeTypes()
 # Quarto's theorem and proof div classes
 # (https://quarto.org/docs/authoring/cross-references.html#theorems-and-proofs)
 # plus the other amsthm environment names common in mathematical notes.
@@ -1475,6 +1485,115 @@ def _manual_numbering_findings(
     return findings
 
 
+def _yaml_in_body_findings(
+    text: str,
+    pandoc_document: dict[str, PandocJson],
+    protected: bytearray,
+) -> list[RuleFinding]:
+    """Body paragraphs that open with a YAML key: metadata outside the front matter."""
+    findings: list[RuleFinding] = []
+    cursor = 0
+    for inlines in _labelable_paragraphs(pandoc_document.get("blocks")):
+        first = inlines[0]
+        if not isinstance(first, dict) or first.get("t") != "Str":
+            continue
+        key = first.get("c")
+        if not isinstance(key, str) or not _YAML_KEY.fullmatch(key):
+            continue
+        following = inlines[1] if len(inlines) > 1 else None
+        if isinstance(following, dict) and following.get("t") not in {
+            "Space",
+            "SoftBreak",
+        }:
+            continue
+        line_start = re.compile(rf"^[ \t]*{re.escape(key)}(?=\s|$)", re.MULTILINE)
+        for located in line_start.finditer(text, cursor):
+            if _overlaps(protected, located.start(), located.end()):
+                continue
+            line_end = text.find("\n", located.start())
+            end = len(text) if line_end < 0 else line_end
+            cursor = end
+            findings.append(
+                RuleFinding(
+                    "structure/yaml-in-body",
+                    "error",
+                    f"`{key}` is a YAML key in the document body, where Pandoc "
+                    + "reads it as prose. Move it into the front matter between "
+                    + "the `---` lines.",
+                    located.start(),
+                    end,
+                )
+            )
+            break
+    return findings
+
+
+def _is_file_path(code: str) -> bool:
+    """Whether inline code names a file by its path."""
+    if "://" in code:
+        return False
+    suffix = PurePosixPath(PurePosixPath(code).name).suffix
+    has_extension = _FILE_EXTENSION.fullmatch(suffix) is not None
+    has_space = any(char.isspace() for char in code)
+    if _ROOTED_PATH.match(code):
+        return has_extension or not has_space
+    if has_space:
+        return False
+    if "/" in code:
+        return has_extension
+    return (
+        _BARE_FILE_NAME.fullmatch(code) is not None
+        and _FILE_TYPES.guess_type(code)[0] is not None
+    )
+
+
+def _inline_code_outside_links(value: PandocJson) -> list[str]:
+    """Text of each inline code node in document order, except inside links."""
+    if isinstance(value, list):
+        return [code for item in value for code in _inline_code_outside_links(item)]
+    if not isinstance(value, dict) or value.get("t") == "Link":
+        return []
+    content = value.get("c")
+    if value.get("t") == "Code" and isinstance(content, list) and len(content) == 2:
+        return [str(content[1])]
+    return [
+        code for child in value.values() for code in _inline_code_outside_links(child)
+    ]
+
+
+def _file_path_findings(
+    text: str, pandoc_document: dict[str, PandocJson]
+) -> list[RuleFinding]:
+    """Inline code that hard-codes a file path instead of referring to the file."""
+    findings: list[RuleFinding] = []
+    cursor = 0
+    for code in _inline_code_outside_links(pandoc_document.get("blocks")):
+        if not _is_file_path(code):
+            continue
+        # Pandoc joins the source lines of a code span with spaces.
+        span = re.compile(
+            r"`+[ \t]*" + r"\s+".join(re.escape(part) for part in code.split())
+        )
+        start, end = 0, 0
+        located = span.search(text, cursor)
+        if located is not None:
+            start, end = located.span()
+            cursor = end
+        findings.append(
+            RuleFinding(
+                "link/file-path",
+                "error",
+                f"`{code}` hard-codes a file path. Refer to the file in a form "
+                + "that tools resolve: a cross-reference (`@id`), a wikilink "
+                + "(`[[Name]]`), or a relative Markdown link.",
+                start,
+                end,
+                data={"path": code},
+            )
+        )
+    return findings
+
+
 def _pandoc_semantic_findings(
     text: str,
     pandoc_document: dict[str, PandocJson],
@@ -1506,6 +1625,8 @@ def _pandoc_semantic_findings(
         )
 
     findings.extend(_bold_label_findings(text, pandoc_document, protected))
+    findings.extend(_yaml_in_body_findings(text, pandoc_document, protected))
+    findings.extend(_file_path_findings(text, pandoc_document))
 
     headers_with_depth = _pandoc_headers_with_div_depth(pandoc_document)
     headers = [
@@ -2169,6 +2290,12 @@ _BUILTIN_RULES = (
         check=_correctness_check("link/empty-destination"),
     ),
     LintRule(
+        "link/file-path",
+        "Inline code hard-codes a file path instead of linking the file.",
+        RuleLevel.ERROR,
+        _correctness_check("link/file-path"),
+    ),
+    LintRule(
         "link/invalid-fragment",
         "Link fragment does not resolve.",
         check=_correctness_check("link/invalid-fragment"),
@@ -2255,6 +2382,12 @@ _BUILTIN_RULES = (
         "structure/bold-label",
         "Bold run-in label imitates a theorem-like environment.",
         check=_correctness_check("structure/bold-label"),
+    ),
+    LintRule(
+        "structure/yaml-in-body",
+        "YAML key written in the document body instead of the front matter.",
+        RuleLevel.ERROR,
+        _correctness_check("structure/yaml-in-body"),
     ),
     LintRule(
         "structure/heading-in-fenced-div",

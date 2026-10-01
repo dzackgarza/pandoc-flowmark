@@ -15,7 +15,6 @@ PROSE_LOOKALIKES = (
     "Text {#same} and more {#same}.",
     "[text][missing]",
     "Text[^missing].",
-    "---\ntitle: A",
     "```python\ncode",
     "\\begin{align}\nx &= y",
     "\\begin{figure}\nx\n\\end{table}",
