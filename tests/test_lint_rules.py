@@ -148,6 +148,59 @@ def test_each_nested_div_beyond_top_level_warns() -> None:
     assert [finding.line for finding in findings] == [3, 5]
 
 
+def bold_label_findings(source: str) -> list[tuple[int, int, str]]:
+    return [
+        (diagnostic.line, diagnostic.column, diagnostic.message)
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "structure/bold-label"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "environment"),
+    [
+        ("**Question.** What is $x$?\n", "question"),
+        ("__Proof.__ Trivial.\n", "proof"),
+        ("**Remark**: The map is open.\n", "remark"),
+        ("**Main Theorem.** Every group acts.\n", "remark"),
+        ("**Exercise**\n\nShow that $G$ is abelian.\n", "exercise"),
+        ("> **Note.** Quoted.\n", "note"),
+        ("::: {.example}\n**Warning.** Careful.\n:::\n", "warning"),
+    ],
+)
+def test_bold_run_in_label_warns_with_environment(
+    source: str, environment: str
+) -> None:
+    findings = bold_label_findings(source)
+    assert len(findings) == 1
+    assert f"`::: {{.{environment}}}`" in findings[0][2]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Not **bold.** here.\n",
+        "**Bold** words open this sentence.\n",
+        "- **Item.** In a list.\n",
+        "~~~markdown\n**Question.** Literal.\n~~~\n",
+        "**A bold opening sentence that runs far past any label length limit at all.** "
+        "Text.\n",
+    ],
+)
+def test_bold_text_that_is_not_a_run_in_label_does_not_warn(source: str) -> None:
+    assert bold_label_findings(source) == []
+
+
+def test_bold_label_location_skips_earlier_unflagged_bold_paragraphs() -> None:
+    source = (
+        "**Bold** words open this sentence.\n"
+        "**wrapped** continuation line.\n\n"
+        "# Section\n"
+        "**Question.** What?\n"
+    )
+    assert [finding[:2] for finding in bold_label_findings(source)] == [(5, 1)]
+
+
 def test_sibling_fenced_divs_do_not_warn_as_nested() -> None:
     source = "::: {.first}\nOne.\n:::\n\n::: {.second}\nTwo.\n:::\n"
     assert "structure/nested-fenced-div" not in rule_ids(source)

@@ -298,6 +298,12 @@ _NON_DESCRIPTIVE_LINK_TEXT = {
 
 _HEADING_PUNCTUATION = frozenset(".,;:!?")
 
+# A paragraph that opens with a short bold run-in label (`**Question.** What ...`)
+# imitates an amsthm environment by typeface alone.
+_BOLD_LABEL_MAX_WORDS = 12
+_BOLD_LABEL_RUN_IN = (".", ":")
+_BOLD_LABEL_OPENER = re.compile(r"^(?:[ \t]{0,3}>[ \t]?)*(?:\*\*|__)")
+
 
 def _lines(text: str) -> list[_Line]:
     raw_lines = text.splitlines(keepends=True)
@@ -1149,6 +1155,100 @@ def _pandoc_resource_findings(
     return findings
 
 
+def _bold_opened_paragraphs(blocks: PandocJson) -> list[list[PandocJson]]:
+    """Inlines of each paragraph that opens with bold text, in document order.
+
+    Only paragraphs a fenced div can replace are visited: top-level paragraphs and
+    paragraphs inside fenced divs and block quotes.
+    """
+    result: list[list[PandocJson]] = []
+    if not isinstance(blocks, list):
+        return result
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        kind = block.get("t")
+        content = block.get("c")
+        if kind == "Para" and isinstance(content, list) and content:
+            first = content[0]
+            if isinstance(first, dict) and first.get("t") == "Strong":
+                result.append(content)
+        elif kind == "BlockQuote":
+            result.extend(_bold_opened_paragraphs(content))
+        elif kind == "Div" and isinstance(content, list) and len(content) == 2:
+            result.extend(_bold_opened_paragraphs(content[1]))
+    return result
+
+
+def _bold_label(inlines: list[PandocJson]) -> str | None:
+    """The label text when the opening bold run is a run-in label, else ``None``."""
+    label = " ".join(pandoc_plain(inlines[0]).split())
+    words = label.split()
+    if not words or len(words) > _BOLD_LABEL_MAX_WORDS:
+        return None
+    following = pandoc_plain(inlines[1:2])
+    if (
+        len(inlines) == 1
+        or label.endswith(_BOLD_LABEL_RUN_IN)
+        or following.startswith(_BOLD_LABEL_RUN_IN)
+    ):
+        return label
+    return None
+
+
+def _paragraph_bold_openers(
+    text: str, lines: list[_Line], protected: bytearray
+) -> list[tuple[int, int]]:
+    """Source ranges of the bold runs that open a paragraph, in document order."""
+    openers: list[tuple[int, int]] = []
+    previous = ""
+    for line in lines:
+        match = _BOLD_LABEL_OPENER.match(line.text)
+        context = previous.replace(">", "").strip()
+        previous = line.text
+        if (
+            match is None
+            or _overlaps(protected, line.start, line.end)
+            or (context and not context.startswith((":::", "#")))
+        ):
+            continue
+        start = line.start + match.end() - 2
+        closing = text.find(text[start : start + 2], start + 2)
+        openers.append((start, closing + 2 if closing >= 0 else line.end))
+    return openers
+
+
+def _bold_label_findings(
+    text: str,
+    pandoc_document: dict[str, PandocJson],
+    lines: list[_Line],
+    protected: bytearray,
+) -> list[RuleFinding]:
+    findings: list[RuleFinding] = []
+    paragraphs = _bold_opened_paragraphs(pandoc_document.get("blocks"))
+    openers = _paragraph_bold_openers(text, lines, protected)
+    for index, inlines in enumerate(paragraphs):
+        label = _bold_label(inlines)
+        if label is None:
+            continue
+        start, end = openers[index] if index < len(openers) else (0, 0)
+        name = label.rstrip("".join(_BOLD_LABEL_RUN_IN))
+        environment = name.casefold() if name.isalpha() else "remark"
+        findings.append(
+            RuleFinding(
+                "structure/bold-label",
+                "warning",
+                f'Bold label "{label}" sets only the typeface and encodes no '
+                + "structure. Use a theorem-like fenced div, e.g. "
+                + f"`::: {{.{environment}}}`.",
+                start,
+                end,
+                data={"label": label},
+            )
+        )
+    return findings
+
+
 def _pandoc_semantic_findings(
     text: str,
     pandoc_document: dict[str, PandocJson],
@@ -1178,6 +1278,8 @@ def _pandoc_semantic_findings(
                 end,
             )
         )
+
+    findings.extend(_bold_label_findings(text, pandoc_document, lines, protected))
 
     headers_with_depth = _pandoc_headers_with_div_depth(pandoc_document)
     headers = [
@@ -1897,6 +1999,11 @@ _BUILTIN_RULES = (
         "pandoc/missing-resource",
         "Pandoc resource does not exist.",
         check=_correctness_check("pandoc/missing-resource"),
+    ),
+    LintRule(
+        "structure/bold-label",
+        "Bold run-in label imitates a theorem-like environment.",
+        check=_correctness_check("structure/bold-label"),
     ),
     LintRule(
         "structure/heading-in-fenced-div",
