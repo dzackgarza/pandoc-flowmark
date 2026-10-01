@@ -225,6 +225,72 @@ def test_bold_numbered_section_title_suggests_heading() -> None:
     assert finding[2].endswith("Use a Markdown heading.")
 
 
+def manual_numbering(source: str) -> list[tuple[int, str]]:
+    return [
+        (diagnostic.line, source.splitlines()[diagnostic.line - 1])
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "numbering/manual"
+    ]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "# 1 Introduction\n",
+        "## 2.3. Picard groups\n",
+        "## Chapter 4\n",
+        "**Theorem 2.6.** Every group acts.\n",
+        "**Proposition 1.1 (Weyl).** Text.\n",
+        "*Lemma 3* Text.\n",
+        "Definition 1.2. A group is a set.\n",
+        "Exercise 4: Show it.\n",
+        "> **Remark 5.** Quoted.\n",
+        '::: {.theorem title="Theorem 3"}\nText.\n:::\n',
+        "$$\nx = y \\tag{3.1}\n$$\n",
+    ],
+)
+def test_hand_numbered_items_are_errors(source: str) -> None:
+    (diagnostic,) = [
+        diagnostic
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "numbering/manual"
+    ]
+    assert diagnostic.severity == "error"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "# Introduction\n",
+        "## 2021-05-06 Lecture\n",
+        "::: {.theorem #thm:main}\nText.\n:::\n\nBy @thm:main.\n",
+        "Theorem 2.6 of the book says so.\n",
+        "By [@hartshorne, Theorem 2.6] it holds.\n",
+        "$$\nx = y \\tag{*}\n$$\n",
+        "~~~markdown\n**Theorem 2.6.** Literal.\n~~~\n",
+        "1. First item.\n2. Second item.\n",
+    ],
+)
+def test_unnumbered_items_and_external_references_pass(source: str) -> None:
+    assert manual_numbering(source) == []
+
+
+def test_references_to_hand_numbers_in_the_document_are_errors() -> None:
+    source = (
+        "## 2 Groups\n\n"
+        "**Lemma 2.1.** Text.\n\n"
+        "$$\nx \\tag{4}\n$$\n\n"
+        "By Lemma 2.1, Equation (4) and § 2, but not Theorem 7.\n"
+        "See [@book, Lemma 2.1].\n"
+    )
+    assert [line for line, _text in manual_numbering(source)] == [1, 3, 6, 9, 9, 9]
+
+
+def test_references_match_hand_numbers_only_within_their_family() -> None:
+    source = "**Theorem 2.** Text.\n\nSee Chapter 2 and equation (2) of the book.\n"
+    assert [line for line, _text in manual_numbering(source)] == [1]
+
+
 def test_sibling_fenced_divs_do_not_warn_as_nested() -> None:
     source = "::: {.first}\nOne.\n:::\n\n::: {.second}\nTwo.\n:::\n"
     assert "structure/nested-fenced-div" not in rule_ids(source)
