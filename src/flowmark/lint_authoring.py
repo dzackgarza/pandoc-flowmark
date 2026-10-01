@@ -17,7 +17,7 @@ from bisect import bisect_left
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import NamedTuple, cast
 
 from rapidfuzz import process
 from rapidfuzz.distance import OSA
@@ -65,35 +65,19 @@ _AUTHORIAL_RESIDUE = (
     (re.compile(r"\\todo\b"), "todo-command", "Unfinished note"),
 )
 _TEX_INPUT = re.compile(r"(?<!\\)(?P<cmd>\\(?:input|include))\s*\{(?P<path>[^{}\n]+)\}")
-_TEX_GRAPHICS = re.compile(
-    r"(?<!\\)(?P<cmd>\\includegraphics)(?:\s*\[[^\]\n]*\])?\s*\{(?P<path>[^{}\n]+)\}"
-)
-_TEX_GRAPHICSPATH = re.compile(
-    r"(?<!\\)\\graphicspath\s*\{(?P<paths>(?:\s*\{[^{}\n]*\}\s*)+)\}"
-)
+_TEX_GRAPHICS = re.compile(r"(?<!\\)(?P<cmd>\\includegraphics)(?:\s*\[[^\]\n]*\])?\s*\{(?P<path>[^{}\n]+)\}")
+_TEX_GRAPHICSPATH = re.compile(r"(?<!\\)\\graphicspath\s*\{(?P<paths>(?:\s*\{[^{}\n]*\}\s*)+)\}")
 _TEX_GRAPHICSPATH_ENTRY = re.compile(r"\{(?P<path>[^{}\n]*)\}")
 _GRAPHICS_EXTENSIONS = (".pdf", ".png", ".jpg", ".jpeg", ".eps")
 _MACRO_SOURCE_EXTENSIONS = frozenset({".tex", ".sty", ".cls", ".json"})
-_SIMPLE_COMMAND_DEFINITION = re.compile(
-    r"\\(?:newcommand|renewcommand|providecommand|DeclareRobustCommand)\*?"
-    + r"\s*(?:\{\s*)?\\(?P<name>[A-Za-z@]+)\s*\}?\s*"
-)
-_OPERATOR_DEFINITION = re.compile(
-    r"\\DeclareMathOperator(?P<star>\*)?\s*\{\s*\\(?P<name>[A-Za-z@]+)\s*\}\s*"
-)
+_SIMPLE_COMMAND_DEFINITION = re.compile(r"\\(?:newcommand|renewcommand|providecommand|DeclareRobustCommand)\*?" + r"\s*(?:\{\s*)?\\(?P<name>[A-Za-z@]+)\s*\}?\s*")
+_OPERATOR_DEFINITION = re.compile(r"\\DeclareMathOperator(?P<star>\*)?\s*\{\s*\\(?P<name>[A-Za-z@]+)\s*\}\s*")
 _DEF_DEFINITION = re.compile(r"\\(?:def|gdef|edef|xdef)\s*\\(?P<name>[A-Za-z@]+)\s*")
-_PAIRED_DELIMITER_DEFINITION = re.compile(
-    r"\\DeclarePairedDelimiter(?:X|XPP)?\*?\s*(?:\{\s*)?"
-    + r"\\(?P<name>[A-Za-z@]+)\s*\}?\s*"
-)
+_PAIRED_DELIMITER_DEFINITION = re.compile(r"\\DeclarePairedDelimiter(?:X|XPP)?\*?\s*(?:\{\s*)?" + r"\\(?P<name>[A-Za-z@]+)\s*\}?\s*")
 _IGNORED_MATCH_CONTROL_WORDS = frozenset({"left", "right", "quad", "qquad"})
 _IGNORED_MATCH_CONTROL_SYMBOLS = frozenset({",", "!", ";", ":", " "})
-_PACKAGE_DECLARATION = re.compile(
-    r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\]\s*)?\{(?P<names>[^{}]+)\}"
-)
-_DOCUMENT_CLASS_DECLARATION = re.compile(
-    r"\\documentclass\s*(?:\[[^\]]*\]\s*)?\{(?P<name>[^{}]+)\}"
-)
+_PACKAGE_DECLARATION = re.compile(r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\]\s*)?\{(?P<names>[^{}]+)\}")
+_DOCUMENT_CLASS_DECLARATION = re.compile(r"\\documentclass\s*(?:\[[^\]]*\]\s*)?\{(?P<name>[^{}]+)\}")
 
 
 @dataclass(frozen=True)
@@ -175,7 +159,7 @@ _TEXSTUDIO_PROVIDER_CACHE: dict[str, tuple[str, ...]] = {}
 @dataclass(frozen=True)
 class _MacroInventory:
     commands: frozenset[str]
-    definitions: tuple["_MacroDefinition", ...]
+    definitions: tuple[_MacroDefinition, ...]
 
 
 @dataclass(frozen=True)
@@ -227,9 +211,7 @@ def _package_names_from_tex(source: str) -> tuple[set[str], set[str]]:
     packages: set[str] = set()
     classes: set[str] = set()
     for match in _PACKAGE_DECLARATION.finditer(visible):
-        packages.update(
-            name.strip() for name in match.group("names").split(",") if name.strip()
-        )
+        packages.update(name.strip() for name in match.group("names").split(",") if name.strip())
     for match in _DOCUMENT_CLASS_DECLARATION.finditer(visible):
         name = match.group("name").strip()
         if name:
@@ -430,10 +412,7 @@ def _tex_macro_definitions(source: str) -> tuple[set[str], list[_MacroDefinition
             _masked_body, end = group
             replacement = source[body_start + 1 : end - 1].strip()
             parameter_count = max(
-                (
-                    int(parameter.group(1))
-                    for parameter in re.finditer(r"#([1-9])", parameter_text)
-                ),
+                (int(parameter.group(1)) for parameter in re.finditer(r"#([1-9])", parameter_text)),
                 default=0,
             )
             definitions.append(
@@ -498,16 +477,12 @@ def _macro_definition(name: str, value: object) -> _MacroDefinition | None:
 
 
 def _macro_source_base(context: RuleContext, data: Mapping[str, object]) -> Path:
-    default = (
-        context.source_path.parent if context.source_path is not None else Path.cwd()
-    )
+    default = context.source_path.parent if context.source_path is not None else Path.cwd()
     raw = data.get("macro_base")
     if not isinstance(raw, str) or not raw.strip():
         return default
     expanded = Path(os.path.expandvars(raw)).expanduser()
-    return (
-        expanded.resolve() if expanded.is_absolute() else (default / expanded).resolve()
-    )
+    return expanded.resolve() if expanded.is_absolute() else (default / expanded).resolve()
 
 
 def _macro_source_files(context: RuleContext, data: Mapping[str, object]) -> list[Path]:
@@ -530,14 +505,9 @@ def _macro_source_files(context: RuleContext, data: Mapping[str, object]) -> lis
         for match in matches:
             if match.is_dir():
                 for file_path in sorted(match.rglob("*")):
-                    if (
-                        file_path.is_file()
-                        and file_path.suffix.casefold() in _MACRO_SOURCE_EXTENSIONS
-                    ):
+                    if file_path.is_file() and file_path.suffix.casefold() in _MACRO_SOURCE_EXTENSIONS:
                         resolved[str(file_path.resolve())] = file_path.resolve()
-            elif (
-                match.is_file() and match.suffix.casefold() in _MACRO_SOURCE_EXTENSIONS
-            ):
+            elif match.is_file() and match.suffix.casefold() in _MACRO_SOURCE_EXTENSIONS:
                 resolved[str(match.resolve())] = match.resolve()
 
     return [resolved[key] for key in sorted(resolved)]
@@ -693,11 +663,7 @@ def _source_analysis(context: RuleContext) -> dict[str, object]:
     frontmatter = core.source_frontmatter(lines)
     frontmatter_lines: set[int] = set()
     if frontmatter is not None:
-        last = (
-            frontmatter.closing.number
-            if frontmatter.closing is not None
-            else lines[-1].number
-        )
+        last = frontmatter.closing.number if frontmatter.closing is not None else lines[-1].number
         frontmatter_lines.update(range(frontmatter.opening.number, last + 1))
     fences = core.source_fences(lines, frontmatter_lines)
     protected = core.source_protected_map(context.text, lines, frontmatter, fences)
@@ -753,10 +719,7 @@ def _unknown_tex_commands(
             providers = _texstudio_command_providers(command)
             suggestions: tuple[Suggestion, ...] = ()
             if len(providers) == 1:
-                message = (
-                    f"`{command}` is defined by the `{providers[0]}` package, which this "
-                    + f"document does not load. Load it with `\\usepackage{{{providers[0]}}}`."
-                )
+                message = f"`{command}` is defined by the `{providers[0]}` package, which this " + f"document does not load. Load it with `\\usepackage{{{providers[0]}}}`."
                 data = {
                     "command": command,
                     "kind": "inactive-package",
@@ -765,11 +728,7 @@ def _unknown_tex_commands(
             elif providers:
                 listed = ", ".join(f"`{name}`" for name in providers[:5])
                 extra = len(providers) - 5
-                message = (
-                    f"`{command}` is defined by packages this document does not load: "
-                    + listed
-                    + (f" (and {extra} more)." if extra > 0 else ".")
-                )
+                message = f"`{command}` is defined by packages this document does not load: " + listed + (f" (and {extra} more)." if extra > 0 else ".")
                 data = {
                     "command": command,
                     "kind": "inactive-package",
@@ -777,14 +736,8 @@ def _unknown_tex_commands(
                 }
             else:
                 similar = _similar_names(command, known, user_commands)
-                message = (
-                    f"Undefined control sequence `{command}`: no loaded package, macro "
-                    + "file, or definition in this document provides it."
-                    + _did_you_mean(similar)
-                )
-                suggestions = tuple(
-                    Suggestion(f"Use `{name}`", name) for name in similar
-                )
+                message = f"Undefined control sequence `{command}`: no loaded package, macro " + "file, or definition in this document provides it." + _did_you_mean(similar)
+                suggestions = tuple(Suggestion(f"Use `{name}`", name) for name in similar)
                 data = {"command": command, "kind": "unknown"}
             findings.append(
                 RuleFinding(
@@ -800,9 +753,7 @@ def _unknown_tex_commands(
     return findings
 
 
-def _similar_names(
-    name: str, candidates: Iterable[str], preferred: frozenset[str]
-) -> list[str]:
+def _similar_names(name: str, candidates: Iterable[str], preferred: frozenset[str]) -> list[str]:
     """Return up to three likely intended spellings of ``name``.
 
     Distance is optimal string alignment (Damerau-Levenshtein restricted to
@@ -870,11 +821,7 @@ def _notation_consistency(
             source = context.text[start:end]
             first_offsets.extend(_command_offsets(source, start, first))
             second_offsets.extend(_command_offsets(source, start, second))
-        if (
-            not first_offsets
-            or not second_offsets
-            or len(first_offsets) == len(second_offsets)
-        ):
+        if not first_offsets or not second_offsets or len(first_offsets) == len(second_offsets):
             continue
         if len(first_offsets) > len(second_offsets):
             majority, majority_count, minority, minority_offsets = (
@@ -897,8 +844,7 @@ def _notation_consistency(
                 RuleFinding(
                     "math/notation-consistency",
                     "info",
-                    f"`{minority}` here, but `{majority}` elsewhere ({majority_count} "
-                    + "times). Use one form if both mean the same symbol.",
+                    f"`{minority}` here, but `{majority}` elsewhere ({majority_count} " + "times). Use one form if both mean the same symbol.",
                     start,
                     start + len(minority),
                     suggestions=(Suggestion(f"Use `{majority}`", majority),),
@@ -912,16 +858,10 @@ def _user_macro_candidates(
     _options: Mapping[str, object],
 ) -> Iterable[RuleFinding]:
     _known, definitions = _macro_inventory(context)
-    patterns = [
-        (definition, pattern)
-        for definition in definitions
-        if (pattern := _macro_pattern(definition)) is not None
-    ]
+    patterns = [(definition, pattern) for definition in definitions if (pattern := _macro_pattern(definition)) is not None]
     # Per matched source span: macro name -> (definition, concrete invocation).
     # The invocation is None when an argument cannot be recovered from the match.
-    span_candidates: dict[
-        tuple[int, int], dict[str, tuple[_MacroDefinition, str | None]]
-    ] = {}
+    span_candidates: dict[tuple[int, int], dict[str, tuple[_MacroDefinition, str | None]]] = {}
     for start, end in cast(list[tuple[int, int]], _source_analysis(context)["math"]):
         source = context.text[start:end]
         normalized = _normalize_tex_for_macro_match(source)
@@ -933,9 +873,7 @@ def _user_macro_candidates(
                     continue
                 authored_from = start + normalized.positions[match.start()]
                 authored_to = start + normalized.positions[match.end() - 1] + 1
-                span_candidates.setdefault((authored_from, authored_to), {})[
-                    definition.name
-                ] = (
+                span_candidates.setdefault((authored_from, authored_to), {})[definition.name] = (
                     definition,
                     _concrete_invocation(definition, match, source, normalized),
                 )
@@ -944,36 +882,17 @@ def _user_macro_candidates(
     spans = sorted(span_candidates)
     for authored_from, authored_to in spans:
         candidates_by_name = span_candidates[(authored_from, authored_to)]
-        if all(
-            definition.argument_count == 0
-            for definition, _invocation in candidates_by_name.values()
-        ) and any(
-            outer_from <= authored_from
-            and authored_to <= outer_to
-            and (outer_from, outer_to) != (authored_from, authored_to)
-            for outer_from, outer_to in spans
+        if all(definition.argument_count == 0 for definition, _invocation in candidates_by_name.values()) and any(
+            outer_from <= authored_from and authored_to <= outer_to and (outer_from, outer_to) != (authored_from, authored_to) for outer_from, outer_to in spans
         ):
             continue
         names = sorted(candidates_by_name)
         # Name each macro by the call that would replace the matched text, or
         # by its signature when an argument could not be recovered.
-        replacements = [
-            f"`{candidates_by_name[name][1] or _macro_invocation(candidates_by_name[name][0])}`"
-            for name in names
-        ]
+        replacements = [f"`{candidates_by_name[name][1] or _macro_invocation(candidates_by_name[name][0])}`" for name in names]
         matched = " ".join(context.text[authored_from:authored_to].split())
-        message = (
-            f"`{matched}` matches "
-            + ("a macro" if len(names) == 1 else f"{len(names)} macros")
-            + "; consider "
-            + _joined(replacements, "or")
-            + " instead."
-        )
-        suggestions = tuple(
-            Suggestion(f"Use `{invocation}`", invocation)
-            for name in names
-            if (invocation := candidates_by_name[name][1]) is not None
-        )
+        message = f"`{matched}` matches " + ("a macro" if len(names) == 1 else f"{len(names)} macros") + "; consider " + _joined(replacements, "or") + " instead."
+        suggestions = tuple(Suggestion(f"Use `{invocation}`", invocation) for name in names if (invocation := candidates_by_name[name][1]) is not None)
         findings.append(
             RuleFinding(
                 "math/user-macro-candidates",
@@ -982,11 +901,7 @@ def _user_macro_candidates(
                 authored_from,
                 authored_to,
                 suggestions=suggestions,
-                data={
-                    "candidates": tuple(
-                        _macro_invocation(candidates_by_name[name][0]) for name in names
-                    )
-                },
+                data={"candidates": tuple(_macro_invocation(candidates_by_name[name][0]) for name in names)},
             )
         )
     return findings
@@ -1062,11 +977,7 @@ def _raw_tex_regions(context: RuleContext) -> list[tuple[int, int]]:
 
 
 def _static_path(value: str) -> bool:
-    return (
-        bool(value.strip())
-        and not re.search(r"[\\$#*?]", value)
-        and not re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", value)
-    )
+    return bool(value.strip()) and not re.search(r"[\\$#*?]", value) and not re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", value)
 
 
 def _candidate_names(path: str, kind: str) -> list[str]:
@@ -1082,35 +993,32 @@ def _recursive_files(context: RuleContext, root: Path) -> list[Path]:
     cached = context.cache.get(key)
     if isinstance(cached, list):
         return cast(list[Path], cached)
-    files = (
-        [path for path in root.rglob("*") if path.is_file()] if root.is_dir() else []
-    )
+    files = [path for path in root.rglob("*") if path.is_file()] if root.is_dir() else []
     context.cache[key] = files
     return files
 
 
-def _resolve_in_root(
-    context: RuleContext,
-    root: Path,
-    names: Sequence[str],
-    *,
-    recursive: bool,
-) -> Path | None:
+class SearchRoot(NamedTuple):
+    """A directory TeX searches, and whether it searches the tree below it (`dir//`)."""
+
+    path: Path
+    recursive: bool
+
+
+def _resolve_in_root(context: RuleContext, root: SearchRoot, names: Sequence[str]) -> Path | None:
     for name in names:
-        candidate = (root / name).resolve()
+        candidate = (root.path / name).resolve()
         if candidate.is_file():
             return candidate
-    if not recursive:
+    if not root.recursive:
         return None
-    files = _recursive_files(context, root)
+    files = _recursive_files(context, root.path)
     for name in names:
         normalized = name.replace("\\", "/").removeprefix("./")
         basename = Path(normalized).name
         for candidate in files:
             unix = candidate.as_posix()
-            if unix.endswith("/" + normalized) or (
-                "/" not in normalized and candidate.name == basename
-            ):
+            if unix.endswith("/" + normalized) or ("/" not in normalized and candidate.name == basename):
                 return candidate
     return None
 
@@ -1125,9 +1033,7 @@ def _resource_exists(
         return None
     data = _tex(context)
     source_dir = context.source_path.parent if context.source_path is not None else None
-    project_roots = [
-        Path(root).expanduser() for root in _strings(data.get("project_roots"))
-    ]
+    project_roots = [Path(root).expanduser() for root in _strings(data.get("project_roots"))]
     home = Path(str(data.get("home_directory") or Path.home())).expanduser()
     names = _candidate_names(authored.strip(), kind)
 
@@ -1135,22 +1041,18 @@ def _resource_exists(
     if authored_path.is_absolute():
         return any((authored_path.parent / Path(name).name).is_file() for name in names)
 
-    ordinary: list[tuple[Path, bool]] = []
+    ordinary: list[SearchRoot] = []
     if source_dir is not None:
-        ordinary.append((source_dir, False))
-    ordinary.extend((root, False) for root in project_roots)
+        ordinary.append(SearchRoot(source_dir, False))
+    ordinary.extend(SearchRoot(root, False) for root in project_roots)
     ordinary.extend(
         (
-            root,
-            recursive,
-        )
-        for root, recursive in (
-            (home / ".pandoc" / "styles", True),
-            (home / ".pandoc" / "styles" / "macros", True),
-            (home / ".pandoc" / "macros", True),
-            (home / ".pandoc" / "config", True),
-            (home / ".pandoc", False),
-            (home / ".pandoc" / "figures", False),
+            SearchRoot(home / ".pandoc" / "styles", True),
+            SearchRoot(home / ".pandoc" / "styles" / "macros", True),
+            SearchRoot(home / ".pandoc" / "macros", True),
+            SearchRoot(home / ".pandoc" / "config", True),
+            SearchRoot(home / ".pandoc", False),
+            SearchRoot(home / ".pandoc" / "figures", False),
         )
     )
     texinputs = str(data.get("texinputs") or os.environ.get("TEXINPUTS", ""))
@@ -1160,22 +1062,19 @@ def _resource_exists(
         recursive = raw.endswith("//")
         root = raw[:-2] if recursive else raw
         if root:
-            ordinary.append((Path(root).expanduser(), recursive))
+            ordinary.append(SearchRoot(Path(root).expanduser(), recursive))
 
     roots = list(ordinary)
     if kind == "graphics":
         bases = [root for root in [source_dir, *project_roots] if root is not None]
-        graphics: list[tuple[Path, bool]] = []
+        graphics: list[SearchRoot] = []
         for graphic in graphic_roots:
             if not _static_path(graphic):
                 continue
             for base in bases:
-                graphics.append(((base / graphic).resolve(), False))
+                graphics.append(SearchRoot((base / graphic).resolve(), False))
         roots = graphics + roots
-    return any(
-        _resolve_in_root(context, root, names, recursive=recursive) is not None
-        for root, recursive in roots
-    )
+    return any(_resolve_in_root(context, root, names) is not None for root in roots)
 
 
 def _tex_missing_resource(
@@ -1192,11 +1091,7 @@ def _tex_missing_resource(
     for start, end in regions:
         source = context.text[start:end]
         for match in _TEX_GRAPHICSPATH.finditer(source):
-            graphic_roots.extend(
-                item.group("path").strip()
-                for item in _TEX_GRAPHICSPATH_ENTRY.finditer(match.group("paths"))
-                if item.group("path").strip()
-            )
+            graphic_roots.extend(item.group("path").strip() for item in _TEX_GRAPHICSPATH_ENTRY.finditer(match.group("paths")) if item.group("path").strip())
     for start, end in regions:
         source = context.text[start:end]
         for pattern, kind in ((_TEX_INPUT, "input"), (_TEX_GRAPHICS, "graphics")):
@@ -1210,8 +1105,7 @@ def _tex_missing_resource(
                     RuleFinding(
                         "tex/missing-resource",
                         "warning",
-                        f"Can't find `{authored}` for `{match.group('cmd')}` relative to "
-                        + "this document or on the TeX search path.",
+                        f"Can't find `{authored}` for `{match.group('cmd')}` relative to " + "this document or on the TeX search path.",
                         path_start,
                         path_start + len(authored),
                         data={"kind": kind, "path": authored},
@@ -1291,9 +1185,7 @@ def _div_rule_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
                 RuleFinding(
                     rule,
                     "error",
-                    "Div has more than one theorem class ("
-                    + ", ".join(f"`.{name}`" for name in refs)
-                    + "), so its numbering is ambiguous. Keep one.",
+                    "Div has more than one theorem class (" + ", ".join(f"`.{name}`" for name in refs) + "), so its numbering is ambiguous. Keep one.",
                     start,
                     end,
                 )
@@ -1303,8 +1195,7 @@ def _div_rule_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
                 RuleFinding(
                     rule,
                     "error",
-                    f"Div is both a numbered `.{refs[0]}` and an unnumbered "
-                    + f"`.{proofs[0]}`. Remove one class.",
+                    f"Div is both a numbered `.{refs[0]}` and an unnumbered " + f"`.{proofs[0]}`. Remove one class.",
                     start,
                     end,
                 )
@@ -1314,34 +1205,21 @@ def _div_rule_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
                 RuleFinding(
                     rule,
                     "info",
-                    f"`#{identifier}` cannot be referenced: `.{proofs[0]}` blocks are "
-                    + "unnumbered.",
+                    f"`#{identifier}` cannot be referenced: `.{proofs[0]}` blocks are " + "unnumbered.",
                     start,
                     end,
                 )
             )
-        elif (
-            rule == "reference/missing-theorem-class"
-            and identifier
-            and not proofs
-            and not refs
-        ):
+        elif rule == "reference/missing-theorem-class" and identifier and not proofs and not refs:
             family = _reference_family(identifier, data)
             if family in theorem_families:
-                family_classes = sorted(
-                    str(class_name)
-                    for class_name, prefix in _mapping(
-                        data.get("theorem_class_to_prefix")
-                    ).items()
-                    if prefix == family
-                )
+                family_classes = sorted(str(class_name) for class_name, prefix in _mapping(data.get("theorem_class_to_prefix")).items() if prefix == family)
                 example = f", e.g. `.{family_classes[0]}`," if family_classes else ""
                 findings.append(
                     RuleFinding(
                         rule,
                         "error",
-                        f"`#{identifier}` is a `{family}:` ID, but the div has no theorem "
-                        + f"class. Add one{example} or change the ID.",
+                        f"`#{identifier}` is a `{family}:` ID, but the div has no theorem " + f"class. Add one{example} or change the ID.",
                         start,
                         end,
                         data={
@@ -1358,10 +1236,7 @@ def _snapshot_rule_findings(context: RuleContext, rule: str) -> list[RuleFinding
     data = _reference_data(context)
     snapshot = _mapping(data.get("snapshot"))
     resolutions = _mapping(data.get("resolutions"))
-    class_to_prefix = {
-        str(key).casefold(): str(value)
-        for key, value in _mapping(data.get("theorem_class_to_prefix")).items()
-    }
+    class_to_prefix = {str(key).casefold(): str(value) for key, value in _mapping(data.get("theorem_class_to_prefix")).items()}
     referenceable = set(_strings(data.get("referenceable_div_classes")))
     findings: list[RuleFinding] = []
 
@@ -1372,18 +1247,11 @@ def _snapshot_rule_findings(context: RuleContext, rule: str) -> list[RuleFinding
             key = str(definition.get("key") or "")
             start, end = _range(definition.get("range"))
             resolution = _mapping(resolutions.get(key))
-            if (
-                rule == "reference/duplicate-workspace-definition"
-                and resolution.get("status") == "duplicate"
-            ):
+            if rule == "reference/duplicate-workspace-definition" and resolution.get("status") == "duplicate":
                 resolution_definitions = resolution.get("definitions")
                 sites = (
-                    [
-                        str(_mapping(item).get("documentPath") or "")
-                        for item in resolution_definitions
-                    ]
-                    if isinstance(resolution_definitions, Sequence)
-                    and not isinstance(resolution_definitions, str)
+                    [str(_mapping(item).get("documentPath") or "") for item in resolution_definitions]
+                    if isinstance(resolution_definitions, Sequence) and not isinstance(resolution_definitions, str)
                     else []
                 )
                 findings.append(
@@ -1396,15 +1264,8 @@ def _snapshot_rule_findings(context: RuleContext, rule: str) -> list[RuleFinding
                         data={"key": key, "definition_paths": tuple(sites)},
                     )
                 )
-            if (
-                rule == "reference/class-family-mismatch"
-                and definition.get("sourceKind") == "theorem-div"
-            ):
-                classes = [
-                    item.casefold()
-                    for item in _strings(definition.get("classes"))
-                    if item.casefold() in referenceable
-                ]
+            if rule == "reference/class-family-mismatch" and definition.get("sourceKind") == "theorem-div":
+                classes = [item.casefold() for item in _strings(definition.get("classes")) if item.casefold() in referenceable]
                 authored = classes[0] if classes else None
                 expected = class_to_prefix.get(authored or "")
                 actual = str(definition.get("family") or "")
@@ -1417,9 +1278,7 @@ def _snapshot_rule_findings(context: RuleContext, rule: str) -> list[RuleFinding
                         RuleFinding(
                             rule,
                             "error",
-                            f"A `.{authored}` div takes a `{expected}{separator}` ID, but "
-                            + f"this one is `#{key}`. Change the ID to `{corrected}` or "
-                            + "change the class.",
+                            f"A `.{authored}` div takes a `{expected}{separator}` ID, but " + f"this one is `#{key}`. Change the ID to `{corrected}` or " + "change the class.",
                             start,
                             end,
                             suggestions=(Suggestion(f"Use `{corrected}`", corrected),),
@@ -1427,11 +1286,7 @@ def _snapshot_rule_findings(context: RuleContext, rule: str) -> list[RuleFinding
                     )
 
     occurrences = snapshot.get("occurrences")
-    if (
-        rule == "reference/missing-workspace-definition"
-        and isinstance(occurrences, Sequence)
-        and not isinstance(occurrences, str)
-    ):
+    if rule == "reference/missing-workspace-definition" and isinstance(occurrences, Sequence) and not isinstance(occurrences, str):
         for raw in occurrences:
             occurrence = _mapping(raw)
             key = str(occurrence.get("key") or "")
@@ -1451,40 +1306,23 @@ def _snapshot_rule_findings(context: RuleContext, rule: str) -> list[RuleFinding
                     continue
                 candidate_family = _reference_family(candidate, data)
                 candidate_parts = _reference_parts(candidate)
-                candidate_remainder = (
-                    candidate_parts[2] if candidate_parts else candidate
-                ).casefold()
-                if candidate_family == family and any(
-                    token in tokens
-                    for token in re.split(r"[:_-]+", candidate_remainder)
-                ):
+                candidate_remainder = (candidate_parts[2] if candidate_parts else candidate).casefold()
+                if candidate_family == family and any(token in tokens for token in re.split(r"[:_-]+", candidate_remainder)):
                     candidates.append(candidate)
-                elif (
-                    candidate_family
-                    and candidate_family != family
-                    and candidate_remainder == remainder
-                ):
+                elif candidate_family and candidate_family != family and candidate_remainder == remainder:
                     cross_family.append(candidate)
             # A same-stem key under another prefix is the likeliest intent; then
             # the same-prefix keys closest to this one.
-            likely = sorted(cross_family) or [
-                str(choice)
-                for choice, _distance, _index in process.extract(
-                    key, candidates, scorer=OSA.distance, limit=3
-                )
-            ]
+            likely = sorted(cross_family) or [str(choice) for choice, _distance, _index in process.extract(key, candidates, scorer=OSA.distance, limit=3)]
             start, end = _range(occurrence.get("range"))
             findings.append(
                 RuleFinding(
                     rule,
                     "warning",
-                    f"Undefined reference `@{key}`."
-                    + _did_you_mean([f"@{item}" for item in likely]),
+                    f"Undefined reference `@{key}`." + _did_you_mean([f"@{item}" for item in likely]),
                     start,
                     end,
-                    suggestions=tuple(
-                        Suggestion(f"Use `@{item}`", f"@{item}") for item in likely
-                    ),
+                    suggestions=tuple(Suggestion(f"Use `@{item}`", f"@{item}") for item in likely),
                     data={
                         "key": key,
                         "same_family_candidates": tuple(sorted(candidates)),
@@ -1556,9 +1394,7 @@ def _citation_keys(context: RuleContext) -> frozenset[str] | None:
         paths = [base / Path(item).expanduser() for item in _strings(configured)]
     else:
         value = _mapping(context.pandoc_document.get("meta")).get("bibliography")
-        authored = (
-            core.meta_strings(cast(PandocJson, value)) if value is not None else []
-        )
+        authored = core.meta_strings(cast(PandocJson, value)) if value is not None else []
         paths = [base / Path(item).expanduser() for item in authored]
         if any(not path.is_file() for path in paths):
             return None
@@ -1569,11 +1405,7 @@ def _citation_keys(context: RuleContext) -> frozenset[str] | None:
 
 def _citation_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
     data = _reference_data(context)
-    citation_keys = (
-        _citation_keys(context)
-        if rule == "citation/missing-bibliography-entry"
-        else None
-    )
+    citation_keys = _citation_keys(context) if rule == "citation/missing-bibliography-entry" else None
     findings: list[RuleFinding] = []
     cursor = 0
     for node in walk_pandoc(context.pandoc_document):
@@ -1593,26 +1425,14 @@ def _citation_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
             cursor = end
         families = [_reference_family(key, data) for key in keys]
         supported = sum(family is not None for family in families)
-        if (
-            rule == "citation/mixed-reference-types"
-            and supported > 0
-            and supported < len(keys)
-        ):
+        if rule == "citation/mixed-reference-types" and supported > 0 and supported < len(keys):
             # Rendered, `[@fig:a; @smith2020]` is "fig. 1, (Smith 2020)" and two
             # adjacent brackets are "fig. 1 (Smith 2020)": both read as the figure
             # being credited to the source. A connecting word keeps them apart:
             # "fig. 1 and (Smith 2020)".
-            references = [
-                key for key, family in zip(keys, families, strict=True) if family
-            ]
-            citations = [
-                key for key, family in zip(keys, families, strict=True) if not family
-            ]
-            reference_text = (
-                f"@{references[0]}"
-                if len(references) == 1
-                else "[" + "; ".join(f"@{key}" for key in references) + "]"
-            )
+            references = [key for key, family in zip(keys, families, strict=True) if family]
+            citations = [key for key, family in zip(keys, families, strict=True) if not family]
+            reference_text = f"@{references[0]}" if len(references) == 1 else "[" + "; ".join(f"@{key}" for key in references) + "]"
             citation_text = "[" + "; ".join(f"@{key}" for key in citations) + "]"
             parts = [reference_text, citation_text]
             if families[0] is None:
@@ -1663,8 +1483,7 @@ def _citation_findings(context: RuleContext, rule: str) -> list[RuleFinding]:
                     RuleFinding(
                         rule,
                         "error",
-                        f"`@{key}` is not in the bibliography."
-                        + _did_you_mean([f"@{name}" for name in similar]),
+                        f"`@{key}` is not in the bibliography." + _did_you_mean([f"@{name}" for name in similar]),
                         key_start,
                         key_start + (len(key_source) if relative >= 0 else 0),
                         suggestions=suggestions,

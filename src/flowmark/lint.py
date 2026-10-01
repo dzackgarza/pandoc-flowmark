@@ -30,6 +30,7 @@ from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+from flowmark.lint_authoring import register_authoring_rules
 from flowmark.lint_engine import (
     LintRule,
     RuleContext,
@@ -39,12 +40,12 @@ from flowmark.lint_engine import (
     RuleSetting,
     Suggestion,
     apply_rule_policy,
+    load_installed_lint_plugins,
     load_lint_plugins,
     normalize_rule_settings,
     run_registered_rules,
     validate_rule_settings,
 )
-from flowmark.lint_authoring import register_authoring_rules
 from flowmark.lint_rules import (
     StyleRule,
     register_builtin_rules,
@@ -229,11 +230,9 @@ def _registry(options: LintOptions) -> RuleRegistry:
     register_builtin_rules(registry)
     register_authoring_rules(registry)
     registry.register_many(_PARSER_RULES)
-    load_lint_plugins(
-        registry,
-        options.plugins,
-        discover_entry_points=options.discover_plugins,
-    )
+    if options.discover_plugins:
+        load_installed_lint_plugins(registry)
+    load_lint_plugins(registry, options.plugins)
     return registry
 
 

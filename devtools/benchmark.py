@@ -29,20 +29,22 @@ import statistics
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 from textwrap import dedent
+
+from flowmark import Semantic, Width, reformat_text
+from flowmark.reformat_api import REFORMAT_DEFAULTS
 
 DEFAULT_TEST_FILE = Path("tests/testdocs/testdoc.orig.md")
 DEFAULT_ITERATIONS = 10
 
 
 def benchmark_current(
-    test_file: Path, iterations: int, semantic: bool = True
+    test_file: Path, iterations: int, wrap: Width | Semantic
 ) -> list[float]:
     """Benchmark the current dev version by importing directly."""
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-    from flowmark import reformat_text
-
+    options = replace(REFORMAT_DEFAULTS, wrap=wrap)
     content = test_file.read_text()
     print("Benchmarking current dev version")
     print(
@@ -53,7 +55,7 @@ def benchmark_current(
     times: list[float] = []
     for i in range(iterations):
         start = time.perf_counter()
-        reformat_text(content, semantic=semantic)
+        reformat_text(content, options)
         elapsed = time.perf_counter() - start
         times.append(elapsed)
         print(f"  Run {i + 1}: {elapsed * 1000:.1f}ms")
@@ -62,7 +64,7 @@ def benchmark_current(
 
 
 def benchmark_version(
-    version: str, test_file: Path, iterations: int, semantic: bool = True
+    version: str, test_file: Path, iterations: int, wrap: Width | Semantic
 ) -> list[float]:
     """Benchmark a specific released version using uvx."""
     content = test_file.read_text()
@@ -72,6 +74,8 @@ def benchmark_version(
     )
     print(f"Running {iterations} iterations...\n")
 
+    # Released versions take the wrap style as a `semantic` flag.
+    semantic = isinstance(wrap, Semantic)
     benchmark_script = dedent(f'''
         import time
         import statistics
@@ -129,11 +133,9 @@ def print_stats(name: str, times: list[float]) -> None:
         print(f"  StdDev: {statistics.stdev(times) * 1000:.1f}ms")
 
 
-def profile_current(test_file: Path, semantic: bool = True) -> None:
+def profile_current(test_file: Path, wrap: Width | Semantic) -> None:
     """Profile the current dev version and show top functions."""
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-    from flowmark import reformat_text
-
+    options = replace(REFORMAT_DEFAULTS, wrap=wrap)
     content = test_file.read_text()
     print("Profiling current dev version")
     print(
@@ -142,7 +144,7 @@ def profile_current(test_file: Path, semantic: bool = True) -> None:
 
     profiler = cProfile.Profile()
     profiler.enable()
-    reformat_text(content, semantic=semantic)
+    reformat_text(content, options)
     profiler.disable()
 
     stream = io.StringIO()
@@ -195,20 +197,18 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    semantic = not args.plain
+    wrap = Width() if args.plain else Semantic()
 
     if not args.file.exists():
         print(f"Error: Test file not found: {args.file}", file=sys.stderr)
         sys.exit(1)
 
     if args.profile:
-        profile_current(args.file, semantic=semantic)
+        profile_current(args.file, wrap)
     elif args.compare:
-        current_times = benchmark_current(args.file, args.iterations, semantic=semantic)
+        current_times = benchmark_current(args.file, args.iterations, wrap)
         print()
-        old_times = benchmark_version(
-            args.compare, args.file, args.iterations, semantic=semantic
-        )
+        old_times = benchmark_version(args.compare, args.file, args.iterations, wrap)
 
         print_stats("Current dev version", current_times)
         print_stats(f"v{args.compare}", old_times)
@@ -225,12 +225,10 @@ def main() -> None:
                 print(f"  Current is {abs(diff_pct):.1f}% faster than v{args.compare}")
             print(f"  Ratio: {ratio:.2f}x")
     elif args.version:
-        times = benchmark_version(
-            args.version, args.file, args.iterations, semantic=semantic
-        )
+        times = benchmark_version(args.version, args.file, args.iterations, wrap)
         print_stats(f"v{args.version}", times)
     else:
-        times = benchmark_current(args.file, args.iterations, semantic=semantic)
+        times = benchmark_current(args.file, args.iterations, wrap)
         print_stats("Current dev version", times)
 
 

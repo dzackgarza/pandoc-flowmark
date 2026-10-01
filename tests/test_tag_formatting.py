@@ -12,9 +12,14 @@ from __future__ import annotations
 
 from textwrap import dedent
 
-from flowmark import fill_markdown
-from flowmark.linewrapping.line_wrappers import line_wrap_to_width
-from flowmark.linewrapping.text_wrapping import _HtmlMdWordSplitter  # pyright: ignore
+from flowmark import (
+    FormatOptions,
+    Pass,
+    Semantic,
+    fill_markdown,
+    markdown_line_wrap_to_width,
+)
+from flowmark.linewrapping.text_wrapping import get_html_md_word_splitter
 from flowmark.typography.smartquotes import smart_quotes
 
 # Test 1: Basic attribute wrap at space
@@ -176,9 +181,7 @@ def test_smart_quotes_not_applied_in_tag_attributes() -> None:
             f"Input: {tag[:100]}...\n"
             f"Output: {result[:100]}..."
         )
-        assert result_smart == 0, (
-            f"Test {i}: Smart quotes were introduced.\nInput: {tag[:100]}...\nOutput: {result[:100]}..."
-        )
+        assert result_smart == 0, f"Test {i}: Smart quotes were introduced.\nInput: {tag[:100]}...\nOutput: {result[:100]}..."
 
 
 def test_tag_with_array_spanning_lines() -> None:
@@ -228,7 +231,7 @@ def test_pipeline_preserves_tag_quotes() -> None:
         original_straight = _count_straight_quotes(tag)
 
         # Process through pipeline with smartquotes enabled
-        result = fill_markdown(tag, smartquotes=True, semantic=True)
+        result = fill_markdown(tag, FormatOptions(Semantic(), passes=frozenset({Pass.smartquotes})))
 
         result_straight = _count_straight_quotes(result)
 
@@ -241,7 +244,7 @@ def test_pipeline_preserves_tag_quotes() -> None:
 def test_tag_newlines_preserved_in_pipeline() -> None:
     """Test that newlines within multiline tags are preserved through the pipeline."""
     # Tag 6 has vertical formatting
-    result = fill_markdown(TAG_6, semantic=True)
+    result = fill_markdown(TAG_6, FormatOptions(Semantic()))
 
     # Should preserve the vertical structure
     assert "{% field\n" in result or "{% field " in result
@@ -250,7 +253,7 @@ def test_tag_newlines_preserved_in_pipeline() -> None:
 
 def test_word_splitter_handles_multiline_tags() -> None:
     """Test that the word splitter correctly handles multiline tags."""
-    splitter = _HtmlMdWordSplitter()
+    splitter = get_html_md_word_splitter()
 
     # Single line tag - should be kept together
     single = '{% field kind="string" id="name" %}'
@@ -265,7 +268,7 @@ def test_word_splitter_handles_multiline_tags() -> None:
 
 def test_line_wrapper_preserves_multiline_tags() -> None:
     """Test that line wrappers preserve structure of multiline tags."""
-    wrapper = line_wrap_to_width(width=80, is_markdown=True)
+    wrapper = markdown_line_wrap_to_width(width=80)
 
     # Tag with content that has newlines
     text = '{% field kind="string" %}\nContent here.\n{% /field %}'
@@ -279,7 +282,7 @@ def test_line_wrapper_preserves_multiline_tags() -> None:
 def test_tag_with_embedded_percent_brace() -> None:
     """Test that %} inside a string attribute doesn't end the tag early."""
     # This is TAG_9 - pattern contains %}
-    result = fill_markdown(TAG_9, semantic=True)
+    result = fill_markdown(TAG_9, FormatOptions(Semantic()))
 
     # The tag should still be properly formatted
     assert "{% field" in result
@@ -340,7 +343,7 @@ def test_adjacent_closing_tags() -> None:
 
 def test_selection_field_with_task_list() -> None:
     """Test selection fields with task list items (TAG_8)."""
-    result = fill_markdown(TAG_8, semantic=True)
+    result = fill_markdown(TAG_8, FormatOptions(Semantic()))
 
     # Should preserve the list structure
     assert "- [ ] Low" in result or "- [ ]" in result
@@ -439,12 +442,12 @@ def test_multiline_opening_tag_closing_on_own_line() -> None:
     closing delimiter breaks Markdoc's parser.
     """
     from flowmark.linewrapping.tag_handling import (
-        _fix_multiline_opening_tag_with_closing,  # pyright: ignore[reportPrivateUsage]
+        fix_multiline_opening_tag_with_closing,
     )
 
     # Pattern that triggers Markdoc bug: multi-line opening tag with closing on same line
     problematic = "{% field kind='string'\nrequired=true %}{% /field %}"
-    result = _fix_multiline_opening_tag_with_closing(problematic)
+    result = fix_multiline_opening_tag_with_closing(problematic)
 
     # Closing tag should be on its own line
     assert "%}\n{% /field %}" in result, f"Closing tag not on own line: {result}"
@@ -458,12 +461,12 @@ def test_single_line_paired_tags_not_split() -> None:
     single-line tags.
     """
     from flowmark.linewrapping.tag_handling import (
-        _fix_multiline_opening_tag_with_closing,  # pyright: ignore[reportPrivateUsage]
+        fix_multiline_opening_tag_with_closing,
     )
 
     # Single-line paired tag - should NOT be split
     single_line = "{% field kind='string' %}{% /field %}"
-    result = _fix_multiline_opening_tag_with_closing(single_line)
+    result = fix_multiline_opening_tag_with_closing(single_line)
 
     # Should remain on single line
     assert result == single_line, f"Single-line tag was incorrectly split: {result}"
@@ -475,7 +478,7 @@ def test_multiline_tag_through_pipeline() -> None:
     long_tag = '{% field kind="string" id="name" label="Full Name" role="user" required=true minLength=2 maxLength=100 placeholder="Enter your full name" %}{% /field %}'
 
     # Tags should stay on ONE line, never broken (atomic behavior)
-    result = fill_markdown(long_tag, semantic=True, width=88)
+    result = fill_markdown(long_tag, FormatOptions(Semantic(88)))
     lines = result.strip().split("\n")
 
     # Entire tag+closing is ONE token - stays on single line
@@ -490,12 +493,12 @@ def test_multiline_tag_through_pipeline() -> None:
 def test_html_comment_multiline_closing() -> None:
     """Test HTML comment tags with multi-line opening and closing on same line."""
     from flowmark.linewrapping.tag_handling import (
-        _fix_multiline_opening_tag_with_closing,  # pyright: ignore[reportPrivateUsage]
+        fix_multiline_opening_tag_with_closing,
     )
 
     # HTML comment pattern
     text = "<!-- f:field kind='string'\nlabel='Name' --><!-- /f:field -->"
-    result = _fix_multiline_opening_tag_with_closing(text)
+    result = fix_multiline_opening_tag_with_closing(text)
 
     # Closing comment should be on its own line
     assert "-->\n<!-- /f:field -->" in result, f"HTML closing tag not split: {result}"
@@ -548,9 +551,7 @@ def test_tag_block_spacing_tables() -> None:
     assert "%}\n\n|" in result, f"Missing blank line after opening tag: {result}"
 
     # Should have blank line before closing tag
-    assert "|\n\n{% /table" in result, (
-        f"Missing blank line before closing tag: {result}"
-    )
+    assert "|\n\n{% /table" in result, f"Missing blank line before closing tag: {result}"
 
 
 def test_tag_block_spacing_already_spaced() -> None:
@@ -592,9 +593,7 @@ def test_tag_block_spacing_inline_tags() -> None:
     result = set_sourced_tag_block_spacing(text, pandoc_executable())
 
     # Should NOT have blank lines between list items
-    assert "{% #item1 %}\n- Item 2" in result, (
-        f"Incorrectly added blank between items: {result}"
-    )
+    assert "{% #item1 %}\n- Item 2" in result, f"Incorrectly added blank between items: {result}"
 
 
 def test_tags_around_text_the_parser_reads_as_no_block() -> None:
@@ -625,7 +624,7 @@ def test_fill_markdown_with_list_in_tags() -> None:
         {% /field %}
         """).strip()
 
-    result = fill_markdown(text, semantic=True)
+    result = fill_markdown(text, FormatOptions(Semantic()))
 
     # Opening tag should be followed by blank line
     assert "{% field" in result
@@ -684,16 +683,13 @@ def test_list_item_with_tag_on_continuation_line() -> None:
         - [ ] 0.4: Configure Biome for formatting and linting <!-- #kg-ibof -->
         """).strip()
 
-    result = fill_markdown(text, semantic=True)
+    result = fill_markdown(text, FormatOptions(Semantic()))
 
     # The tag should NOT have an extra blank line before it
     # The continuation line with the tag should be preserved as-is
-    assert "\n\n  <!-- #kg-32zz -->" not in result, (
-        f"Extra blank line incorrectly added before tag on continuation line.\nResult:\n{result}"
-    )
+    assert "\n\n  <!-- #kg-32zz -->" not in result, f"Extra blank line incorrectly added before tag on continuation line.\nResult:\n{result}"
 
     # The proper indented continuation should be preserved
-    assert (
-        "tsconfig.base.json)\n  <!-- #kg-32zz -->" in result
-        or "(tsconfig.base.json)\n<!-- #kg-32zz -->" in result
-    ), f"Tag continuation line not preserved correctly.\nResult:\n{result}"
+    assert "tsconfig.base.json)\n  <!-- #kg-32zz -->" in result or "(tsconfig.base.json)\n<!-- #kg-32zz -->" in result, (
+        f"Tag continuation line not preserved correctly.\nResult:\n{result}"
+    )

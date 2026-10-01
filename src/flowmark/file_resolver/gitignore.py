@@ -7,7 +7,7 @@ from pathlib import Path
 import pathspec
 
 
-def _read_ignore_file(path: Path) -> pathspec.PathSpec | None:
+def read_ignore_file(path: Path) -> pathspec.PathSpec | None:
     """
     Read an ignore file (gitignore syntax), stripping comments and blanks.
     Returns a compiled PathSpec, or None if the file has no active rules or
@@ -17,11 +17,7 @@ def _read_ignore_file(path: Path) -> pathspec.PathSpec | None:
         text = path.read_text()
     except OSError, UnicodeDecodeError:
         return None
-    lines = [
-        line
-        for line in text.splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    ]
+    lines = [line for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
     if not lines:
         return None
     return pathspec.PathSpec.from_lines("gitignore", lines)
@@ -35,7 +31,7 @@ def load_gitignore(directory: Path) -> pathspec.PathSpec | None:
     gitignore = directory / ".gitignore"
     if not gitignore.is_file():
         return None
-    return _read_ignore_file(gitignore)
+    return read_ignore_file(gitignore)
 
 
 def load_tool_ignore(tool_name: str, start_dir: Path) -> pathspec.PathSpec | None:
@@ -48,7 +44,7 @@ def load_tool_ignore(tool_name: str, start_dir: Path) -> pathspec.PathSpec | Non
     while True:
         candidate = current / ignore_name
         if candidate.is_file():
-            return _read_ignore_file(candidate)
+            return read_ignore_file(candidate)
         parent = current.parent
         if parent == current:
             break

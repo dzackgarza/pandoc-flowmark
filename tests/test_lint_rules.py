@@ -148,6 +148,169 @@ def test_each_nested_div_beyond_top_level_warns() -> None:
     assert [finding.line for finding in findings] == [3, 5]
 
 
+def bold_label_findings(source: str) -> list[tuple[int, int, str]]:
+    return [
+        (diagnostic.line, diagnostic.column, diagnostic.message)
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "structure/bold-label"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "environment"),
+    [
+        ("**Question.** What is $x$?\n", "question"),
+        ("__Proof.__ Trivial.\n", "proof"),
+        ("**Remark**: The map is open.\n", "remark"),
+        ("**Main Theorem.** Every group acts.\n", "theorem"),
+        ("**Definition 1.2 (Weyl).** A group.\n", "definition"),
+        ("**Exercise**\n\nShow that $G$ is abelian.\n", "exercise"),
+        ("> **Note.** Quoted.\n", "note"),
+        ("::: {.example}\n**Warning.** Careful.\n:::\n", "warning"),
+    ],
+)
+def test_bold_run_in_label_warns_with_environment(
+    source: str, environment: str
+) -> None:
+    findings = bold_label_findings(source)
+    assert len(findings) == 1
+    assert f"`::: {{.{environment}}}`" in findings[0][2]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Not **bold.** here.\n",
+        "**Bold** words open this sentence.\n",
+        "- **Item.** In a list.\n",
+        "~~~markdown\n**Question.** Literal.\n~~~\n",
+        "**A bold opening sentence that runs far past any label length limit at all.** "
+        "Text.\n",
+    ],
+)
+def test_bold_text_that_is_not_a_run_in_label_does_not_warn(source: str) -> None:
+    assert bold_label_findings(source) == []
+
+
+def test_bold_label_location_skips_earlier_unflagged_bold_paragraphs() -> None:
+    source = (
+        "**Bold** words open this sentence.\n"
+        "**wrapped** continuation line.\n\n"
+        "# Section\n"
+        "**Question.** What?\n"
+    )
+    assert [finding[:2] for finding in bold_label_findings(source)] == [(5, 1)]
+
+
+def test_bold_label_location_follows_lists_and_display_math() -> None:
+    source = (
+        "- **Item.** In a list.\n"
+        "**Lemma.** Lazy continuation.\n\n"
+        "$$\nx\n$$\n\n"
+        "**$G$-sets.** Defined here.\n\n"
+        "  **Theorem.** Indented.\n"
+    )
+    assert [finding[:2] for finding in bold_label_findings(source)] == [(8, 1), (10, 3)]
+
+
+def test_bold_label_without_environment_name_lists_choices() -> None:
+    (finding,) = bold_label_findings(
+        "**Why care** about this?\n\nText.\n\n**Why care**\n"
+    )
+    assert "`::: {.theorem}`, `::: {.definition}` or `::: {.remark}`" in finding[2]
+
+
+def test_bold_numbered_section_title_suggests_heading() -> None:
+    (finding,) = bold_label_findings("**1.4. Not the whole story.**\n")
+    assert finding[2].endswith("Use a Markdown heading.")
+
+
+def manual_numbering(source: str) -> list[tuple[int, str]]:
+    return [
+        (diagnostic.line, source.splitlines()[diagnostic.line - 1])
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "numbering/manual"
+    ]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "# 1 Introduction\n",
+        "## 2.3. Picard groups\n",
+        "## Chapter 4\n",
+        "**Theorem 2.6.** Every group acts.\n",
+        "**Proposition 1.1 (Weyl).** Text.\n",
+        "*Lemma 3* Text.\n",
+        "Definition 1.2. A group is a set.\n",
+        "Exercise 4: Show it.\n",
+        "> **Remark 5.** Quoted.\n",
+        '::: {.theorem title="Theorem 3"}\nText.\n:::\n',
+        "$$\nx = y \\tag{3.1}\n$$\n",
+    ],
+)
+def test_hand_numbered_items_are_errors(source: str) -> None:
+    (diagnostic,) = [
+        diagnostic
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "numbering/manual"
+    ]
+    assert diagnostic.severity == "error"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "# Introduction\n",
+        "## 2021-05-06 Lecture\n",
+        "::: {.theorem #thm:main}\nText.\n:::\n\nBy @thm:main.\n",
+        "Theorem 2.6 of the book says so.\n",
+        "By [@hartshorne, Theorem 2.6] it holds.\n",
+        "$$\nx = y \\tag{*}\n$$\n",
+        "~~~markdown\n**Theorem 2.6.** Literal.\n~~~\n",
+        "1. First item.\n2. Second item.\n",
+    ],
+)
+def test_unnumbered_items_and_external_references_pass(source: str) -> None:
+    assert manual_numbering(source) == []
+
+
+def test_references_to_hand_numbers_in_the_document_are_errors() -> None:
+    source = (
+        "## 2 Groups\n\n"
+        "**Lemma 2.1.** Text.\n\n"
+        "$$\nx \\tag{4}\n$$\n\n"
+        "By Lemma 2.1, Equation (4) and § 2, but not Theorem 7.\n"
+        "See [@book, Lemma 2.1] and Lemma 2.1 of [Man99].\n"
+    )
+    assert [line for line, _text in manual_numbering(source)] == [1, 3, 6, 9, 9, 9]
+
+
+def test_references_match_hand_numbers_only_within_their_family() -> None:
+    source = "**Theorem 2.** Text.\n\nSee Chapter 2 and equation (2) of the book.\n"
+    assert [line for line, _text in manual_numbering(source)] == [1]
+
+
+def test_nested_div_opener_without_space_before_attributes_is_located() -> None:
+    source = "::::{.outer}\n\n:::{.inner}\nText.\n:::\n::::\n"
+    (finding,) = [
+        diagnostic
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "structure/nested-fenced-div"
+    ]
+    assert finding.line == 3
+
+
+def test_heading_changed_by_smart_typography_is_located() -> None:
+    source = "# Notes\n\n## Borel's theor-- \"fixed\" points...\n\n## Borel's theorem\n\n## Borel's theorem\n"
+    (finding,) = [
+        diagnostic
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "heading/duplicate"
+    ]
+    assert finding.line == 7
+
+
 def test_sibling_fenced_divs_do_not_warn_as_nested() -> None:
     source = "::: {.first}\nOne.\n:::\n\n::: {.second}\nTwo.\n:::\n"
     assert "structure/nested-fenced-div" not in rule_ids(source)

@@ -59,9 +59,24 @@ def test_math_abbreviations_and_citation_sentence_ends() -> None:
         "We recall the mirror move algorithm from [@AE22]. "
         "We have Nikulin's 2-elementary diagram.\n"
     )
-    assert reformat_text(source, verify=True) == (
+    assert reformat_text(source) == (
         "Blue (resp. red) indicate lattices which are valid (resp. invalid) targets of mirror\n"
         "moves, cf. the table below.\n"
         "We recall the mirror move algorithm from [@AE22].\n"
         "We have Nikulin's 2-elementary diagram.\n"
     )
+
+
+def test_non_ascii_sentence_ends() -> None:
+    """A sentence ends after a word of non-ASCII letters whose last letter is
+    lowercase, and does not end after an uppercase or digit-led token."""
+    assert split_sentences_regex("Nous avons commandé un café. Puis nous sommes partis.") == [
+        "Nous avons commandé un café.",
+        "Puis nous sommes partis.",
+    ]
+    assert split_sentences_regex("Wir fahren über die Straße. Dann weiter.") == [
+        "Wir fahren über die Straße.",
+        "Dann weiter.",
+    ]
+    assert split_sentences_regex("The results come from table IV. Then more text.") == ["The results come from table IV. Then more text."]
+    assert split_sentences_regex("The version is release 3rd. Then more text.") == ["The version is release 3rd. Then more text."]

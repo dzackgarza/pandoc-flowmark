@@ -16,7 +16,6 @@ from flowmark.pandoc_verify import pandoc_ast
 from flowmark.preflight import MalformedInputError, preflight
 from flowmark.reformat_api import reformat_text
 
-
 # Pandoc reads an unclosed fence as paragraph text.
 AMBIGUOUS_FENCE = "Intro.\n\n```python\nx = 1\n\nmore   text   here\n"
 
@@ -28,11 +27,7 @@ def test_preflight_reads_a_bar_inside_a_span_as_cell_content() -> None:
     Reporting them sent the #17 reporter and a later user to "fix" input that was
     correct -- and escaping the bar inside a code span changes the code's text.
     """
-    rows = (
-        "| construct | status |\n|---|---|\n"
-        "| explicit `|X(F_{q^r})|` for `A^n` | proposed |\n"
-        "| $|-2K_{\\widetilde V}|=\\{C\\}$ generically | established |\n"
-    )
+    rows = "| construct | status |\n|---|---|\n| explicit `|X(F_{q^r})|` for `A^n` | proposed |\n| $|-2K_{\\widetilde V}|=\\{C\\}$ generically | established |\n"
 
     assert preflight(rows) == []
 
@@ -45,9 +40,7 @@ def test_preflight_finds_a_row_whose_cell_count_disagrees() -> None:
 
 
 def test_preflight_finds_unterminated_math() -> None:
-    assert [f.line for f in preflight("A paragraph with $x + y and no closer.\n")] == [
-        1
-    ]
+    assert [f.line for f in preflight("A paragraph with $x + y and no closer.\n")] == [1]
 
 
 def test_preflight_finds_an_unbalanced_fence() -> None:
@@ -72,7 +65,7 @@ def test_preflight_is_quiet_on_clean_input() -> None:
 def test_unclosed_fence_is_refused() -> None:
     assert [finding.line for finding in preflight(AMBIGUOUS_FENCE)] == [3]
     with pytest.raises(MalformedInputError, match="never closed"):
-        reformat_text(AMBIGUOUS_FENCE, semantic=True, verify=True)
+        reformat_text(AMBIGUOUS_FENCE)
 
 
 def test_preflight_accepts_inline_math_that_continues_on_the_next_line() -> None:

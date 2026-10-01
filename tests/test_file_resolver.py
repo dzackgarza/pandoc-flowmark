@@ -12,7 +12,7 @@ from flowmark.file_resolver import (
     FileResolverConfig,
 )
 from flowmark.file_resolver.gitignore import (
-    _read_ignore_file,  # pyright: ignore[reportPrivateUsage]
+    read_ignore_file,
 )
 
 
@@ -317,34 +317,34 @@ def test_resolver_gitignore_wildcard_file_pattern(tmp_path: Path) -> None:
 
 
 def test_read_ignore_file_missing(tmp_path: Path) -> None:
-    """_read_ignore_file returns None for missing files (fm-39fo / fm-pek5)."""
-    result = _read_ignore_file(tmp_path / "nonexistent")
+    """`read_ignore_file` returns None for missing files (fm-39fo / fm-pek5)."""
+    result = read_ignore_file(tmp_path / "nonexistent")
     assert result is None
 
 
 def test_read_ignore_file_unreadable(tmp_path: Path) -> None:
-    """_read_ignore_file returns None for unreadable files (fm-39fo / fm-pek5)."""
+    """`read_ignore_file` returns None for unreadable files (fm-39fo / fm-pek5)."""
     if os.getuid() == 0:
         # Root can read any file regardless of permissions; test the OSError
         # path via a missing file instead.
-        result = _read_ignore_file(tmp_path / "nonexistent_ignore")
+        result = read_ignore_file(tmp_path / "nonexistent_ignore")
         assert result is None
         return
     ignore_file = tmp_path / ".gitignore"
     ignore_file.write_text("*.log\n")
     ignore_file.chmod(0o000)
     try:
-        result = _read_ignore_file(ignore_file)
+        result = read_ignore_file(ignore_file)
         assert result is None
     finally:
         ignore_file.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
 def test_read_ignore_file_non_utf8(tmp_path: Path) -> None:
-    """_read_ignore_file returns None for non-UTF-8 files (fm-8to0)."""
+    """`read_ignore_file` returns None for non-UTF-8 files (fm-8to0)."""
     ignore_file = tmp_path / ".gitignore"
     ignore_file.write_bytes(b"\x80\x81\x82\xff\xfe")
-    result = _read_ignore_file(ignore_file)
+    result = read_ignore_file(ignore_file)
     assert result is None
 
 

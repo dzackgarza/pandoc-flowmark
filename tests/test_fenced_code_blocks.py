@@ -8,6 +8,7 @@ than the content contains.
 
 from textwrap import dedent
 
+from flowmark import FormatOptions, Semantic
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
 
@@ -32,7 +33,7 @@ def test_simple_fenced_code_block() -> None:
         + "\n"
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert result == expected_doc
 
 
@@ -60,7 +61,7 @@ def test_four_backtick_fence_preserved() -> None:
         + "\n"
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert result == expected_doc
 
 
@@ -96,7 +97,7 @@ def test_nested_code_blocks() -> None:
         + "\n"
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert result == expected_doc
 
 
@@ -132,7 +133,7 @@ def test_deeply_nested_code_blocks() -> None:
         + "\n"
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert result == expected_doc
 
 
@@ -159,7 +160,7 @@ def test_code_block_with_inline_backticks() -> None:
         + "\n"
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert result == expected_doc
 
 
@@ -184,7 +185,7 @@ def test_tilde_fence_stays_tilde() -> None:
         + "\n"
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert result == expected_doc
 
 
@@ -217,7 +218,7 @@ def test_tilde_fence_with_backticks_in_content() -> None:
         + "\n"
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert result == expected_doc
 
 
@@ -258,7 +259,7 @@ def test_empty_lines_in_code_block_no_trailing_whitespace() -> None:
         + "\n"
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert result == expected_doc
     # Verify the empty line has no trailing whitespace
     assert result.split("\n")[2] == ""
@@ -301,15 +302,11 @@ def test_empty_lines_in_nested_code_block_no_trailing_whitespace() -> None:
         + "\n"
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert result == expected_doc
     # Verify the empty line between functions has no trailing whitespace
     lines = result.split("\n")
-    empty_line_idx = next(
-        i
-        for i in range(len(lines))
-        if lines[i - 1].endswith("pass") and lines[i + 1].strip().startswith("def bar")
-    )
+    empty_line_idx = next(i for i in range(len(lines)) if lines[i - 1].endswith("pass") and lines[i + 1].strip().startswith("def bar"))
     assert lines[empty_line_idx] == ""
 
 
@@ -328,7 +325,7 @@ def test_empty_lines_in_quoted_code_block_no_trailing_whitespace() -> None:
     # The empty line should have ">" (blockquote marker) but no trailing space.
     expected_doc = "> ```python\n> line1\n>\n> line2\n> ```\n"
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert result == expected_doc
 
 
@@ -359,5 +356,5 @@ def test_multiple_empty_lines_in_code_block() -> None:
         + "\n"
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
     assert result == expected_doc

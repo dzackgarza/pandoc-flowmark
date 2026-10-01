@@ -9,6 +9,7 @@ or hard-break normalization.
 
 from textwrap import dedent
 
+from flowmark import FormatOptions, Semantic
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
 
@@ -28,17 +29,13 @@ def test_display_math_no_blank_line_before() -> None:
         """
     ).strip()
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     # The critical assertion: \\[ must NOT have a trailing backslash.
-    assert "\\[\\\n" not in result, (
-        f"\\[ must not have trailing hard-break backslash, got:\n{repr(result)}"
-    )
+    assert "\\[\\\n" not in result, f"\\[ must not have trailing hard-break backslash, got:\n{repr(result)}"
 
     # \\[ should start a block on its own line.
-    assert "\n\\[\n" in result, (
-        f"\\[ should appear on its own line, got:\n{repr(result)}"
-    )
+    assert "\n\\[\n" in result, f"\\[ should appear on its own line, got:\n{repr(result)}"
 
 
 def test_display_math_preserves_content_verbatim() -> None:
@@ -56,15 +53,11 @@ def test_display_math_preserves_content_verbatim() -> None:
         """
     ).strip()
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     # The ampersands and double-backslash must survive intact
-    assert "a & b \\\\" in result, (
-        f"display math content with & must be preserved, got:\n{repr(result)}"
-    )
-    assert "c & d" in result, (
-        f"display math content with & must be preserved, got:\n{repr(result)}"
-    )
+    assert "a & b \\\\" in result, f"display math content with & must be preserved, got:\n{repr(result)}"
+    assert "c & d" in result, f"display math content with & must be preserved, got:\n{repr(result)}"
 
 
 def test_display_math_with_blank_line_before() -> None:
@@ -81,7 +74,7 @@ def test_display_math_with_blank_line_before() -> None:
         """
     ).strip()
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     # Should be a clean three-line block
     assert "\n\\[\n" in result
@@ -102,7 +95,7 @@ def test_dollar_display_math() -> None:
         """
     ).strip()
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     assert "\n$$\n" in result
     assert "\n$$\n" in result  # opener and closer both present

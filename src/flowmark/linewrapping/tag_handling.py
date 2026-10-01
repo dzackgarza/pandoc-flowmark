@@ -12,9 +12,10 @@ The main concerns are:
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from enum import Enum
 from typing import NamedTuple
+
 from flowmark.linewrapping.atomic_patterns import (
     PAIRED_HTML_COMMENT,
     PAIRED_JINJA_COMMENT,
@@ -269,13 +270,18 @@ class _Segment(NamedTuple):
         return self.kind is not _SegmentKind.text
 
 
-def _segments(lines: Sequence[str], has_tags: bool) -> list[_Segment]:
+def _no_list_item(_line: str) -> bool:
+    return False
+
+
+def _segments(
+    lines: Sequence[str], is_list_item: Callable[[str], bool]
+) -> list[_Segment]:
     """
     Split a paragraph's lines where a tag or a block begins or ends.
 
     A run of lines the parser reads as a pipe table is always a segment of its own:
-    a row must never be wrapped. When tags are present, so is each line the parser
-    reads as a list item.
+    a row must never be wrapped. So is each line `is_list_item` accepts.
     """
     segments: list[_Segment] = []
     i = 0
@@ -288,7 +294,7 @@ def _segments(lines: Sequence[str], has_tags: bool) -> list[_Segment]:
             i += table_length
             continue
         line = lines[i]
-        if has_tags and _is_list_item_line(line):
+        if is_list_item(line):
             segments.append(_Segment([line], _SegmentKind.list_item))
         elif (
             segments
@@ -334,7 +340,7 @@ def add_tag_newline_handling(
             result = base_wrapper(text, initial_indent, subsequent_indent)
             # Fix multiline tags: ensure closing tag on own line when opening spans lines.
             # This applies in both atomic and wrap modes to work around Markdoc parser bug.
-            result = _fix_multiline_opening_tag_with_closing(result)
+            result = fix_multiline_opening_tag_with_closing(result)
             return result
 
         lines = text.split("\n")
@@ -342,7 +348,7 @@ def add_tag_newline_handling(
         # If only one line after split, same as above
         if len(lines) <= 1:
             result = base_wrapper(text, initial_indent, subsequent_indent)
-            result = _fix_multiline_opening_tag_with_closing(result)
+            result = fix_multiline_opening_tag_with_closing(result)
             return result
 
         # Check if there are any tags in the text - only split off list items
@@ -351,12 +357,12 @@ def add_tag_newline_handling(
             line_ends_with_tag(line) or line_starts_with_tag(line) for line in lines
         )
 
-        segments = _segments(lines, has_tags)
+        segments = _segments(lines, _is_list_item_line if has_tags else _no_list_item)
 
         # A single text segment means no tag or block boundaries were found
         if len(segments) == 1 and segments[0].kind is _SegmentKind.text:
             result = base_wrapper(text, initial_indent, subsequent_indent)
-            result = _fix_multiline_opening_tag_with_closing(result)
+            result = fix_multiline_opening_tag_with_closing(result)
             return result
 
         # Wrap each segment separately. A table's rows are kept as written, one
@@ -402,7 +408,7 @@ def add_tag_newline_handling(
 
         # Fix multi-line opening tags that have closing tags on the same line.
         # This works around a Markdoc parser bug (see GitHub issue #17).
-        result = _fix_multiline_opening_tag_with_closing(result)
+        result = fix_multiline_opening_tag_with_closing(result)
 
         return result
 
@@ -442,7 +448,7 @@ _multiline_closing_pattern: re.Pattern[str] = re.compile(
 )
 
 
-def _fix_multiline_opening_tag_with_closing(text: str) -> str:
+def fix_multiline_opening_tag_with_closing(text: str) -> str:
     """
     Ensure closing tags are on their own line when the opening tag spans multiple lines.
 

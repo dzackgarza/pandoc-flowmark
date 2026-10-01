@@ -66,8 +66,7 @@ Follow this checklist for each new release.
 2. **Run linting and tests locally:**
 
    ```shell
-   make lint
-   make test
+   just test-ci
    ```
 
 3. **Confirm CI is passing:**

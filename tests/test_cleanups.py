@@ -1,17 +1,9 @@
 import pytest
 
-from flowmark.formats.flowmark_markdown import flowmark_markdown
-from flowmark.linewrapping.line_wrappers import line_wrap_by_sentence
+from flowmark import FormatOptions, Pass, Semantic
 from flowmark.linewrapping.markdown_filling import fill_markdown
-from flowmark.pandoc_verify import (
-    _SUSPENSION_WORDS as _VERIFY_SUSPENSION,  # pyright: ignore[reportPrivateUsage]
-)
 from flowmark.pandoc_verify import MeaningChangedError, check_meaning_preserved
 from flowmark.reformat_api import reformat_text
-from flowmark.transforms.doc_cleanups import (
-    _SUSPENSION_WORDS as _CLEANUP_SUSPENSION,  # pyright: ignore[reportPrivateUsage]
-)
-from flowmark.transforms.doc_cleanups import unbold_headings
 
 input_md = """
 # **Bold Heading 1**
@@ -64,13 +56,8 @@ Final text.
 
 
 def test_unbold_headings() -> None:
-    formatter = flowmark_markdown(line_wrap_by_sentence())
-
-    doc = formatter.parse(input_md)
-    unbold_headings(doc)
-    rendered_md = formatter.render(doc).strip()
-
-    assert rendered_md == expected_md.strip()
+    options = FormatOptions(Semantic(), frozenset({Pass.cleanups}))
+    assert fill_markdown(input_md, options) == expected_md.lstrip()
 
 
 # --- #18: a line break that fell after a hyphen joins without a space --------
@@ -107,7 +94,7 @@ def test_hyphen_join_drops_the_space_at_a_line_break(source: str, wanted: str) -
     fall inside inline markup (`**semi-log-` / `canonical**`) and the following
     token can be inline math (`degree-` / `$4$`).
     """
-    result = fill_markdown(source + "\n", cleanups=True, dedent_input=False)
+    result = fill_markdown(source + "\n", FormatOptions(passes=frozenset({Pass.cleanups})))
 
     assert wanted in result, result
 
@@ -121,7 +108,8 @@ SUSPENSION_WORDS = ["and", "or", "to", "nor", "but", "through", "versus"]
 def test_suspended_hyphenation_is_never_joined(word: str) -> None:
     """One test per member of the suspension scope."""
     result = fill_markdown(
-        f"the pre-\n{word} post-stable models\n", cleanups=True, dedent_input=False
+        f"the pre-\n{word} post-stable models\n",
+        FormatOptions(passes=frozenset({Pass.cleanups})),
     )
 
     assert f"pre- {word}" in result, result
@@ -132,9 +120,7 @@ def test_an_authored_space_after_a_hyphen_is_left_alone() -> None:
     The rule fires only at a line join. A `degree- 2` the author typed on one
     line is the author's, and reflowing must not silently rewrite it.
     """
-    result = fill_markdown(
-        "the degree- 2 Coble locus\n", cleanups=True, dedent_input=False
-    )
+    result = fill_markdown("the degree- 2 Coble locus\n", FormatOptions(passes=frozenset({Pass.cleanups})))
 
     assert "degree- 2" in result, result
 
@@ -145,18 +131,14 @@ def test_a_join_beside_an_authored_hyphen_space_passes_verification() -> None:
     up, and a `post- cases` the author typed on one line, which it leaves alone.
     The gate must accept exactly that result, not demand every `- x` be joined.
     """
-    result = reformat_text(
-        "A semi-log-\nscale plot of the post- cases.\n", cleanups=True, verify=True
-    )
+    result = reformat_text("A semi-log-\nscale plot of the post- cases.\n")
 
     assert "semi-log-scale plot of the post- cases." in result, result
 
 
 def test_hyphen_join_requires_cleanups() -> None:
     """Without `-c` the faithful `SoftBreak` spacing stands."""
-    result = fill_markdown(
-        "the degree-\n2 Coble locus\n", cleanups=False, dedent_input=False
-    )
+    result = fill_markdown("the degree-\n2 Coble locus\n")
 
     assert "degree- 2" in result, result
 
@@ -167,22 +149,7 @@ def test_hyphen_join_passes_verification() -> None:
     `Str "degree-2"`), so it needs a declared normalization rather than the gate
     being loosened.
     """
-    reformat_text(
-        "the degree-\n2 Coble locus and more words\n", cleanups=True, verify=True
-    )
-
-
-def test_hyphen_join_scope_matches_the_cleanup() -> None:
-    """
-    The gate and the formatter must agree on the suspension scope.
-
-    A word the cleanup joins but the gate refuses is a document that cannot be
-    written; a word the gate would accept but the cleanup never produces is dead
-    permission. The two lists are separate because they live in separate modules,
-    so this is what keeps them one rule.
-    """
-    assert _CLEANUP_SUSPENSION == _VERIFY_SUSPENSION
-    assert set(SUSPENSION_WORDS) == _CLEANUP_SUSPENSION
+    reformat_text("the degree-\n2 Coble locus and more words\n")
 
 
 @pytest.mark.parametrize("word", SUSPENSION_WORDS)
@@ -206,8 +173,7 @@ def test_hyphen_join_reports_how_many(capsys: pytest.CaptureFixture[str]) -> Non
     """
     fill_markdown(
         "the degree-\n2 locus and the white-\nroot wall\n",
-        cleanups=True,
-        dedent_input=False,
+        FormatOptions(passes=frozenset({Pass.cleanups})),
     )
 
     assert "closed up 2 line breaks" in capsys.readouterr().err

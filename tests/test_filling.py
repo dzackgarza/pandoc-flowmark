@@ -1,10 +1,12 @@
 from textwrap import dedent
 
-from flowmark.formats.options import ListSpacing
+from flowmark import FormatOptions, Semantic, Width
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
+_LONG_WORD = "v" + "e" * 109 + "ry"
+
 _original_doc = dedent(
-    """
+    f"""
 # This is a header
 
 This is sentence one. This is sentence two.
@@ -12,7 +14,7 @@ This is sentence three.
 This is sentence four. This is sentence 5. This is sentence six.
 Seven. Eight. Nine. Ten.
 A [link](https://example.com). Some *emphasis* and **strong emphasis** and `code`.
-And a     super-super-super-super-super-super-super-hyphenated veeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeery long word.
+And a     super-super-super-super-super-super-super-hyphenated {_LONG_WORD} long word.
 This is a sentence with many words and words and words and words and words and words and words and words.
 And another with words and
 words and words split across a line.
@@ -222,9 +224,7 @@ Complex should be possible.*” —Alan Kay </p>
 
 
 def test_normalize_markdown() -> None:
-    normalized_doc = fill_markdown(
-        _original_doc, semantic=True, list_spacing=ListSpacing.loose
-    )
+    normalized_doc = fill_markdown(_original_doc, FormatOptions(Semantic()))
     assert normalized_doc == _expected_doc
 
 
@@ -257,7 +257,7 @@ def test_multi_paragraph_list_items() -> None:
         + "\n"
     )
 
-    normalized_doc = fill_markdown(input_doc, semantic=True)
+    normalized_doc = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     print("---Input")
     print(input_doc)
@@ -288,22 +288,17 @@ def test_wide_table_adjacent_to_paragraph() -> None:
     """
     )
 
-    for semantic in (True, False):
-        result = fill_markdown(input_doc, semantic=semantic)
+    for wrap in (Semantic(), Width()):
+        result = fill_markdown(input_doc, FormatOptions(wrap))
 
         # Every table row must remain on its own single line
-        assert (
-            "| Quarter | Revenue ($M) | YoY % | QoQ % | Segment A % | Segment B % | Geo: US % | Geo: Intl % |"
-            in result
-        )
+        assert "| Quarter | Revenue ($M) | YoY % | QoQ % | Segment A % | Segment B % | Geo: US % | Geo: Intl % |" in result
         assert "| Q1 2025 | 125.3 | +12% | +3% | 45% | 55% | 60% | 40% |" in result
 
         # Verify rows are each on their own line (not merged with text)
         result_lines = result.strip().split("\n")
         table_lines = [line for line in result_lines if line.startswith("|")]
-        assert len(table_lines) == 3, (
-            f"Expected 3 table lines, got {len(table_lines)} in {semantic=}"
-        )
+        assert len(table_lines) == 3, f"Expected 3 table lines, got {len(table_lines)} in {wrap=}"
 
 
 def test_standalone_wide_table() -> None:
@@ -320,7 +315,7 @@ def test_standalone_wide_table() -> None:
     """
     )
 
-    result = fill_markdown(input_doc, semantic=True)
+    result = fill_markdown(input_doc, FormatOptions(Semantic()))
 
     # All rows preserved
     assert "| Quarter | Revenue ($M) |" in result
@@ -338,8 +333,6 @@ def test_semantic_breaks_without_a_width_collapse_runs_of_spaces() -> None:
     Every mode normalizes the spaces between words; semantic line breaks with no
     column limit, the CLI default, must too (#40).
     """
-    result = fill_markdown(
-        "some   text   here. More   text.\n", semantic=True, width=0, dedent_input=False
-    )
+    result = fill_markdown("some   text   here. More   text.\n", FormatOptions(Semantic(0)))
 
     assert result == "some text here.\nMore text.\n"

@@ -106,7 +106,7 @@ _SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?P<marks>=+|-+)[ \t]*$")
 _ATTR_ID = re.compile(r"(?:^|\s)#(?P<id>[A-Za-z][A-Za-z0-9_.:-]*)")
 _FENCE_OPEN = re.compile(r"^(?P<indent> {0,3})(?P<marker>`{3,}|~{3,})(?P<info>.*)$")
 _DIV_FENCE_OPEN = re.compile(
-    r"^(?P<indent> {0,3})(?P<marker>:{3,})(?P<info>[ \t]+\S.*)$"
+    r"^(?P<indent> {0,3})(?P<marker>:{3,})(?P<info>[ \t]*[^\s:].*)$"
 )
 _LATEX_BEGIN = re.compile(r"\\begin\{(?P<name>[A-Za-z*]+)\}")
 _LATEX_END_TEMPLATE = r"\\end\{%s\}"
@@ -297,6 +297,81 @@ _NON_DESCRIPTIVE_LINK_TEXT = {
 }
 
 _HEADING_PUNCTUATION = frozenset(".,;:!?")
+
+# A paragraph that opens with a short bold run-in label (`**Question.** What ...`)
+# imitates an amsthm environment by typeface alone.
+_BOLD_LABEL_MAX_WORDS = 12
+_BOLD_LABEL_RUN_IN = (".", ":")
+_NUMBERED_SECTION_TITLE = re.compile(r"\d+(?:\.\d+)*\.?\s")
+# Words that name a numbered item: environments, document divisions, and their
+# usual abbreviations.
+_NUMBERED_KINDS = (
+    "theorem|lemma|corollary|proposition|conjecture|definition|example|exercise|"
+    + "remark|claim|fact|notation|note|observation|problem|question|warning|"
+    + "section|chapter|part|appendix|equation|figure|table|"
+    + "thm|prop|lem|cor|conj|defn|def|exer|ex|rem|eqn|eq|sec|fig|tab"
+)
+_MANUAL_NUMBER = r"\d+(?:\.\d+)*[a-z]?(?!\w|\.\d)"
+_NUMBERED_LABEL = re.compile(
+    rf"(?P<kind>(?i:{_NUMBERED_KINDS}))\.?\s+(?P<number>{_MANUAL_NUMBER})\b"
+)
+_RUN_IN_NUMBERED_LABEL = re.compile(
+    _NUMBERED_LABEL.pattern + r"\s*(?:\([^)]*\))?\s*[.:]"
+)
+_NUMBERED_HEADING = re.compile(
+    r"(?:§\s*)?(?P<number>\d{1,3}(?:\.\d{1,3})*)\.?\s"
+    + rf"|(?P<kind>(?i:{_NUMBERED_KINDS}))\.?\s+(?P<label_number>{_MANUAL_NUMBER})"
+)
+_NUMBERED_REFERENCE = re.compile(
+    rf"(?<![\w#@:])(?:(?P<kind>(?i:{_NUMBERED_KINDS}))\.?\s+\(?|§\s*)"
+    + rf"(?P<number>{_MANUAL_NUMBER})\)?"
+)
+# Numbering families: a reference matches a hand number only within its family.
+_SECTION_KINDS = frozenset({"section", "sec", "chapter", "part", "appendix"})
+_EQUATION_KINDS = frozenset({"equation", "eqn", "eq"})
+
+
+def _numbering_family(kind: str | None, unnamed: str) -> str:
+    """The counter a kind word belongs to; ``unnamed`` when no word is given."""
+    if kind is None:
+        return unnamed
+    kind = kind.casefold()
+    if kind in _SECTION_KINDS:
+        return "section"
+    if kind in _EQUATION_KINDS:
+        return "equation"
+    return "item"
+
+
+_EQUATION_TAG = re.compile(r"\\tag\*?\s*\{\s*(?P<number>" + _MANUAL_NUMBER + r")\s*\}")
+# `Chapter 2 of [Man99]`, `Theorem 3 in @key`: the number belongs to another work.
+_EXTERNAL_SOURCE = re.compile(r"\s+(?:of|in|from)\s+[\[@]")
+# Quarto's theorem and proof div classes
+# (https://quarto.org/docs/authoring/cross-references.html#theorems-and-proofs)
+# plus the other amsthm environment names common in mathematical notes.
+_THEOREM_ENVIRONMENTS = frozenset(
+    {
+        "theorem",
+        "lemma",
+        "corollary",
+        "proposition",
+        "conjecture",
+        "definition",
+        "example",
+        "exercise",
+        "proof",
+        "remark",
+        "solution",
+        "claim",
+        "fact",
+        "notation",
+        "note",
+        "observation",
+        "problem",
+        "question",
+        "warning",
+    }
+)
 
 
 def _lines(text: str) -> list[_Line]:
@@ -987,6 +1062,17 @@ def _fenced_div_openers(
     return result
 
 
+def _heading_match_key(text: str) -> str:
+    """Heading text with Pandoc's `smart` extension substitutions undone.
+
+    Pandoc turns `--`, `---` and `...` into dashes and an ellipsis, and turns
+    straight quotes into curly ones or `Quoted` nodes whose marks plain text drops.
+    """
+    for typographic, ascii_form in (("—", "---"), ("–", "--"), ("…", "...")):
+        text = text.replace(typographic, ascii_form)
+    return re.sub(r"[\"'‘’“”]", "", text).casefold()
+
+
 def _reconcile_heading_locations(
     headers: list[tuple[int, str, str]],
     candidates: list[_Heading],
@@ -995,14 +1081,14 @@ def _reconcile_heading_locations(
     locations: list[tuple[int, int]] = []
     cursor = 0
     for level, text, _identifier in headers:
-        wanted = text.casefold()
+        wanted = _heading_match_key(text)
         found: _Heading | None = None
         while cursor < len(candidates):
             candidate = candidates[cursor]
             cursor += 1
             if candidate.level != level:
                 continue
-            if _plain_inline_text(candidate.text).casefold() != wanted:
+            if _heading_match_key(_plain_inline_text(candidate.text)) != wanted:
                 continue
             found = candidate
             break
@@ -1151,6 +1237,244 @@ def _pandoc_resource_findings(
     return findings
 
 
+def _labelable_paragraphs(blocks: PandocJson) -> list[list[PandocJson]]:
+    """Inlines of each paragraph a fenced div can replace, in document order.
+
+    These are top-level paragraphs and paragraphs inside fenced divs and block
+    quotes.
+    """
+    result: list[list[PandocJson]] = []
+    if not isinstance(blocks, list):
+        return result
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        kind = block.get("t")
+        content = block.get("c")
+        if kind == "Para" and isinstance(content, list) and content:
+            result.append(content)
+        elif kind == "BlockQuote":
+            result.extend(_labelable_paragraphs(content))
+        elif kind == "Div" and isinstance(content, list) and len(content) == 2:
+            result.extend(_labelable_paragraphs(content[1]))
+    return result
+
+
+def _bold_label(inlines: list[PandocJson]) -> str | None:
+    """The label text when the opening bold run is a run-in label, else ``None``."""
+    first = inlines[0]
+    if not isinstance(first, dict) or first.get("t") != "Strong":
+        return None
+    label = " ".join(pandoc_plain(first).split())
+    words = label.split()
+    if not words or len(words) > _BOLD_LABEL_MAX_WORDS:
+        return None
+    following = pandoc_plain(inlines[1:2])
+    if (
+        len(inlines) == 1
+        or label.endswith(_BOLD_LABEL_RUN_IN)
+        or following.startswith(_BOLD_LABEL_RUN_IN)
+    ):
+        return label
+    return None
+
+
+def _bold_label_anchor(strong: PandocJson) -> re.Pattern[str]:
+    """Source pattern from a bold marker to the first word or formula of its label."""
+    for node in walk_pandoc(strong):
+        content = node.get("c")
+        if node.get("t") == "Str" and isinstance(content, str):
+            anchor = content
+        elif node.get("t") == "Math" and isinstance(content, list):
+            anchor = str(content[1])
+        else:
+            continue
+        return re.compile(r"(?:\*\*|__)[^\n]*?" + re.escape(anchor))
+    return re.compile(r"\*\*|__")
+
+
+def _bold_label_environment(label: str) -> str | None:
+    """The theorem-like div class a bold label names, if any."""
+    words = [word.casefold() for word in re.findall(r"[A-Za-z]+", label)]
+    named = next((word for word in words if word in _THEOREM_ENVIRONMENTS), None)
+    if named is not None:
+        return named
+    bare = label.rstrip("".join(_BOLD_LABEL_RUN_IN))
+    return bare.casefold() if bare.isalpha() else None
+
+
+def _bold_label_findings(
+    text: str,
+    pandoc_document: dict[str, PandocJson],
+    protected: bytearray,
+) -> list[RuleFinding]:
+    findings: list[RuleFinding] = []
+    cursor = 0
+    for inlines in _labelable_paragraphs(pandoc_document.get("blocks")):
+        label = _bold_label(inlines)
+        if label is None:
+            continue
+        start, end = 0, 0
+        for match in _bold_label_anchor(inlines[0]).finditer(text, cursor):
+            if not _overlaps(protected, match.start(), match.start() + 2):
+                start, end = match.span()
+                cursor = end
+                break
+        environment = _bold_label_environment(label)
+        if environment is not None:
+            fix = f"a theorem-like fenced div: `::: {{.{environment}}}`"
+        elif _NUMBERED_SECTION_TITLE.match(label):
+            fix = "a Markdown heading"
+        else:
+            fix = (
+                "a theorem-like fenced div, e.g. `::: {.theorem}`, "
+                + "`::: {.definition}` or `::: {.remark}`"
+            )
+        findings.append(
+            RuleFinding(
+                "structure/bold-label",
+                "warning",
+                f'Bold label "{label}" sets only the typeface and encodes no '
+                + f"structure. Use {fix}.",
+                start,
+                end,
+                data={"label": label},
+            )
+        )
+    return findings
+
+
+def _inside_citation(text: str, offset: int) -> bool:
+    """Whether ``offset`` lies in a bracketed Pandoc citation such as `[@key, Thm 2]`."""
+    line_start = text.rfind("\n", 0, offset) + 1
+    opening = text.rfind("[", line_start, offset)
+    if opening < 0 or "]" in text[opening:offset]:
+        return False
+    closing = text.find("]", offset)
+    return closing >= 0 and "@" in text[opening:closing]
+
+
+def _paragraph_numbered_label(inlines: list[PandocJson]) -> re.Match[str] | None:
+    """The hand-numbered label that opens a paragraph, e.g. `Theorem 2.6.`."""
+    plain = " ".join(pandoc_plain(inlines).split())
+    match = _RUN_IN_NUMBERED_LABEL.match(plain)
+    if match is not None:
+        return match
+    first = inlines[0]
+    if isinstance(first, dict) and first.get("t") in {"Strong", "Emph"}:
+        return _NUMBERED_LABEL.match(" ".join(pandoc_plain(first).split()))
+    return None
+
+
+def _manual_numbering_findings(
+    text: str,
+    pandoc_document: dict[str, PandocJson],
+    protected: bytearray,
+    headings: list[tuple[str, int, int]],
+    divs: list[tuple[list[tuple[str, str]], tuple[int, int]]],
+) -> list[RuleFinding]:
+    """Numbers written by hand on headings, labels, div titles and equations.
+
+    Numbering belongs to the renderer: hand numbers drift when items move. Prose
+    references to those hand numbers are reported too, since they drift with them.
+    """
+    findings: list[RuleFinding] = []
+    declared: set[tuple[str, str]] = set()
+
+    def report(message: str, start: int, end: int, key: tuple[str, str]) -> None:
+        declared.add(key)
+        findings.append(RuleFinding("numbering/manual", "error", message, start, end))
+
+    for title, start, end in headings:
+        match = _NUMBERED_HEADING.match(title)
+        if match is None:
+            continue
+        number = match.group("number") or match.group("label_number")
+        report(
+            f'Heading "{title}" is numbered by hand. Delete "{number}": the '
+            + "renderer numbers sections. Give the heading an ID, e.g. "
+            + "`{#sec:…}`, and cite it with `@sec:…`.",
+            start,
+            end,
+            (_numbering_family(match.group("kind"), "section"), number),
+        )
+
+    cursor = 0
+    for inlines in _labelable_paragraphs(pandoc_document.get("blocks")):
+        match = _paragraph_numbered_label(inlines)
+        if match is None:
+            continue
+        kind, number = match.group("kind"), match.group("number")
+        anchor = re.compile(
+            re.escape(kind) + r"[*_]*\.?[\s*_]+" + re.escape(number) + r"\b"
+        )
+        start, end = 0, 0
+        for located in anchor.finditer(text, cursor):
+            if not _overlaps(protected, located.start(), located.end()):
+                start, end = located.span()
+                cursor = end
+                break
+        environment = _bold_label_environment(kind) or "theorem"
+        report(
+            f'"{match.group(0)}" is numbered by hand. Delete "{number}" and write '
+            + f"the block as a fenced div with an ID, e.g. `::: {{.{environment} "
+            + "#…}`. The renderer numbers it, and `@` with the ID cites it.",
+            start,
+            end,
+            (_numbering_family(kind, "item"), number),
+        )
+
+    for properties, (start, end) in divs:
+        title = next((value for key, value in properties if key == "title"), "")
+        match = _NUMBERED_HEADING.match(title + " ")
+        if match is None:
+            continue
+        number = match.group("number") or match.group("label_number")
+        report(
+            f'Div title "{title}" is numbered by hand. Delete "{number}": the '
+            + "renderer numbers the div. Give it an ID and cite it with `@` "
+            + "and the ID.",
+            start,
+            end,
+            (_numbering_family(match.group("kind"), "item"), number),
+        )
+
+    for region_start, region_end in _math_regions(text, pandoc_document):
+        for match in _EQUATION_TAG.finditer(text, region_start, region_end):
+            report(
+                f"`{match.group(0)}` numbers the equation by hand. Delete it, give "
+                + "the equation an ID, e.g. `$$ … $$ {#eq:…}`, and cite it with "
+                + "`@eq:…`.",
+                match.start(),
+                match.end(),
+                ("equation", match.group("number")),
+            )
+
+    declarations = [(finding.start, finding.end) for finding in findings]
+    for match in _NUMBERED_REFERENCE.finditer(text):
+        family = _numbering_family(match.group("kind"), "section")
+        if (
+            (family, match.group("number")) not in declared
+            or _overlaps(protected, match.start(), match.end())
+            or any(start <= match.start() < end for start, end in declarations)
+            or _inside_citation(text, match.start())
+            or _EXTERNAL_SOURCE.match(text, match.end()) is not None
+        ):
+            continue
+        findings.append(
+            RuleFinding(
+                "numbering/manual",
+                "error",
+                f'"{match.group(0)}" cites a hand-numbered item of this document '
+                + "by its number. Cite the item's ID with `@` instead; the "
+                + "renderer fills in the number.",
+                match.start(),
+                match.end(),
+            )
+        )
+    return findings
+
+
 def _pandoc_semantic_findings(
     text: str,
     pandoc_document: dict[str, PandocJson],
@@ -1181,6 +1505,8 @@ def _pandoc_semantic_findings(
             )
         )
 
+    findings.extend(_bold_label_findings(text, pandoc_document, protected))
+
     headers_with_depth = _pandoc_headers_with_div_depth(pandoc_document)
     headers = [
         (level, title, identifier)
@@ -1188,6 +1514,21 @@ def _pandoc_semantic_findings(
     ]
     local_headers = _headings(lines, protected, frontmatter)
     header_locations = _reconcile_heading_locations(headers, local_headers)
+    findings.extend(
+        _manual_numbering_findings(
+            text,
+            pandoc_document,
+            protected,
+            [
+                (title, *header_locations[index])
+                for index, (_level, title, _identifier) in enumerate(headers)
+            ],
+            [
+                (attr[2], div_openers[index] if index < len(div_openers) else (0, 0))
+                for index, (attr, _depth) in enumerate(divs_with_depth)
+            ],
+        )
+    )
     previous_level: int | None = None
     seen_heading_text: dict[str, int] = {}
     h1_count = 0
@@ -1894,6 +2235,12 @@ _BUILTIN_RULES = (
         _correctness_check("math/unmatched-right"),
     ),
     LintRule(
+        "numbering/manual",
+        "Number written by hand instead of a label and cross-reference.",
+        RuleLevel.ERROR,
+        _correctness_check("numbering/manual"),
+    ),
+    LintRule(
         "pandoc/duplicate-identifier",
         "Pandoc identifier is used more than once.",
         RuleLevel.ERROR,
@@ -1903,6 +2250,11 @@ _BUILTIN_RULES = (
         "pandoc/missing-resource",
         "Pandoc resource does not exist.",
         check=_correctness_check("pandoc/missing-resource"),
+    ),
+    LintRule(
+        "structure/bold-label",
+        "Bold run-in label imitates a theorem-like environment.",
+        check=_correctness_check("structure/bold-label"),
     ),
     LintRule(
         "structure/heading-in-fenced-div",

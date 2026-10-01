@@ -10,7 +10,7 @@ ai-review-ci/skills/quality-control/SKILL.md and minimized to two lines.
 import signal
 from types import FrameType
 
-from flowmark import reformat_text
+from flowmark import reformat_text_unchecked
 
 # A list item containing an inline code span `assert x ... is not None` whose
 # opening and closing backticks sit on different source lines. This exact byte
@@ -32,7 +32,7 @@ def test_list_item_multiline_code_span_terminates() -> None:
     interior newline to a space)."""
     signal.signal(signal.SIGALRM, _on_alarm)
     signal.setitimer(signal.ITIMER_REAL, 10.0)
-    result = reformat_text(REPRO, verify=False)
+    result = reformat_text_unchecked(REPRO)
     signal.setitimer(signal.ITIMER_REAL, 0.0)
 
     # The inline code span survives reformatting as a single backtick span.

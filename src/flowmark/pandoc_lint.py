@@ -12,22 +12,22 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass
-from typing import cast
+from typing import Literal, cast
 
 from flowmark.pandoc_dialect import PANDOC_LINT_FORMAT
 from flowmark.pandoc_reader import PandocUnavailableError, pandoc_executable
 
+type PandocJson = str | int | float | bool | None | list[PandocJson] | dict[str, PandocJson]
 
-type PandocJson = (
-    str | int | float | bool | None | list[PandocJson] | dict[str, PandocJson]
-)
+
+type PandocSeverity = Literal["error", "warning"]
 
 
 @dataclass(frozen=True)
 class PandocMessage:
     """One warning/error emitted by the real Pandoc reader."""
 
-    severity: str
+    severity: PandocSeverity
     message: str
     line: int | None
     column: int | None
@@ -49,9 +49,7 @@ class PandocLintUnavailableError(RuntimeError):
     """Raised when syntax-aware linting cannot invoke Pandoc."""
 
 
-_POINT_RE = re.compile(
-    r"\(line (?P<line>\d+), column (?P<column>\d+)\)|line (?P<line2>\d+) column (?P<column2>\d+)"
-)
+_POINT_RE = re.compile(r"\(line (?P<line>\d+), column (?P<column>\d+)\)|line (?P<line2>\d+) column (?P<column2>\d+)")
 
 
 def _point(message: str) -> tuple[int | None, int | None]:
@@ -63,13 +61,14 @@ def _point(message: str) -> tuple[int | None, int | None]:
     return int(line), int(column)
 
 
-def _messages(stderr: str, *, failed: bool) -> tuple[PandocMessage, ...]:
+def _messages(stderr: str, unmarked: PandocSeverity) -> tuple[PandocMessage, ...]:
+    """Split Pandoc's stderr into messages; a line without a tag has `unmarked`."""
     if not stderr.strip():
         return ()
     lines = stderr.rstrip().splitlines()
     result: list[PandocMessage] = []
     current: list[str] = []
-    severity = "error" if failed else "warning"
+    severity: PandocSeverity = unmarked
 
     def flush() -> None:
         nonlocal current, severity
@@ -88,7 +87,7 @@ def _messages(stderr: str, *, failed: bool) -> tuple[PandocMessage, ...]:
         elif current:
             current.append(line)
         else:
-            severity = "error" if failed else "warning"
+            severity = unmarked
             current = [line]
     flush()
     return tuple(result)
@@ -107,7 +106,7 @@ def parse_pandoc_for_lint(text: str) -> PandocLintDocument:
         capture_output=True,
         check=False,
     )
-    messages = _messages(completed.stderr, failed=completed.returncode != 0)
+    messages = _messages(completed.stderr, "error" if completed.returncode != 0 else "warning")
     if completed.returncode != 0:
         return PandocLintDocument(None, messages)
     parsed = cast("dict[str, PandocJson]", json.loads(completed.stdout))
@@ -146,17 +145,9 @@ def pandoc_plain(value: PandocJson) -> str:
         return content
     if kind in {"Space", "SoftBreak", "LineBreak"}:
         return " "
-    if (
-        kind in {"Code", "Math", "RawInline"}
-        and isinstance(content, list)
-        and len(content) >= 2
-    ):
+    if kind in {"Code", "Math", "RawInline"} and isinstance(content, list) and len(content) >= 2:
         return str(content[1])
-    if (
-        kind in {"Link", "Image", "Span", "Cite"}
-        and isinstance(content, list)
-        and len(content) >= 2
-    ):
+    if kind in {"Link", "Image", "Span", "Cite"} and isinstance(content, list) and len(content) >= 2:
         return pandoc_plain(content[1])
     return pandoc_plain(content)
 

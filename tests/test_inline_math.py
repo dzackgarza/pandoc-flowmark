@@ -1,11 +1,14 @@
 """Test inline math preservation."""
 
+from dataclasses import replace
+
 import pytest
 
+from flowmark import Width
 from flowmark.formats.flowmark_markdown import flowmark_markdown
 from flowmark.linewrapping.markdown_filling import fill_markdown
 from flowmark.preflight import MalformedInputError
-from flowmark.reformat_api import reformat_text
+from flowmark.reformat_api import REFORMAT_DEFAULTS, reformat_text
 
 
 def test_inline_math_preserves_latex_subscripts_verbatim() -> None:
@@ -53,7 +56,7 @@ MATH_WRAP_SOURCE = "word word word word word word word word word word word word 
 
 def test_wrapping_never_breaks_inside_inline_math() -> None:
     """The #17 reproducer, at the default width."""
-    result = fill_markdown(MATH_WRAP_SOURCE, dedent_input=False)
+    result = fill_markdown(MATH_WRAP_SOURCE)
 
     assert "$H^1(X,\\mathcal O_X)=0$" in result, result
     for line in result.splitlines():
@@ -67,7 +70,7 @@ def test_wrapping_takes_a_short_line_rather_than_splitting_math() -> None:
     right thing when fewer leading words precede the span; the defect was only in
     the case where the cost function preferred the split.
     """
-    result = fill_markdown(MATH_WRAP_SOURCE, dedent_input=False)
+    result = fill_markdown(MATH_WRAP_SOURCE)
     first_line = result.splitlines()[0]
 
     assert "$" not in first_line, first_line
@@ -78,7 +81,7 @@ def test_verify_accepts_the_math_reproducer_at_the_default_width() -> None:
     The user-facing consequence: the document formats with the gate on, rather
     than being unformattable.
     """
-    reformat_text(MATH_WRAP_SOURCE, verify=True)
+    reformat_text(MATH_WRAP_SOURCE)
 
 
 # --- #28: what is unbreakable comes from the parse, and the parse follows pandoc ---
@@ -94,9 +97,7 @@ def test_inline_math_across_a_line_break_formats_with_verify() -> None:
     Pandoc reads `$a_1 +\\nb_1 = c$` as one `InlineMath`. Joining the line puts a
     space where the newline was, which TeX reads identically.
     """
-    result = reformat_text(
-        "Some text with $a_1 +\nb_1 = c$ and more text here.\n", verify=True
-    )
+    result = reformat_text("Some text with $a_1 +\nb_1 = c$ and more text here.\n")
 
     assert "$a_1 + b_1 = c$" in result, result
 
@@ -113,20 +114,17 @@ def test_math_pandoc_rejects_is_refused_not_reformatted(source: str) -> None:
     line, rather than format the intended TeX as prose.
     """
     with pytest.raises(MalformedInputError):
-        reformat_text(source, verify=True)
+        reformat_text(source)
 
 
 def test_prices_are_not_malformed_math() -> None:
     """A `$` before a digit is currency, and two prices are not a padded math span."""
     source = "It costs $5 and $10, and they would be paying $ later.\n"
 
-    assert reformat_text(source, verify=True) == source
+    assert reformat_text(source) == source
 
 
-RAW_TEX_WRAP_SOURCE = (
-    "The compactification of the moduli space is written as the closure "
-    "\\overline{ \\mathcal{M}_{1} } in the literature.\n"
-)
+RAW_TEX_WRAP_SOURCE = "The compactification of the moduli space is written as the closure \\overline{ \\mathcal{M}_{1} } in the literature.\n"
 
 
 def test_wrapping_never_breaks_inside_a_raw_tex_command() -> None:
@@ -135,6 +133,6 @@ def test_wrapping_never_breaks_inside_a_raw_tex_command() -> None:
     at one of its spaces changes that string. At width 78 the command straddles the
     limit: no regex describes it, only the parser knows it is one construct.
     """
-    result = reformat_text(RAW_TEX_WRAP_SOURCE, width=78, semantic=False, verify=True)
+    result = reformat_text(RAW_TEX_WRAP_SOURCE, replace(REFORMAT_DEFAULTS, wrap=Width(78)))
 
     assert "\\overline{ \\mathcal{M}_{1} }" in result, result

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import NamedTuple
-
-import regex
 
 from flowmark.linewrapping.atomic_patterns import (
     MARKDOWN_INLINE_PATTERNS,
@@ -17,17 +16,20 @@ from flowmark.linewrapping.atomic_patterns import (
 # may need to rethink the 2-letter restriction for some languages.
 # See also:
 # https://github.com/jlevy/atom-flowmark/blob/master/lib/remark-smart-word-wrap.js#L17-L33
-SENTENCE_END_RE = regex.compile(r"(\b\p{L}+[\p{Ll}])([.?!]['\"’”)]?|['\"’”)][.?!]) *$")
+# A word ending a sentence: a run of two or more letters (``[^\W\d_]`` is the
+# stdlib spelling of a Unicode letter) whose last letter is lowercase, checked in
+# `heuristic_end_of_sentence`, then sentence punctuation.
+SENTENCE_END_RE = re.compile(r"\b([^\W\d_]{2,})(?:[.?!]['\"’”)]?|['\"’”)][.?!]) *$")
 
 # Math-aware variant: matches sentence-ending punctuation directly after an
 # inline-math closing delimiter (e.g. ``\dR_{\wait/k}$.`` or ``$x$.``).
 # The base regex requires a letter before the punctuation; this handles the
 # common case where ``$`` intervenes.
-_MATH_SENTENCE_END_RE = regex.compile(r"\$[.?!]['\"’”)]?\s*$")
+_MATH_SENTENCE_END_RE = re.compile(r"\$[.?!]['\"’”)]?\s*$")
 
 # Citation-aware variant: matches sentence-ending punctuation directly after a
 # bracketed pandoc citation (e.g. ``[@AE22].`` or ``[-@thm:key].``).
-_CITATION_SENTENCE_END_RE = regex.compile(r"\[-?@[^\[\]]*\][.?!]['\"’”)]?\s*$")
+_CITATION_SENTENCE_END_RE = re.compile(r"\[-?@[^\[\]]*\][.?!]['\"’”)]?\s*$")
 
 # Second heuristic: Very short sentences often not so useful.
 SENTENCE_MIN_LENGTH = 15
@@ -85,15 +87,10 @@ _ABBREV_LSTRIP = "(['\"‘“"
 
 
 def heuristic_end_of_sentence(word: str) -> bool:
-    if not (
-        SENTENCE_END_RE.search(word)
-        or _MATH_SENTENCE_END_RE.search(word)
-        or _CITATION_SENTENCE_END_RE.search(word)
-    ):
+    word_end = SENTENCE_END_RE.search(word)
+    if not ((word_end and word_end.group(1)[-1].islower()) or _MATH_SENTENCE_END_RE.search(word) or _CITATION_SENTENCE_END_RE.search(word)):
         return False
-    return (
-        word.rstrip(_ABBREV_STRIP).lstrip(_ABBREV_LSTRIP).lower() not in _ABBREVIATIONS
-    )
+    return word.rstrip(_ABBREV_STRIP).lstrip(_ABBREV_LSTRIP).lower() not in _ABBREVIATIONS
 
 
 def split_sentences_regex(
@@ -230,9 +227,4 @@ def split_sentences_atomic(
     code span, or URL. Suitable as the `split_sentences` argument to
     `line_wrap_by_sentence`.
     """
-    return [
-        s.text
-        for s in split_sentences_with_spans(
-            text, min_length=min_length, heuristic=heuristic
-        )
-    ]
+    return [s.text for s in split_sentences_with_spans(text, min_length=min_length, heuristic=heuristic)]

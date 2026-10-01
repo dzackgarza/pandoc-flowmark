@@ -108,10 +108,10 @@ class RuleRegistry:
     def __init__(self) -> None:
         self._rules: dict[str, LintRule] = {}
 
-    def register(self, rule: LintRule, *, replace: bool = False) -> None:
+    def register(self, rule: LintRule) -> None:
         if not rule.name or any(char.isspace() for char in rule.name):
             raise ValueError(f"Invalid lint rule name: {rule.name!r}")
-        if rule.name in self._rules and not replace:
+        if rule.name in self._rules:
             raise ValueError(f"Lint rule {rule.name!r} is already registered")
         self._rules[rule.name] = rule
 
@@ -141,9 +141,7 @@ def _register_plugin_object(registry: RuleRegistry, plugin: object, label: str) 
         if callable(register):
             _ = register(registry)
             return
-    raise TypeError(
-        f"Lint plugin {label!r} must be a callable or expose register_lint_rules(registry)"
-    )
+    raise TypeError(f"Lint plugin {label!r} must be a callable or expose register_lint_rules(registry)")
 
 
 def _load_plugin_module(specifier: str) -> ModuleType:
@@ -167,18 +165,16 @@ def _load_plugin_module(specifier: str) -> ModuleType:
     return importlib.import_module(specifier)
 
 
-def load_lint_plugins(
-    registry: RuleRegistry,
-    plugins: Iterable[str] = (),
-    *,
-    discover_entry_points: bool = True,
-) -> None:
-    """Load installed and explicitly configured lint extensions."""
+def load_installed_lint_plugins(registry: RuleRegistry) -> None:
+    """Load the lint extensions installed under the `flowmark.lint_rules` entry point."""
 
-    if discover_entry_points:
-        for entry_point in metadata.entry_points(group="flowmark.lint_rules"):
-            plugin = cast(object, entry_point.load())
-            _register_plugin_object(registry, plugin, entry_point.name)
+    for entry_point in metadata.entry_points(group="flowmark.lint_rules"):
+        plugin = cast(object, entry_point.load())
+        _register_plugin_object(registry, plugin, entry_point.name)
+
+
+def load_lint_plugins(registry: RuleRegistry, plugins: Iterable[str]) -> None:
+    """Load the lint extensions named by module specifier or file path."""
 
     for specifier in dict.fromkeys(plugins):
         module = _load_plugin_module(specifier)
@@ -198,9 +194,7 @@ def parse_rule_setting(value: object) -> RuleSetting:
         level = None if level_value is None else RuleLevel(str(level_value))
         options = {str(key): item for key, item in typed.items() if key != "level"}
         return RuleSetting(level=level, options=options)
-    raise ValueError(
-        "Lint rule setting must be a level string, boolean, or table with a 'level' key"
-    )
+    raise ValueError("Lint rule setting must be a level string, boolean, or table with a 'level' key")
 
 
 def normalize_rule_settings(
@@ -269,14 +263,10 @@ def run_registered_rules(
         level = effective_rule_level(rule, setting, rule.default_level.value)
         if level == RuleLevel.OFF:
             continue
-        options: Mapping[str, object] = (
-            _empty_mapping() if setting is None else setting.options
-        )
+        options: Mapping[str, object] = _empty_mapping() if setting is None else setting.options
         for finding in rule.check(context, options):
             if finding.rule != rule.name:
-                raise ValueError(
-                    f"Rule {rule.name!r} emitted finding for {finding.rule!r}"
-                )
+                raise ValueError(f"Rule {rule.name!r} emitted finding for {finding.rule!r}")
             findings.append(
                 RuleFinding(
                     rule=finding.rule,

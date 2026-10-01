@@ -27,8 +27,12 @@ make readme
 # Build wheel:
 make build
 
-# Linting:
-make lint
+# Lint, typecheck, and test through the global QC tiers (ai-review-ci).
+# The pre-commit and pre-push hooks run the first two; the push and CI tiers add
+# the golden tests.
+just test-commit
+just test-push
+just test-ci
 
 # Run tests:
 make test
@@ -95,7 +99,7 @@ is cached by input text, so a pass that changes nothing costs the next one no Pa
 run. `check_meaning_preserved` compares the Pandoc readings of the input and the result
 and accepts only the named normalizations in `src/flowmark/pandoc_verify.py`.
 
-Install the release build (the tag CI pins is in `.github/workflows/ci.yml`):
+Install the release build (the tag CI pins is in the `install-pandoc-flowmark` recipe of the `justfile`):
 
 ```shell
 gh release download flowmark-3.10.2-4 -R dzackgarza/pandoc -p pandoc-flowmark

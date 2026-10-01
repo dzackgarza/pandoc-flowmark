@@ -6,6 +6,7 @@ from flowmark.linewrapping.text_wrapping import (
     DEFAULT_LEN_FUNCTION,
     WordSplitter,
     get_html_md_word_splitter,
+    normalize_whitespace,
     wrap_paragraph,
 )
 
@@ -106,11 +107,7 @@ def fill_text(
         word_splitter = get_html_md_word_splitter()
 
     if not text_wrap.should_wrap:
-        indent = (
-            extra_indent + DEFAULT_INDENT
-            if text_wrap == Wrap.INDENT_ONLY
-            else extra_indent
-        )
+        indent = extra_indent + DEFAULT_INDENT if text_wrap == Wrap.INDENT_ONLY else extra_indent
         lines = text.splitlines()
         if lines:
             return "\n".join(indent + line for line in lines)
@@ -124,7 +121,6 @@ def fill_text(
 
         # These vary by wrap mode.
         width = width - len_fn(subsequent_indent)
-        replace_whitespace = text_wrap.replace_whitespace
 
         paragraphs = split_paragraphs(text)
         wrapped_paragraphs: list[str] = []
@@ -136,6 +132,8 @@ def fill_text(
             if text_wrap.initial_indent_first_para_only and i > 0:
                 initial_indent = subsequent_indent
 
+            if text_wrap.replace_whitespace:
+                paragraph = normalize_whitespace(paragraph)
             wrapped_paragraphs.append(
                 wrap_paragraph(
                     paragraph,
@@ -143,7 +141,6 @@ def fill_text(
                     initial_indent=initial_indent,
                     subsequent_indent=subsequent_indent,
                     initial_column=initial_column,
-                    replace_whitespace=replace_whitespace,
                     word_splitter=word_splitter,
                     len_fn=len_fn,
                 )

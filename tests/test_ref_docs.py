@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from flowmark import FormatOptions, Pass, Semantic, Width
 from flowmark.linewrapping.markdown_filling import fill_markdown
 
 testdoc_dir = Path("tests/testdocs")
@@ -23,40 +24,31 @@ def test_reference_doc_formats() -> None:
     class TestCase:
         name: str
         filename: str
-        semantic: bool
-        cleanups: bool
-        smartquotes: bool
-        ellipses: bool = False
+        options: FormatOptions
 
     test_cases: list[TestCase] = [
         TestCase(
             name="plain",
             filename="testdoc.expected.plain.md",
-            semantic=False,
-            cleanups=False,
-            smartquotes=False,
+            options=FormatOptions(Width()),
         ),
         TestCase(
             name="semantic",
             filename="testdoc.expected.semantic.md",
-            semantic=True,
-            cleanups=False,
-            smartquotes=False,
+            options=FormatOptions(Semantic()),
         ),
         TestCase(
             name="cleaned",
             filename="testdoc.expected.cleaned.md",
-            semantic=True,
-            cleanups=True,
-            smartquotes=False,
+            options=FormatOptions(Semantic(), frozenset({Pass.cleanups})),
         ),
         TestCase(
             name="auto",
             filename="testdoc.expected.auto.md",
-            semantic=True,
-            cleanups=True,
-            smartquotes=True,
-            ellipses=True,
+            options=FormatOptions(
+                Semantic(),
+                frozenset({Pass.cleanups, Pass.smartquotes, Pass.ellipses}),
+            ),
         ),
     ]
 
@@ -66,13 +58,7 @@ def test_reference_doc_formats() -> None:
         test_doc = testdoc_dir / case.filename
         expected = test_doc.read_text()
 
-        actual = fill_markdown(
-            orig_content,
-            semantic=case.semantic,
-            cleanups=case.cleanups,
-            smartquotes=case.smartquotes,
-            ellipses=case.ellipses,
-        )
+        actual = fill_markdown(orig_content, case.options)
         if actual != expected:
             actual_path = testdoc_dir / f"testdoc.actual.{case.name}.md"
             print(f"actual was different from expected for {case.name}!")

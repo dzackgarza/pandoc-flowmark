@@ -35,7 +35,7 @@ General philosophy:
   You can adjust or disable most settings.
   And if you are using it as a library, you can fully control anything you want (including more complex things like custom line wrapping for HTML).
 
-- Be as small and simple as possible, with few dependencies: the `pandoc-flowmark` executable, [`pathspec`](https://pypi.org/project/pathspec/), [`regex`](https://pypi.org/project/regex/), and [`strif`](https://github.com/jlevy/strif).
+- Be as small and simple as possible, with few dependencies: the `pandoc-flowmark` executable, [`pathspec`](https://pypi.org/project/pathspec/), [`platformdirs`](https://pypi.org/project/platformdirs/), [`rapidfuzz`](https://pypi.org/project/rapidfuzz/), and [`strif`](https://github.com/jlevy/strif).
 
 ## Use Cases
 
@@ -368,6 +368,33 @@ There are several other Markdown auto-formatters:
   You can build auto-formatters with it but there isn’t one that’s broadly used as a CLI tool.
 
 None of these reads Pandoc Markdown with Pandoc's own reader, so none of them can guarantee that formatting keeps the meaning Pandoc gives a document. None of them applies semantic line breaks automatically.
+
+## Python API
+
+`flowmark.reformat_text(text, options)` formats one document.
+It checks with Pandoc that the result reads as the input does, and raises
+`flowmark.MeaningChangedError` if it does not, and
+`flowmark.MalformedInputError` for input it refuses to read, such as unclosed
+fences or `$ x $`.
+`flowmark.reformat_text_unchecked` formats without that check.
+The options are one frozen `FormatOptions` value:
+
+- `wrap`: `Width(n)` wraps paragraphs to `n` columns, `Semantic(n)` starts each
+  sentence on a new line, and `Plain(n)` wraps plain text, not Markdown.
+- `passes`: a `frozenset` of `Pass.cleanups`, `Pass.smartquotes`, and
+  `Pass.ellipses`.
+- `list_spacing`: `ListSpacing.loose`, `tight`, or `preserve`.
+
+```python
+from flowmark import FormatOptions, Pass, Semantic, reformat_text
+
+options = FormatOptions(Semantic(), frozenset({Pass.cleanups, Pass.smartquotes}))
+reformat_text('He said "hi" there to me. That was fine.\n', options)
+# 'He said “hi” there to me.\nThat was fine.\n'
+```
+
+`flowmark.reformat_file(path, destination, options)` writes to a `Stdout()`,
+`ToFile(path)`, or `InPlace(backup_suffix)` destination.
 
 ## Pandoc-aware linting
 

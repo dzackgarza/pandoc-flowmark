@@ -10,17 +10,19 @@ These are skipped without the pandoc binary, so contributors without it are not
 blocked. CI has pandoc and runs them.
 """
 
+from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
 import pytest
 
+from flowmark import FormatOptions, Pass, Width, reformat_text_unchecked
 from flowmark.pandoc_verify import (
-    _NORMALIZATIONS,  # pyright: ignore[reportPrivateUsage]
     ALERT_TYPE,
     HYPHEN_JOIN,
     LAZY_LIST,
     LIST_SPACING,
+    NORMALIZATIONS,
     SMART_QUOTES,
     UNBOLD_HEADING,
     MeaningChangedError,
@@ -28,7 +30,12 @@ from flowmark.pandoc_verify import (
     check_meaning_preserved,
     pandoc_ast,
 )
-from flowmark.reformat_api import reformat_file, reformat_text
+from flowmark.reformat_api import (
+    REFORMAT_DEFAULTS,
+    InPlace,
+    reformat_file,
+    reformat_text,
+)
 from flowmark.typography.ellipses import ellipses
 
 
@@ -107,8 +114,8 @@ def test_oracle_catches_every_real_meaning_change(source: str, corrupted: str) -
 
 class NormalizationContract(NamedTuple):
     """
-    The proof one `_NORMALIZATIONS` entry owes, per the contract documented on
-    `_NORMALIZATIONS` itself.
+    The proof one `NORMALIZATIONS` entry owes, per the contract documented on
+    `NORMALIZATIONS` itself.
 
     `positive` is a source/result pair the entry must accept and be credited for.
     `negative` is a *nearby* pair -- the same construct, the same shape -- that must
@@ -129,9 +136,7 @@ NORMALIZATION_CONTRACT: tuple[NormalizationContract, ...] = (
         key=UNBOLD_HEADING,
         positive=("# **X**\n", "# X\n"),
         negative=("# **X**\n", "# *X*\n"),
-        negative_reason=(
-            "the heading's bold became emphasis rather than being dropped, so the document gained markup flowmark never claims to add"
-        ),
+        negative_reason=("the heading's bold became emphasis rather than being dropped, so the document gained markup flowmark never claims to add"),
     ),
     NormalizationContract(
         key=LIST_SPACING,
@@ -143,17 +148,13 @@ NORMALIZATION_CONTRACT: tuple[NormalizationContract, ...] = (
         key=SMART_QUOTES,
         positive=('He said "hi" and there.\n', "He said “hi” and there.\n"),
         negative=('He said "hi" and there.\n', "He said hi and there.\n"),
-        negative_reason=(
-            "the quotation marks were dropped rather than curled; the entry writes the marks into the text precisely so a lost or moved quote still shows"
-        ),
+        negative_reason=("the quotation marks were dropped rather than curled; the entry writes the marks into the text precisely so a lost or moved quote still shows"),
     ),
     NormalizationContract(
         key=ALERT_TYPE,
         positive=("> [!note]\n> Text.\n", "> [!NOTE]\n> Text.\n"),
         negative=("> [!note]\n> Text.\n", "> [!NOTED]\n> Text.\n"),
-        negative_reason=(
-            "the alert type changed rather than its case: NOTED is no GFM alert"
-        ),
+        negative_reason=("the alert type changed rather than its case: NOTED is no GFM alert"),
     ),
     NormalizationContract(
         key=LAZY_LIST,
@@ -188,21 +189,19 @@ NORMALIZATION_CONTRACT: tuple[NormalizationContract, ...] = (
 
 def test_every_normalization_declares_its_contract() -> None:
     """
-    The table above must cover `_NORMALIZATIONS` exactly.
+    The table above must cover `NORMALIZATIONS` exactly.
 
     This is what makes the contract enforceable rather than aspirational: a new
     entry cannot be added without a positive case and a nearby negative one, and
     an entry cannot be quietly removed while its proof lingers.
     """
-    declared = [key for key, _text, _normalize in _NORMALIZATIONS]
+    declared = [key for key, _text, _normalize in NORMALIZATIONS]
     proven = [contract.key for contract in NORMALIZATION_CONTRACT]
     assert sorted(proven) == sorted(declared)
     assert len(proven) == len(set(proven)), "an entry is listed twice"
 
 
-@pytest.mark.parametrize(
-    "contract", NORMALIZATION_CONTRACT, ids=lambda c: f"{c.key}-accepts"
-)
+@pytest.mark.parametrize("contract", NORMALIZATION_CONTRACT, ids=lambda c: f"{c.key}-accepts")
 def test_normalization_accepts_its_positive_case(
     contract: NormalizationContract,
 ) -> None:
@@ -220,9 +219,7 @@ def test_normalization_accepts_its_positive_case(
     assert check_meaning_preserved(source, result) == [contract.key]
 
 
-@pytest.mark.parametrize(
-    "contract", NORMALIZATION_CONTRACT, ids=lambda c: f"{c.key}-still-refuses"
-)
+@pytest.mark.parametrize("contract", NORMALIZATION_CONTRACT, ids=lambda c: f"{c.key}-still-refuses")
 def test_normalization_still_refuses_its_negative_case(
     contract: NormalizationContract,
 ) -> None:
@@ -251,7 +248,7 @@ def test_paragraph_then_tight_list_is_formattable() -> None:
     rejected: it destroys a list the author drew and that every CommonMark reader,
     GitHub included, renders as a list.
     """
-    reformat_text(LAZY_LIST_SOURCE, semantic=True, verify=True)
+    reformat_text(LAZY_LIST_SOURCE)
 
 
 def test_paragraph_then_nested_tight_list_is_formattable() -> None:
@@ -259,13 +256,8 @@ def test_paragraph_then_nested_tight_list_is_formattable() -> None:
     An indented sub-bullet under a lazy line is more of the same paragraph to
     pandoc, so the list flowmark materializes may nest.
     """
-    source = (
-        "**2. Fundamental matrix**\n"
-        "* Hard: `phi1..4` for this GKZ\n"
-        "* General: enclose the matrix by a truncated sum.\n"
-        "  * Needs: a coefficient growth estimate.\n"
-    )
-    reformat_text(source, verify=True)
+    source = "**2. Fundamental matrix**\n* Hard: `phi1..4` for this GKZ\n* General: enclose the matrix by a truncated sum.\n  * Needs: a coefficient growth estimate.\n"
+    reformat_text(source)
 
 
 def test_paragraph_then_tight_list_writes_the_file(tmp_path: Path) -> None:
@@ -276,7 +268,7 @@ def test_paragraph_then_tight_list_writes_the_file(tmp_path: Path) -> None:
     doc = tmp_path / "min.md"
     doc.write_text(LAZY_LIST_SOURCE)
 
-    reformat_file(doc, output=None, inplace=True, nobackup=True, semantic=True)
+    reformat_file(doc, InPlace(""), REFORMAT_DEFAULTS)
 
     written = doc.read_text()
     assert written != LAZY_LIST_SOURCE
@@ -287,13 +279,11 @@ def test_paragraph_then_tight_list_writes_the_file(tmp_path: Path) -> None:
 # the line right after the last item. Flowmark's reader, like CommonMark, reads the
 # marker as an HTML block after the list, and flowmark sets it off with a blank
 # line so readers without that rule agree.
-TOC_SOURCE = (
-    "<!--toc:start-->\n- [Intake](#intake)\n  - [Leads](#leads)\n<!--toc:end-->\n"
-)
+TOC_SOURCE = "<!--toc:start-->\n- [Intake](#intake)\n  - [Leads](#leads)\n<!--toc:end-->\n"
 
 
 def test_toc_end_marker_after_a_list_is_formattable() -> None:
-    result = reformat_text(TOC_SOURCE, semantic=True, verify=True)
+    result = reformat_text(TOC_SOURCE)
 
     assert result.endswith("- [Leads](#leads)\n\n<!--toc:end-->\n")
 
@@ -304,7 +294,7 @@ MARKDOC_WRAPPED_LIST = "{% field %}\n- a\n- b\n{% /field %}\n"
 
 
 def test_markdoc_tags_around_a_tight_list_verify() -> None:
-    result = reformat_text(MARKDOC_WRAPPED_LIST, verify=True)
+    result = reformat_text(MARKDOC_WRAPPED_LIST)
 
     assert result == "{% field %}\n\n- a\n\n- b\n\n{% /field %}\n"
     assert set(check_meaning_preserved(MARKDOC_WRAPPED_LIST, result)) == {LIST_SPACING}
@@ -312,16 +302,11 @@ def test_markdoc_tags_around_a_tight_list_verify() -> None:
 
 def test_prose_in_place_of_the_closing_tag_still_raises() -> None:
     with pytest.raises(MeaningChangedError):
-        check_meaning_preserved(
-            "{% field %}\n- a\ntext\n", "{% field %}\n\n- a\n\ntext\n"
-        )
+        check_meaning_preserved("{% field %}\n- a\ntext\n", "{% field %}\n\n- a\n\ntext\n")
 
 
 def _many_block_document(count: int = 40) -> list[str]:
-    return [
-        f"Paragraph number {i} with enough words in it to be realistic."
-        for i in range(count)
-    ]
+    return [f"Paragraph number {i} with enough words in it to be realistic." for i in range(count)]
 
 
 def test_mismatch_names_the_differing_block_rather_than_dumping_the_ast() -> None:
@@ -338,9 +323,7 @@ def test_mismatch_names_the_differing_block_rather_than_dumping_the_ast() -> Non
     corrupted[7] = "# " + blocks[7]
 
     with pytest.raises(MeaningChangedError) as excinfo:
-        check_meaning_preserved(
-            "\n\n".join(blocks) + "\n", "\n\n".join(corrupted) + "\n"
-        )
+        check_meaning_preserved("\n\n".join(blocks) + "\n", "\n\n".join(corrupted) + "\n")
 
     message = str(excinfo.value)
     assert "block 7" in message
@@ -382,9 +365,7 @@ def test_mismatch_names_the_block_when_only_content_differs() -> None:
     corrupted[12] = blocks[12].replace("realistic", "realistic and different")
 
     with pytest.raises(MeaningChangedError) as excinfo:
-        check_meaning_preserved(
-            "\n\n".join(blocks) + "\n", "\n\n".join(corrupted) + "\n"
-        )
+        check_meaning_preserved("\n\n".join(blocks) + "\n", "\n\n".join(corrupted) + "\n")
 
     assert "block 12" in str(excinfo.value)
 
@@ -451,7 +432,7 @@ def test_reformatting_preserves_meaning(source: str) -> None:
     Every construct family in PR #4, checked against pandoc rather than against
     an expected string a human guessed at.
     """
-    reformat_text(source, verify=True)
+    reformat_text(source)
 
 
 def test_smartquotes_passes_verification() -> None:
@@ -459,7 +440,10 @@ def test_smartquotes_passes_verification() -> None:
     `smartquotes` is invisible to pandoc for free -- its `smart` extension folds
     straight and curly quotes alike into `Quoted`.
     """
-    reformat_text('He said "hi" and there.\n', verify=True, smartquotes=True)
+    reformat_text(
+        'He said "hi" and there.\n',
+        replace(REFORMAT_DEFAULTS, passes=frozenset({Pass.cleanups, Pass.smartquotes})),
+    )
 
 
 @pytest.mark.parametrize(
@@ -482,7 +466,10 @@ def test_ellipsis_spacing_is_not_a_meaning_change(source: str) -> None:
     oracle cannot tolerate it -- instead of the two drifting apart in silence.
     """
     check_meaning_preserved(source, ellipses(source))
-    reformat_text(source, verify=True, ellipses=True)
+    reformat_text(
+        source,
+        replace(REFORMAT_DEFAULTS, passes=frozenset({Pass.cleanups, Pass.ellipses})),
+    )
 
 
 def test_verify_is_on_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -509,7 +496,7 @@ def test_no_verify_skips_the_gate(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("flowmark.reformat_api.check_meaning_preserved", refuse)
 
-    assert reformat_text("Hi   there.\n", verify=False) == "Hi there.\n"
+    assert reformat_text_unchecked("Hi   there.\n") == "Hi there.\n"
 
 
 def test_missing_pandoc_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -520,15 +507,10 @@ def test_missing_pandoc_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("flowmark.pandoc_reader.shutil.which", _no_pandoc)
 
     with pytest.raises(PandocUnavailableError, match="pandoc"):
-        reformat_text(
-            "Sentence one is here. Sentence two follows it. Sentence three ends the\nparagraph now, quite long indeed, wrapping past width.\n",
-            verify=True,
-        )
+        reformat_text("Sentence one is here. Sentence two follows it. Sentence three ends the\nparagraph now, quite long indeed, wrapping past width.\n")
 
 
-def test_a_destructive_change_leaves_the_file_untouched(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_destructive_change_leaves_the_file_untouched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """
     The whole point of the gate: a document flowmark would damage keeps its
     original bytes.
@@ -549,7 +531,7 @@ def test_a_destructive_change_leaves_the_file_untouched(
     monkeypatch.setattr("flowmark.reformat_api.check_meaning_preserved", refuse)
 
     with pytest.raises(MeaningChangedError):
-        reformat_file(doc, output=None, inplace=True, nobackup=True)
+        reformat_file(doc, InPlace(""), FormatOptions(Width(), frozenset({Pass.cleanups})))
 
     assert doc.read_text() == original
 
@@ -575,10 +557,7 @@ def test_pandoc_hostile_frontmatter_is_excluded_from_the_oracle() -> None:
     """
     fm = "---\ndescription: Rules\nglobs: *.py, pyproject.toml\nalwaysApply: false\n---\n\n"
     # Body meaning is identical (whitespace only); frontmatter is pandoc-hostile.
-    assert (
-        check_meaning_preserved(fm + "Some   body    text.\n", fm + "Some body text.\n")
-        == []
-    )
+    assert check_meaning_preserved(fm + "Some   body    text.\n", fm + "Some body text.\n") == []
 
 
 def test_frontmatter_stripping_does_not_hide_a_body_change() -> None:
@@ -588,6 +567,4 @@ def test_frontmatter_stripping_does_not_hide_a_body_change() -> None:
     fm = "---\nglobs: *.py\n---\n\n"
     with pytest.raises(MeaningChangedError):
         # Paragraph -> heading is a genuine meaning change in the body.
-        check_meaning_preserved(
-            fm + "A plain paragraph.\n", fm + "# A plain paragraph.\n"
-        )
+        check_meaning_preserved(fm + "A plain paragraph.\n", fm + "# A plain paragraph.\n")

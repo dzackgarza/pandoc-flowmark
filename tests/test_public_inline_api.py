@@ -19,7 +19,7 @@ from flowmark.atomic_spans import (
     split_sentences_atomic,
     split_sentences_with_spans,
 )
-from flowmark.markdown_ast import walk_elements
+from flowmark.markdown_ast import LinkKind, walk_elements
 from flowmark.pandoc_reader import pandoc_executable, read_source_ast
 
 
@@ -29,12 +29,7 @@ def _parse(text: str) -> str:
 
 def test_atomic_pattern_constructs_with_name_and_pattern_only() -> None:
     p = AtomicPattern(name="x", pattern=r"foo")
-    assert (
-        p.open_delim == ""
-        and p.close_delim == ""
-        and p.open_re == ""
-        and p.close_re == ""
-    )
+    assert p.open_delim == "" and p.close_delim == "" and p.open_re == "" and p.close_re == ""
 
 
 def test_markdown_inline_patterns_includes_links_and_urls() -> None:
@@ -64,16 +59,10 @@ def test_inline_math_spans_are_kept_whole_but_prose_currency_is_not() -> None:
     inside both delimiters. Without that, `their $420K ... paying $` matches as one
     48-character atomic token, though pandoc reads it as prose.
     """
-    math = [
-        s.text
-        for s in iter_atomic_spans(r"and $H^1(X,\mathcal O_X)=0$ plus")
-        if s.is_atomic
-    ]
+    math = [s.text for s in iter_atomic_spans(r"and $H^1(X,\mathcal O_X)=0$ plus") if s.is_atomic]
     assert math == [r"$H^1(X,\mathcal O_X)=0$"]
 
-    currency = [
-        s.text for s in iter_atomic_spans("it costs $5 and $10 more") if s.is_atomic
-    ]
+    currency = [s.text for s in iter_atomic_spans("it costs $5 and $10 more") if s.is_atomic]
     assert currency == []
 
 
@@ -131,14 +120,12 @@ def test_escaped_brackets_are_not_a_link() -> None:
 def test_images_excluded_by_default_included_on_request() -> None:
     doc = _parse("![alt](img.png)\n")
     assert extract_links(doc) == []
-    assert extract_links(doc, include_images=True) == [Link("alt", "img.png", None)]
+    assert extract_links(doc, frozenset({LinkKind.image})) == [Link("alt", "img.png", None)]
 
 
 def test_email_autolink_text_is_display_not_destination() -> None:
     doc = _parse("<user@example.com>\n")
-    assert extract_links(doc) == [
-        Link("user@example.com", "mailto:user@example.com", None)
-    ]
+    assert extract_links(doc) == [Link("user@example.com", "mailto:user@example.com", None)]
 
 
 def test_empty_link_title_is_preserved_distinct_from_none() -> None:
@@ -151,7 +138,7 @@ def test_angle_autolink_and_bare_url_extraction() -> None:
     urls = [link.url for link in extract_links(doc)]
     assert "http://auto.com" in urls
     assert "https://bare.com/x" in urls
-    assert extract_links(doc, include_autolinks=False) == []
+    assert extract_links(doc, frozenset({LinkKind.link})) == []
 
 
 def test_duplicate_link_text_yields_separate_links() -> None:
@@ -203,9 +190,7 @@ def test_atomic_span_name_distinguishes_link_from_code() -> None:
 def test_iter_atomic_spans_empty_patterns_yields_single_nonatomic_span() -> None:
     from flowmark.atomic_spans import AtomicSpan
 
-    assert list(iter_atomic_spans("abc", patterns=())) == [
-        AtomicSpan("abc", 0, 3, False)
-    ]
+    assert list(iter_atomic_spans("abc", patterns=())) == [AtomicSpan("abc", 0, 3, False)]
     assert list(iter_atomic_spans("", patterns=())) == []
 
 
