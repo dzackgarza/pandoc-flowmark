@@ -9,7 +9,7 @@ from typing import cast
 
 import pytest
 
-from flowmark.lint import LintOptions, lint_text
+from flowmark.lint import LintOptions, fix_text, lint_text
 from flowmark.lint_cli import main
 
 
@@ -198,6 +198,62 @@ def test_texstudio_packages_follow_pandoc_raw_tex_imports(source: str) -> None:
     diagnostics = lint_text(source, options({}))
     assert not any(
         diagnostic.rule == "tex/unknown-command" for diagnostic in diagnostics
+    )
+
+
+@pytest.mark.parametrize(
+    ("header", "line", "fixed"),
+    (
+        (
+            "header-includes:\n  - |\n    \\\\usepackage{dynkin-diagrams}\n",
+            4,
+            "header-includes:\n  - |\n    \\usepackage{dynkin-diagrams}\n",
+        ),
+        (
+            "header-includes: \\\\usepackage[a]{b, c}\n",
+            2,
+            "header-includes: \\usepackage[a]{b, c}\n",
+        ),
+    ),
+)
+def test_header_includes_tex_that_pandoc_reads_as_text_is_fixed(
+    header: str, line: int, fixed: str
+) -> None:
+    source = f"---\n{header}---\n\nText.\n"
+    diagnostics = [
+        diagnostic
+        for diagnostic in lint_text(source, options({}))
+        if diagnostic.rule == "tex/header-includes-text"
+    ]
+    assert [(diagnostic.severity, diagnostic.line) for diagnostic in diagnostics] == [
+        ("error", line)
+    ]
+    result = fix_text(source, options({}))
+    assert result.text == f"---\n{fixed}---\n\nText.\n"
+    assert not any(
+        diagnostic.rule == "tex/header-includes-text" for diagnostic in result.remaining
+    )
+
+
+def test_header_includes_text_in_a_yaml_escaped_string_is_reported_without_a_fix() -> None:
+    source = '---\nheader-includes: "\\\\\\\\usepackage{x}"\n---\n\nText.\n'
+    diagnostics = [
+        diagnostic
+        for diagnostic in lint_text(source, options({}))
+        if diagnostic.rule == "tex/header-includes-text"
+    ]
+    assert [(diagnostic.line, diagnostic.fix) for diagnostic in diagnostics] == [
+        (2, None)
+    ]
+
+
+def test_header_includes_raw_tex_is_not_reported() -> None:
+    diagnostics = lint_text(
+        "---\nheader-includes:\n  - \\usepackage{mathtools}\n---\n\nText.\n",
+        options({}),
+    )
+    assert not any(
+        diagnostic.rule == "tex/header-includes-text" for diagnostic in diagnostics
     )
 
 

@@ -231,6 +231,84 @@ def _raw_tex_fragments(context: RuleContext) -> Iterable[str]:
             yield source
 
 
+_HEADER_INCLUDES_KEY = re.compile(r"^header-includes[ \t]*:", re.MULTILINE)
+_TEX_CONTROL_WORD = re.compile(r"\\[A-Za-z@]")
+
+
+def _header_includes_text(
+    context: RuleContext,
+    _options: Mapping[str, object],
+) -> Iterable[RuleFinding]:
+    """Report `header-includes` entries that Pandoc read as Markdown text.
+
+    Pandoc reads each metadata value as Markdown, so `\\usepackage{x}` is an
+    escaped backslash and a Str, not a RawInline: the LaTeX writer escapes it
+    and the preamble loads nothing.
+    """
+
+    meta = context.pandoc_document.get("meta")
+    if not isinstance(meta, dict):
+        return []
+    value = meta.get("header-includes")
+    if value is None:
+        return []
+    entries = [
+        pandoc_plain(node)
+        for node in walk_pandoc(value)
+        if node.get("t") in {"Para", "Plain", "MetaInlines"} and _has_tex_text(node.get("c"))
+    ]
+    # Pandoc reads a YAML metadata block anywhere in the document; a key in
+    # flow style has no line of its own, so the finding then marks the start.
+    key = _HEADER_INCLUDES_KEY.search(context.text)
+    key_start, key_end = (key.start(), key.end()) if key is not None else (0, 0)
+    findings: list[RuleFinding] = []
+    for entry in entries:
+        message = (
+            f"`header-includes` holds `{entry}` as text, not TeX: Pandoc reads metadata "
+            + "as Markdown, where `\\\\` is an escaped backslash, so the LaTeX preamble "
+            + "gets the escaped text and loads nothing. Write the TeX with single backslashes."
+        )
+        # The source spelling that Pandoc unescapes to the entry. When the
+        # source is spelled another way (a YAML-escaped string), the finding
+        # marks the key and offers no edit.
+        escaped = re.compile(r"(?<!\\)" + re.escape(entry.replace("\\", "\\\\")))
+        source = escaped.search(context.text, key_end)
+        if source is None:
+            findings.append(
+                RuleFinding(
+                    "tex/header-includes-text",
+                    "error",
+                    message,
+                    key_start,
+                    key_end,
+                    data={"entry": entry},
+                )
+            )
+            continue
+        fix = Suggestion("Write the TeX with single backslashes", entry)
+        findings.append(
+            RuleFinding(
+                "tex/header-includes-text",
+                "error",
+                message,
+                source.start(),
+                source.end(),
+                suggestions=(fix,),
+                fix=fix,
+                data={"entry": entry},
+            )
+        )
+    return findings
+
+
+def _has_tex_text(inlines: PandocJson) -> bool:
+    for node in walk_pandoc(inlines):
+        content = node.get("c")
+        if node.get("t") == "Str" and isinstance(content, str) and _TEX_CONTROL_WORD.search(content):
+            return True
+    return False
+
+
 def _texstudio_vocabulary(
     context: RuleContext,
     data: Mapping[str, object],
@@ -1674,6 +1752,12 @@ def register_authoring_rules(registry: RuleRegistry) -> None:
                 "tex/unknown-command",
                 "TeX command in math that no loaded package or macro defines.",
                 check=_unknown_tex_commands,
+            ),
+            LintRule(
+                "tex/header-includes-text",
+                "A header-includes entry that Pandoc reads as text, not TeX.",
+                RuleLevel.ERROR,
+                _header_includes_text,
             ),
             LintRule(
                 "math/notation-consistency",
