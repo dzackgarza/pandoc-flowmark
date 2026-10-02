@@ -260,20 +260,45 @@ def _header_includes_text(
     # Pandoc reads a YAML metadata block anywhere in the document; a key in
     # flow style has no line of its own, so the finding then marks the start.
     key = _HEADER_INCLUDES_KEY.search(context.text)
-    start, end = (key.start(), key.end()) if key is not None else (0, 0)
-    return [
-        RuleFinding(
-            "tex/header-includes-text",
-            "error",
+    key_start, key_end = (key.start(), key.end()) if key is not None else (0, 0)
+    findings: list[RuleFinding] = []
+    for entry in entries:
+        message = (
             f"`header-includes` holds `{entry}` as text, not TeX: Pandoc reads metadata "
             + "as Markdown, where `\\\\` is an escaped backslash, so the LaTeX preamble "
-            + "gets the escaped text and loads nothing. Write the TeX with single backslashes.",
-            start,
-            end,
-            data={"entry": entry},
+            + "gets the escaped text and loads nothing. Write the TeX with single backslashes."
         )
-        for entry in entries
-    ]
+        # The source spelling that Pandoc unescapes to the entry. When the
+        # source is spelled another way (a YAML-escaped string), the finding
+        # marks the key and offers no edit.
+        escaped = re.compile(r"(?<!\\)" + re.escape(entry.replace("\\", "\\\\")))
+        source = escaped.search(context.text, key_end)
+        if source is None:
+            findings.append(
+                RuleFinding(
+                    "tex/header-includes-text",
+                    "error",
+                    message,
+                    key_start,
+                    key_end,
+                    data={"entry": entry},
+                )
+            )
+            continue
+        fix = Suggestion("Write the TeX with single backslashes", entry)
+        findings.append(
+            RuleFinding(
+                "tex/header-includes-text",
+                "error",
+                message,
+                source.start(),
+                source.end(),
+                suggestions=(fix,),
+                fix=fix,
+                data={"entry": entry},
+            )
+        )
+    return findings
 
 
 def _has_tex_text(inlines: PandocJson) -> bool:
