@@ -76,6 +76,17 @@ def test_tex_macro_sources_drive_unknown_and_candidate_rules(tmp_path: Path) -> 
     )
 
 
+def test_packages_of_pandocs_latex_template_are_loaded() -> None:
+    """Pandoc's default LaTeX template loads `amsmath`, `amssymb` and `xcolor`."""
+    source = (
+        "Use $\\operatorname{O}(L) \\cong \\mathbb{Z}$, $\\text{a} \\colon x$, "
+        "and $\\color{red} y$.\n"
+    )
+    assert not any(
+        diagnostic.rule == "tex/unknown-command" for diagnostic in lint_text(source)
+    )
+
+
 def test_json_macro_source_supplies_names_and_expansions(tmp_path: Path) -> None:
     macros = tmp_path / "macros.json"
     macros.write_text(
