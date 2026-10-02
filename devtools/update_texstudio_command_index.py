@@ -18,7 +18,9 @@ import tempfile
 from pathlib import Path
 
 REPOSITORY = "https://github.com/texstudio-org/texstudio.git"
-CORE = ["tex", "latex-document", "latex-dev"]
+# Pandoc typesets every document through its default LaTeX template, which loads
+# amsmath, amssymb and xcolor unconditionally (`pandoc -D latex`).
+CORE = ["tex", "latex-document", "latex-dev", "amsmath", "amssymb", "xcolor"]
 OUTPUT = (
     Path(__file__).resolve().parents[1]
     / "src/flowmark/data/texstudio-command-index.json"
