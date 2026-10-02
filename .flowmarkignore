@@ -1,7 +1,7 @@
 # Files excluded from `flowmark --auto .` (e.g. `make format-docs`).
 #
-# AGENTS.md (and its CLAUDE.md symlink) contain a tbd-managed integration block
-# with a mid-document `---` frontmatter fence. Reformatting reinterprets that
-# fence as a setext heading and corrupts the block, so leave these to `tbd setup`.
+# AGENTS.md (and its CLAUDE.md symlink) hold the block that agent-memory writes
+# between its `agent-memory:start` and `agent-memory:end` markers; reformatting
+# it makes every agent-memory update a diff of the whole block.
 AGENTS.md
 CLAUDE.md
