@@ -41,6 +41,7 @@ from flowmark.pandoc_verify import (
     check_meaning_preserved,
 )
 from flowmark.preflight import (
+    Finding,
     opens_fence,
     raw_pipe_table_cells,
     split_pipe_table_row,
@@ -1036,19 +1037,13 @@ def _pipe_table_is_wide(rows: list[str]) -> bool:
     return max(dashes, cells) + columns + 1 > _PANDOC_TABLE_COLUMNS
 
 
-def normalize_sourced_pipe_tables(source: str, pandoc_exe: str) -> str:
+def _pipe_tables(source: str, pandoc_exe: str) -> list[tuple[int, list[str]]]:
     """
-    Write each row of a Pandoc pipe table as `| a | b |`, with a `| --- |` rule.
-
-    Pandoc locates the table. The row's cell boundaries are the ones its
-    pipeTableCell reader uses (`split_pipe_table_row`), so cells past the header's
-    width, which Pandoc drops, keep their text.
+    The 1-based header line and the authored rows of each Pandoc pipe table that
+    starts a line outside any container but a div.
     """
     lines = source.splitlines(keepends=True)
-    starts = [0]
-    for line in lines:
-        starts.append(starts[-1] + len(line))
-    edits: list[SourceEdit] = []
+    tables: list[tuple[int, list[str]]] = []
     for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") != "Table" or not set(located.ancestors) <= {"Div"}:
             continue
@@ -1066,6 +1061,49 @@ def normalize_sourced_pipe_tables(source: str, pandoc_exe: str) -> str:
             if "|" not in raw:
                 break
             authored.append(raw)
+        tables.append((first, authored))
+    return tables
+
+
+def dropped_pipe_table_cells(source: str, pandoc_exe: str) -> list[Finding]:
+    """
+    Each pipe table row with more cells than its header.
+
+    Pandoc drops the cells past the header's width, and its reading is the same
+    whatever is written there, so the meaning check cannot protect them. The cell
+    boundaries are the ones Pandoc's pipeTableCell reader uses
+    (`split_pipe_table_row`).
+    """
+    findings: list[Finding] = []
+    for first, rows in _pipe_tables(source, pandoc_exe):
+        width = len(split_pipe_table_row(rows[0]))
+        for offset, row in enumerate(rows[2:], start=2):
+            count = len(split_pipe_table_row(row))
+            if count > width:
+                findings.append(
+                    Finding(
+                        first + offset,
+                        f"this row has {count} cells; the header row has {width}, "
+                        + "and Pandoc drops the rest. A `|` inside a cell ends the "
+                        + "cell: write it as `\\|`",
+                    )
+                )
+    return findings
+
+
+def normalize_sourced_pipe_tables(source: str, pandoc_exe: str) -> str:
+    """
+    Write each row of a Pandoc pipe table as `| a | b |`, with a `| --- |` rule.
+
+    Pandoc locates the table. The row's cell boundaries are the ones its
+    pipeTableCell reader uses (`split_pipe_table_row`).
+    """
+    lines = source.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    edits: list[SourceEdit] = []
+    for first, authored in _pipe_tables(source, pandoc_exe):
         # Past Pandoc's column limit, the delimiter row's dash counts set the
         # relative column widths (Pandoc manual, "pipe_tables"), so it stays as
         # written; a table the rewrite would move across the limit stays whole.

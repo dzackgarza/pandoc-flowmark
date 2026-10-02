@@ -42,6 +42,7 @@ from flowmark.pandoc_lint import (
     walk_pandoc,
 )
 from flowmark.pandoc_reader import located_source_nodes, pandoc_executable
+from flowmark.pandoc_source import dropped_pipe_table_cells
 
 
 class StyleRule(StrEnum):
@@ -1666,6 +1667,17 @@ def _pandoc_semantic_findings(
     findings.extend(_yaml_in_body_findings(text, pandoc_document, protected))
     findings.extend(_file_path_findings(text, pandoc_document))
     findings.extend(_reference_format_findings(text, pandoc_document, protected))
+    for dropped in dropped_pipe_table_cells(text, pandoc_executable()):
+        line = lines[dropped.line - 1]
+        findings.append(
+            RuleFinding(
+                "table/dropped-cells",
+                "error",
+                dropped.message[0].upper() + dropped.message[1:] + ".",
+                line.start,
+                line.end,
+            )
+        )
 
     headers_with_depth = _pandoc_headers_with_div_depth(pandoc_document)
     headers = [
@@ -2330,6 +2342,12 @@ _BUILTIN_RULES = (
         "Inline code hard-codes a file path instead of linking the file.",
         RuleLevel.ERROR,
         _correctness_check("link/file-path"),
+    ),
+    LintRule(
+        "table/dropped-cells",
+        "Pipe table row has more cells than its header; Pandoc drops them.",
+        RuleLevel.ERROR,
+        _correctness_check("table/dropped-cells"),
     ),
     LintRule(
         "link/reference-format",

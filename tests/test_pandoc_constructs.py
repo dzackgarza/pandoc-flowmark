@@ -123,7 +123,10 @@ def test_indented_code_block_as_first_block_stays_code() -> None:
     The four-space indent is the only thing marking the block as code, and it
     sits where the document-edge strip could reach it.
     """
-    assert reformat_text("    literal code\n\nAfter.\n") == "```\nliteral code\n```\n\nAfter.\n"
+    assert (
+        reformat_text("    literal code\n\nAfter.\n")
+        == "```\nliteral code\n```\n\nAfter.\n"
+    )
 
 
 def test_indented_code_block_alone_stays_code() -> None:
@@ -132,7 +135,10 @@ def test_indented_code_block_alone_stays_code() -> None:
 
 
 def test_indented_code_block_after_paragraph_stays_code() -> None:
-    assert reformat_text("Intro.\n\n    literal code\n\nAfter.\n") == "Intro.\n\n```\nliteral code\n```\n\nAfter.\n"
+    assert (
+        reformat_text("Intro.\n\n    literal code\n\nAfter.\n")
+        == "Intro.\n\n```\nliteral code\n```\n\nAfter.\n"
+    )
 
 
 def test_leading_blank_lines_are_still_stripped() -> None:
@@ -323,7 +329,9 @@ def test_a_multiline_html_comment_block_is_kept_verbatim() -> None:
     `RawBlock` whose text includes the line breaks, so reflowing it changes that
     text. The README's generated-file banner is this shape (#41).
     """
-    source = "<!-- Generated from a file via\nscripts/gen.py.\n-->\n\n# Title\n\nText.\n"
+    source = (
+        "<!-- Generated from a file via\nscripts/gen.py.\n-->\n\n# Title\n\nText.\n"
+    )
 
     result = reformat_text(source, replace(REFORMAT_DEFAULTS, wrap=Width()))
 
