@@ -19,6 +19,7 @@ from dataclasses import replace
 import pytest
 
 from flowmark import Semantic, Width
+from flowmark.pandoc_reader import located_source_nodes, pandoc_executable
 from flowmark.preflight import MalformedInputError
 from flowmark.reformat_api import REFORMAT_DEFAULTS, reformat_text
 
@@ -321,6 +322,19 @@ def test_a_row_wider_than_its_header_is_refused(row: str) -> None:
     source = "| lead | capability |\n| --- | --- |\n" + row
     with pytest.raises(MalformedInputError, match=r"input:3: this row has 3 cells"):
         reformat_text(source)
+
+
+def test_an_escaped_wikilink_pipe_in_a_table_cell_keeps_its_target() -> None:
+    """
+    In a pipe table cell the alias pipe of a wikilink is written `\\|`. Pandoc
+    reads the link target without the backslash, and flowmark keeps the row.
+    """
+    source = "| lead | capability |\n| --- | --- |\n| a | [[target\\|label]] |\n"
+    nodes = located_source_nodes(source, pandoc_executable())
+    targets = [item.node["c"][2][0] for item in nodes if item.node.get("t") == "Link"]
+
+    assert targets == ["target"]
+    assert "[[target\\|label]]" in reformat_text(source)
 
 
 def test_a_multiline_html_comment_block_is_kept_verbatim() -> None:
