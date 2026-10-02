@@ -18,7 +18,7 @@ Flowmark needs the `pandoc-flowmark` executable on `PATH`: a static Linux build 
 Set `FLOWMARK_PANDOC` to use an executable with another name or path.
 
 ```shell
-gh release download flowmark-3.10.2-5 -R dzackgarza/pandoc -p pandoc-flowmark
+gh release download -R dzackgarza/pandoc -p pandoc-flowmark
 install -m755 pandoc-flowmark ~/.local/bin/pandoc-flowmark
 uv tool install git+https://github.com/dzackgarza/pandoc-flowmark
 ```
