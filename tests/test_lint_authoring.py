@@ -181,6 +181,40 @@ def test_macro_candidate_requires_complete_tex_control_words(tmp_path: Path) -> 
     ]
 
 
+def test_table_reference_id_belongs_on_fenced_div() -> None:
+    table = "| Name | Value |\n|:-----|------:|\n| one | 1 |\n"
+    short_form = table + "\n: Measurements {#tbl:measurements}\n"
+    fenced_form = "::: {#tbl:measurements}\n\n" + table + "\n: Measurements\n\n:::\n"
+
+    flagged = [
+        diagnostic
+        for diagnostic in lint_text(short_form)
+        if diagnostic.rule == "table/caption-id-on-caption"
+    ]
+    accepted = [
+        diagnostic
+        for diagnostic in lint_text(fenced_form)
+        if diagnostic.rule == "table/caption-id-on-caption"
+    ]
+
+    assert [(diagnostic.line, diagnostic.data) for diagnostic in flagged] == [
+        (5, {"identifier": "tbl:measurements"})
+    ]
+    assert accepted == []
+
+    quarto_short = table + "\n: Measurements {#tbl-measurements}\n"
+    quarto_fenced = "::: {#tbl-measurements}\n\n" + table + "\nMeasurements\n\n:::\n"
+    assert [
+        (diagnostic.line, diagnostic.data)
+        for diagnostic in lint_text(quarto_short)
+        if diagnostic.rule == "table/caption-id-on-caption"
+    ] == [(5, {"identifier": "tbl-measurements"})]
+    assert not any(
+        diagnostic.rule == "table/caption-id-on-caption"
+        for diagnostic in lint_text(quarto_fenced)
+    )
+
+
 def test_texstudio_core_vocabulary_needs_no_external_macro_source() -> None:
     diagnostics = lint_text(
         (

@@ -34,6 +34,7 @@ from flowmark.lint_engine import (
     Suggestion,
 )
 from flowmark.pandoc_lint import PandocJson, pandoc_plain, walk_pandoc
+from flowmark.pandoc_reader import located_source_nodes, pandoc_executable
 
 _CONTROL_WORD = re.compile(r"(?<!\\)\\([A-Za-z@]+)")
 _DECLARATION = re.compile(
@@ -78,6 +79,9 @@ _IGNORED_MATCH_CONTROL_WORDS = frozenset({"left", "right", "quad", "qquad"})
 _IGNORED_MATCH_CONTROL_SYMBOLS = frozenset({",", "!", ";", ":", " "})
 _PACKAGE_DECLARATION = re.compile(r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\]\s*)?\{(?P<names>[^{}]+)\}")
 _DOCUMENT_CLASS_DECLARATION = re.compile(r"\\documentclass\s*(?:\[[^\]]*\]\s*)?\{(?P<name>[^{}]+)\}")
+_TABLE_CAPTION_ID = re.compile(
+    r"^[ \t]{0,3}:[ \t]+\S.*?[ \t]+\{#(?P<id>tbl[:\-][^\s{}]+)\}[ \t]*$"
+)
 
 
 @dataclass(frozen=True)
@@ -994,6 +998,42 @@ def _user_macro_candidates(
     return findings
 
 
+def _table_caption_id_on_caption(
+    context: RuleContext,
+    _options: Mapping[str, object],
+) -> Iterable[RuleFinding]:
+    lines = core.source_lines(context.text)
+    findings: list[RuleFinding] = []
+    for located in located_source_nodes(context.text, pandoc_executable()):
+        node = located.node
+        if node.get("t") != "Table":
+            continue
+        content = node.get("c")
+        if not isinstance(content, list) or not content or not isinstance(content[0], list):
+            continue
+        identifier = content[0][0]
+        if not isinstance(identifier, str) or not identifier.startswith(("tbl:", "tbl-")):
+            continue
+        first = located.source_range.start.line - 1
+        last = located.source_range.end.line
+        for line in lines[first:last]:
+            match = _TABLE_CAPTION_ID.fullmatch(line.text)
+            if match is None or match.group("id") != identifier:
+                continue
+            caption = "a caption paragraph" if identifier.startswith("tbl-") else "a `: Caption` line"
+            findings.append(
+                RuleFinding(
+                    "table/caption-id-on-caption",
+                    "info",
+                    f"Put `#{identifier}` on a fenced div around the table and {caption}; keep the caption inside the div.",
+                    line.start,
+                    line.end,
+                    data={"identifier": identifier},
+                )
+            )
+    return findings
+
+
 def _concrete_invocation(
     definition: _MacroDefinition,
     match: re.Match[str],
@@ -1779,6 +1819,12 @@ def register_authoring_rules(registry: RuleRegistry) -> None:
                 "Math that one of the user's macros can express.",
                 RuleLevel.INFO,
                 _user_macro_candidates,
+            ),
+            LintRule(
+                "table/caption-id-on-caption",
+                "Table reference ID belongs on the fenced div that contains its caption.",
+                RuleLevel.INFO,
+                _table_caption_id_on_caption,
             ),
             LintRule(
                 "document/authorial-residue",
