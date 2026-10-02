@@ -162,6 +162,25 @@ def test_parameterized_macro_candidates_respect_required_structure(
     assert diagnostic.data == {"candidates": ("\\gens{…}",)}
 
 
+def test_macro_candidate_requires_complete_tex_control_words(tmp_path: Path) -> None:
+    macros = tmp_path / "macros.tex"
+    macros.write_text("\\newcommand{\\bd}{{\\del}}\n")
+    source = "The value is $\\delta$, while the operator is $\\del$.\n"
+
+    diagnostics = [
+        diagnostic
+        for diagnostic in lint_text(
+            source,
+            options(tex_context({"macro_sources": [str(macros)]})),
+        )
+        if diagnostic.rule == "math/user-macro-candidates"
+    ]
+
+    assert [(diagnostic.column, diagnostic.data) for diagnostic in diagnostics] == [
+        (47, {"candidates": ("\\bd",)})
+    ]
+
+
 def test_texstudio_core_vocabulary_needs_no_external_macro_source() -> None:
     diagnostics = lint_text(
         (

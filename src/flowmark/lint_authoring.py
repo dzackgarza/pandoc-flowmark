@@ -945,12 +945,21 @@ def _user_macro_candidates(
         normalized = _normalize_tex_for_macro_match(source)
         if not normalized.text:
             continue
+        control_word_interiors = {
+            offset
+            for command in _CONTROL_WORD.finditer(source)
+            for offset in range(command.start() + 1, command.end())
+        }
         for definition, pattern in patterns:
             for match in pattern.finditer(normalized.text):
                 if match.start() == match.end():
                     continue
-                authored_from = start + normalized.positions[match.start()]
-                authored_to = start + normalized.positions[match.end() - 1] + 1
+                source_from = normalized.positions[match.start()]
+                source_to = normalized.positions[match.end() - 1] + 1
+                if source_from in control_word_interiors or source_to in control_word_interiors:
+                    continue
+                authored_from = start + source_from
+                authored_to = start + source_to
                 span_candidates.setdefault((authored_from, authored_to), {})[definition.name] = (
                     definition,
                     _concrete_invocation(definition, match, source, normalized),
