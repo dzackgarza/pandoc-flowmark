@@ -59,10 +59,10 @@ build:
 install-pandoc-flowmark:
     #!/usr/bin/env bash
     set -euo pipefail
-    tag=flowmark-3.10.2-4
+    tag=flowmark-3.10.2-5
     dir="$(mktemp -d)"
     curl -sSfL -o "$dir/pandoc-flowmark.tar.gz" "https://github.com/dzackgarza/pandoc/releases/download/$tag/$tag-linux-amd64.tar.gz"
-    echo "50ce56aa651ce19e94a7c9f2d0376f3b09510396659f5e39a56fff9f3a83d2a9  $dir/pandoc-flowmark.tar.gz" | sha256sum -c -
+    echo "1ad496d0d438723b2d9bd34e79039408f2d4952903bf196d45842b3b9657328c  $dir/pandoc-flowmark.tar.gz" | sha256sum -c -
     tar xzf "$dir/pandoc-flowmark.tar.gz" -C "$dir"
     sudo install -m755 "$dir/$tag-linux-amd64/pandoc-flowmark" /usr/local/bin/pandoc-flowmark
     pandoc-flowmark --version | head -1
