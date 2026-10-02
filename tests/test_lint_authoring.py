@@ -201,6 +201,40 @@ def test_texstudio_packages_follow_pandoc_raw_tex_imports(source: str) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("header", "entry"),
+    (
+        (
+            "header-includes:\n  - |\n    \\\\usepackage{dynkin-diagrams}\n",
+            "\\usepackage{dynkin-diagrams}",
+        ),
+        ("header-includes: \\\\usepackage[a]{b, c}\n", "\\usepackage[a]{b, c}"),
+    ),
+)
+def test_header_includes_tex_that_pandoc_reads_as_text_is_an_error(
+    header: str, entry: str
+) -> None:
+    diagnostics = [
+        diagnostic
+        for diagnostic in lint_text(f"---\n{header}---\n\nText.\n", options({}))
+        if diagnostic.rule == "tex/header-includes-text"
+    ]
+    assert [
+        (diagnostic.severity, diagnostic.line, diagnostic.data)
+        for diagnostic in diagnostics
+    ] == [("error", 2, {"entry": entry})]
+
+
+def test_header_includes_raw_tex_is_not_reported() -> None:
+    diagnostics = lint_text(
+        "---\nheader-includes:\n  - \\usepackage{mathtools}\n---\n\nText.\n",
+        options({}),
+    )
+    assert not any(
+        diagnostic.rule == "tex/header-includes-text" for diagnostic in diagnostics
+    )
+
+
 def test_texstudio_package_command_reports_inactive_provider() -> None:
     diagnostics = [
         diagnostic
