@@ -102,7 +102,7 @@ and accepts only the named normalizations in `src/flowmark/pandoc_verify.py`.
 Install the release build (the tag CI pins is in the `install-pandoc-flowmark` recipe of the `justfile`):
 
 ```shell
-gh release download flowmark-3.10.2-4 -R dzackgarza/pandoc -p pandoc-flowmark
+gh release download flowmark-3.10.2-5 -R dzackgarza/pandoc -p pandoc-flowmark
 install -m755 pandoc-flowmark ~/.local/bin/pandoc-flowmark
 ```
 
