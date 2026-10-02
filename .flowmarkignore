@@ -5,3 +5,7 @@
 # it makes every agent-memory update a diff of the whole block.
 AGENTS.md
 CLAUDE.md
+
+# Markdown under tests/ is test input and golden output, and must stay byte for byte
+# as committed; tests/notes holds verbatim excerpts of real notes.
+tests/
