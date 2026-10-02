@@ -92,8 +92,9 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  -o, --output OUTPUT   Output file (use '-' for stdout). Only one input file
-                        may be given
+  -o, --output OUTPUT   Output file (use '-' for stdout, the default). Only
+                        one input file may be given; not with --inplace or
+                        --auto
   -w, --width WIDTH     Line width to wrap to, or 0 to disable line wrapping.
                         When not given: with semantic line breaks, no limit
                         (each sentence gets its own line); with --no-semantic
@@ -134,7 +135,7 @@ options:
                         'preserve' keeps each list as written (default:
                         loose). Flowmark normalizes list spacing to one style,
                         as it normalizes other formatting
-  -i, --inplace         Edit the file in place (ignores --output)
+  -i, --inplace         Edit the file in place
   --nobackup            Do not make a backup of the original file when using
                         --inplace
   --auto                Fully auto-format files in place: sets `--inplace

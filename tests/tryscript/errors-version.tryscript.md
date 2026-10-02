@@ -102,3 +102,23 @@ $ flowmark -o out.md fixtures/multi-file 2>&1
 Error: Cannot specify output file when processing multiple files (use --inplace instead)
 ? 1
 ```
+
+## E12: Output with --auto leaves the file unchanged
+
+`--auto` sets `--inplace`, so an output destination contradicts it.
+
+```console
+$ printf '# Test\nFirst sentence. Second sentence.\n' > auto-out.md && flowmark --auto -o - auto-out.md 2>&1; cat auto-out.md
+Error: --output cannot be combined with --inplace, which --auto sets
+# Test
+First sentence. Second sentence.
+? 0
+```
+
+## E13: Output with --inplace
+
+```console
+$ flowmark --inplace -o out.md fixtures/content/simple.md 2>&1
+Error: --output cannot be combined with --inplace, which --auto sets
+? 1
+```

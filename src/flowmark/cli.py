@@ -72,7 +72,7 @@ class Options:
     """Command-line options for the flowmark tool, one field per argparse destination."""
 
     files: list[str]
-    output: str
+    output: str | None
     width: int | None
     plaintext: bool
     semantic: bool
@@ -135,7 +135,7 @@ class Options:
         """Where the flags send the result."""
         if self.inplace:
             return InPlace("" if self.nobackup else ".orig")
-        if self.output and self.output != "-":
+        if self.output is not None and self.output != "-":
             return ToFile(Path(self.output))
         return Stdout()
 
@@ -165,8 +165,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "-o",
         "--output",
         type=str,
-        default="-",
-        help="Output file (use '-' for stdout). Only one input file may be given",
+        help="Output file (use '-' for stdout, the default). Only one input file may be "
+        "given; not with --inplace or --auto",
     )
     parser.add_argument(
         "-w",
@@ -238,7 +238,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "-i",
         "--inplace",
         action="store_true",
-        help="Edit the file in place (ignores --output)",
+        help="Edit the file in place",
     )
     parser.add_argument(
         "--nobackup",
@@ -450,6 +450,12 @@ def main(args: list[str] | None = None) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     options = Options(**vars(parser.parse_args(args)))
+    if options.inplace and options.output is not None:
+        print(
+            "Error: --output cannot be combined with --inplace, which --auto sets",
+            file=sys.stderr,
+        )
+        return 1
 
     # Resolve files if any input is a directory, glob, or --list-files is used
     resolved_files = _resolve_files(options)
