@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 
@@ -68,7 +69,7 @@ def test_json_cli_uses_source_path_for_stdin_local_links(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     source_path = tmp_path / "source.md"
-    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("[missing](nope.md)\n"))
+    monkeypatch.setattr("sys.stdin", io.StringIO("[missing](nope.md)\n"))
     assert (
         main(
             ["--format", "json", "--exit-zero", "--source-path", str(source_path), "-"]

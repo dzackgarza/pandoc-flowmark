@@ -534,16 +534,28 @@ def test_unicode_math_symbols_outside_math_mode_are_reported() -> None:
     assert _findings(MATH_IN_PROSE, "math/unicode-symbol") == ["⊗", "→", "≅", "∈"]
 
 
-def test_an_unmatched_backtick_does_not_unprotect_later_code_spans() -> None:
+def test_code_spans_are_those_pandoc_reads() -> None:
     """
-    A code span cannot cross a blank line or a table row, so a stray backtick in
-    one block must not pair with the first backtick of the next and turn every
-    later code span inside out.
+    A code span cannot cross a blank line, so a stray backtick in one paragraph
+    leaves the next paragraph's code span alone. Inside a pipe table Pandoc pairs
+    the stray backtick with the next one, across the cell bars, and `x_0` in the
+    following row is prose.
     """
-    source = (
-        "| a | b |\n| --- | --- |\n| stray ` | y |\n| `x_0` | `R^n` |\n\n"
+    assert "math/outside-math-mode" not in rule_ids(
         "A stray ` backtick.\n\nThen `x_0 in R^n` in code.\n"
     )
+    table = "| a | b |\n| --- | --- |\n| stray ` | y |\n| `x_0` | `R^n` |\n"
+    assert _findings(table, "math/outside-math-mode") == ["_0", "^n"]
+
+
+def test_math_between_a_heading_attribute_and_an_escaped_hash_is_math() -> None:
+    """`{#sec-t}` and `^{\\#}` are Pandoc syntax, not the ends of one Jinja comment."""
+    source = "# T {#sec-t}\n\nA $\\mathcal B_{R,R}$ x.\n\nB $H^{\\#}=H$ y.\n"
+    assert "math/outside-math-mode" not in rule_ids(source)
+
+
+def test_tex_in_a_div_title_is_not_prose() -> None:
+    source = '::: {.theorem title="The Witt ring of $\\mathbb Z$"}\nText.\n:::\n'
     assert "math/outside-math-mode" not in rule_ids(source)
 
 
@@ -666,3 +678,36 @@ def test_file_paths_in_inline_code_are_errors() -> None:
 )
 def test_code_that_is_not_a_file_path_passes(source: str) -> None:
     assert rule_lines(source, "link/file-path") == []
+
+
+def test_table_rows_wider_than_the_header_are_errors() -> None:
+    source = (
+        "| Note | Link |\n| --- | --- |\n| a | [[target|label]] |\n"
+        "| b | [[target\\|label]] |\n| c |\n"
+    )
+    assert rule_lines(source, "table/dropped-cells") == [3]
+
+
+def test_cross_reference_ids_without_at_are_errors() -> None:
+    source = (
+        "The proof of `lem:divisibilityTcoOne` assumes uniqueness.\n\n"
+        "By lem:divisibilityTcoOne and (thm:main), see `eq:quadratic-form`.\n"
+    )
+    assert rule_lines(source, "link/reference-format") == [1, 3, 3, 3]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "By @lem:divisibilityTcoOne and [@thm:main; @eq:a].\n",
+        "::: {.lemma #lem:divisibilityTcoOne}\nText.\n:::\n",
+        "## Heading {#sec:intro}\n\nSee [the lemma](#lem:a) and [[note#lem:a]].\n",
+        "See https://example.com/sec:a and `x:y`.\n",
+        "```md\nSee lem:a.\n```\n",
+        "An example: eq: is a key, and Note:this is prose.\n",
+    ],
+)
+def test_cited_ids_and_lookalikes_are_not_reference_format_errors(
+    source: str,
+) -> None:
+    assert rule_lines(source, "link/reference-format") == []

@@ -31,6 +31,8 @@ from flowmark.pandoc_reader import (
     LocatedNode,
     PandocJson,
     located_nodes,
+    SourcePoint,
+    character_point,
     read_source_ast,
     source_position,
 )
@@ -40,11 +42,7 @@ from flowmark.pandoc_verify import (
     MeaningChangedError,
     check_meaning_preserved,
 )
-from flowmark.preflight import (
-    opens_fence,
-    raw_pipe_table_cells,
-    split_pipe_table_row,
-)
+from flowmark.preflight import Finding, opens_fence
 from flowmark.typography.ellipses import ellipses
 from flowmark.typography.smartquotes import smart_quotes
 
@@ -65,9 +63,6 @@ _ESCAPED_PERIOD = re.compile(r"(?<!\\)\\\.")
 _SIMPLE_REFERENCE = re.compile(r"\[([^\[\]\\]+)\](?:\[([^\[\]\\]*)\])?")
 _HTML_OPEN_LINE = re.compile(r"^<[A-Za-z][^<>]*>$")
 _HTML_CLOSE_LINE = re.compile(r"^</[A-Za-z][A-Za-z0-9-]*>$")
-# Measured with Pandoc 3.10: a pipe table line longer than this switches its
-# columns from default to relative widths.
-_PANDOC_TABLE_COLUMNS = 72
 _PIPE_DELIMITER_ROW = re.compile(r"\|?(\s*:?-+:?\s*\|)+\s*:?-*:?\s*")
 # Inline nodes the wrapper never breaks. Emphasis, strong, strikeout, and quoted
 # text wrap between their words like plain prose.
@@ -1018,37 +1013,72 @@ def normalize_sourced_blank_gaps(source: str, pandoc_exe: str) -> str:
     return result
 
 
-def _pipe_table_is_wide(rows: list[str]) -> bool:
-    """
-    Whether Pandoc gives the pipe table `rows` relative column widths.
-
-    Pandoc's pipeTable reader does when the wider of the delimiter row's dash
-    widths and the widest row's cell widths, each summed over the header's
-    columns, plus one per pipe, exceeds its column limit.
-    """
-    columns = len(split_pipe_table_row(rows[1]))
-    dashes = sum(len(cell) for cell in split_pipe_table_row(rows[1]))
-    cells = max(
-        sum(len(cell) for cell in raw_pipe_table_cells(row)[:columns])
-        for index, row in enumerate(rows)
-        if index != 1
-    )
-    return max(dashes, cells) + columns + 1 > _PANDOC_TABLE_COLUMNS
+_DELIMITER_CELLS = {
+    "AlignDefault": "---",
+    "AlignLeft": ":---",
+    "AlignRight": "---:",
+    "AlignCenter": ":---:",
+}
 
 
-def normalize_sourced_pipe_tables(source: str, pandoc_exe: str) -> str:
+@dataclass(frozen=True)
+class _PipeTable:
     """
-    Write each row of a Pandoc pipe table as `| a | b |`, with a `| --- |` rule.
+    A Pandoc pipe table that starts a line outside any container but a div.
 
-    Pandoc locates the table. The row's cell boundaries are the ones its
-    pipeTableCell reader uses (`split_pipe_table_row`), so cells past the header's
-    width, which Pandoc drops, keep their text.
+    `rows` are its authored lines, the header first and the delimiter row second.
+    `cells` holds, for each row, the 0-based offsets in that line of the raw text
+    of each cell Pandoc reads there: none for the delimiter row and none for a
+    header Pandoc drops because all of its cells are empty. `alignments` are the
+    delimiter cells of Pandoc's column alignments, and `wide` says whether Pandoc
+    gives the columns relative widths.
     """
+
+    first: int
+    rows: list[str]
+    cells: list[list[tuple[int, int]]]
+    alignments: list[str]
+    wide: bool
+
+
+def _json_list(value: PandocJson) -> list[PandocJson]:
+    assert isinstance(value, list)
+    return value
+
+
+def _json_tag(value: PandocJson) -> str:
+    assert isinstance(value, dict)
+    return cast(str, value["t"])
+
+
+def _cell_ranges(row: PandocJson, lines: list[str]) -> list[tuple[int, int]]:
+    """
+    The 0-based offsets in its line of the raw text of each cell of `row`.
+
+    pandoc-flowmark gives each pipe table cell the `data-pos` range of its raw text
+    between the pipes, in Pandoc's tab-expanded columns.
+    """
+    ranges: list[tuple[int, int]] = []
+    for cell in _json_list(_json_list(row)[1]):
+        attributes = _json_list(_json_list(_json_list(cell)[0])[2])
+        raw = next(
+            cast(str, pair[1])
+            for pair in map(_json_list, attributes)
+            if pair[0] == "data-pos"
+        )
+        start, end = (
+            character_point(SourcePoint(*map(int, point.split(":"))), lines)
+            for point in raw.split("-")
+        )
+        ranges.append((start.column - 1, end.column - 1))
+    return ranges
+
+
+def _pipe_tables(source: str, pandoc_exe: str) -> list[_PipeTable]:
+    """Each Pandoc pipe table that starts a line outside any container but a div."""
     lines = source.splitlines(keepends=True)
-    starts = [0]
-    for line in lines:
-        starts.append(starts[-1] + len(line))
-    edits: list[SourceEdit] = []
+    texts = source.split("\n")
+    tables: list[_PipeTable] = []
     for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") != "Table" or not set(located.ancestors) <= {"Div"}:
             continue
@@ -1060,36 +1090,119 @@ def normalize_sourced_pipe_tables(source: str, pandoc_exe: str) -> str:
         last = min(located.source_range.end.line - 1, len(lines))
         while last > first and not lines[last - 1].strip():
             last -= 1
-        authored: list[str] = []
-        for index in range(first - 1, last):
-            raw = lines[index].rstrip("\r\n")
-            if "|" not in raw:
-                break
-            authored.append(raw)
-        # Past Pandoc's column limit, the delimiter row's dash counts set the
-        # relative column widths (Pandoc manual, "pipe_tables"), so it stays as
-        # written; a table the rewrite would move across the limit stays whole.
-        wide = _pipe_table_is_wide(authored)
-        rows: list[str] = []
-        for offset, raw in enumerate(authored):
-            cells = split_pipe_table_row(raw)
-            if offset == 1 and wide:
-                rows.append(raw)
+        rows = [lines[index].rstrip("\r\n") for index in range(first - 1, last)]
+        content = _json_list(located.node["c"])
+        # Pandoc drops a header whose cells are all empty.
+        head = [
+            _cell_ranges(row, texts) for row in _json_list(_json_list(content[3])[1])
+        ]
+        body = [
+            _cell_ranges(row, texts)
+            for part in _json_list(content[4])
+            for row in _json_list(_json_list(part)[3])
+        ]
+        colspecs = list(map(_json_list, _json_list(content[2])))
+        tables.append(
+            _PipeTable(
+                first,
+                rows,
+                [head[0] if head else [], [], *body],
+                [_DELIMITER_CELLS[_json_tag(spec[0])] for spec in colspecs],
+                any(_json_tag(spec[1]) == "ColWidth" for spec in colspecs),
+            )
+        )
+    return tables
+
+
+def _dropped_text(row: str, cells: list[tuple[int, int]]) -> str:
+    """The text of `row` outside every cell, without its pipes and spaces."""
+    outside = row
+    for start, end in reversed(cells):
+        outside = outside[:start] + outside[end:]
+    return "".join(outside.replace("|", " ").split())
+
+
+def dropped_pipe_table_cells(source: str, pandoc_exe: str) -> list[Finding]:
+    """
+    Each pipe table row with text in no cell Pandoc reads.
+
+    Pandoc drops the cells past the delimiter row's column count, and its reading
+    is the same whatever is written there, so the meaning check cannot protect
+    them.
+    """
+    findings: list[Finding] = []
+    for table in _pipe_tables(source, pandoc_exe):
+        for offset, (row, cells) in enumerate(zip(table.rows, table.cells)):
+            if offset == 1 or not (dropped := _dropped_text(row, cells)):
                 continue
-            if offset == 1:
-                cells = [
-                    (":" if cell.startswith(":") else "")
-                    + "---"
-                    + (":" if cell.endswith(":") else "")
-                    for cell in cells
-                ]
-            rows.append("| " + " | ".join(cells) + " |")
-        if wide != _pipe_table_is_wide(rows):
+            findings.append(
+                Finding(
+                    table.first + offset,
+                    f"this row has text past the table's {len(table.alignments)} "
+                    + f"columns, and Pandoc drops it: `{dropped}`. A `|` inside a "
+                    + "cell ends the cell: write it as `\\|`",
+                )
+            )
+    return findings
+
+
+def _normalized_pipe_table(table: _PipeTable) -> list[str]:
+    """
+    The rows of `table` as `| a | b |`, with a `| --- |` delimiter row.
+
+    The cells are the ones Pandoc reads; a header Pandoc drops has only empty
+    cells. Past Pandoc's column limit the delimiter row's dash counts set the
+    relative column widths (Pandoc manual, "pipe_tables"), so it stays as written.
+    """
+    rows: list[str] = []
+    for offset, (row, cells) in enumerate(zip(table.rows, table.cells)):
+        if offset == 1:
+            rows.append(
+                row if table.wide else "| " + " | ".join(table.alignments) + " |"
+            )
             continue
-        for offset, (raw, row) in enumerate(zip(authored, rows, strict=True)):
-            if row != raw:
-                begin = starts[first - 1 + offset]
-                edits.append(SourceEdit(begin, begin + len(raw), row))
+        texts = [row[start:end].strip() for start, end in cells]
+        if offset == 0 and not cells:
+            texts = [""] * len(table.alignments)
+        rows.append("| " + " | ".join(texts) + " |")
+    return rows
+
+
+def normalize_sourced_pipe_tables(source: str, pandoc_exe: str) -> str:
+    """
+    Write each row of a Pandoc pipe table as `| a | b |`, with a `| --- |` rule.
+
+    A table whose rewrite Pandoc gives other column widths stays as written.
+    """
+    lines = source.splitlines(keepends=True)
+    starts = list(accumulate((len(line) for line in lines), initial=0))
+    tables = _pipe_tables(source, pandoc_exe)
+    edits = [
+        [
+            SourceEdit(
+                starts[table.first - 1 + offset],
+                starts[table.first - 1 + offset] + len(raw),
+                row,
+            )
+            for offset, (raw, row) in enumerate(
+                zip(table.rows, _normalized_pipe_table(table), strict=True)
+            )
+            if row != raw
+        ]
+        for table in tables
+    ]
+    rewritten = _apply_edits(source, [edit for table in edits for edit in table])
+    widths = [table.wide for table in _pipe_tables(rewritten, pandoc_exe)]
+    kept = [
+        edit
+        for table, table_edits, wide in zip(tables, edits, widths, strict=True)
+        if table.wide == wide
+        for edit in table_edits
+    ]
+    return _apply_edits(source, kept)
+
+
+def _apply_edits(source: str, edits: list[SourceEdit]) -> str:
     result = source
     for edit in sorted(edits, key=lambda item: item.start, reverse=True):
         result = result[: edit.start] + edit.replacement + result[edit.end :]

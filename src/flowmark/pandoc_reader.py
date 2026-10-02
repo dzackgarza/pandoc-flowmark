@@ -83,7 +83,7 @@ def read_source_ast(source: str, pandoc_exe: str) -> PandocJson:
         PandocJson,
         json.loads(reader_json(pandoc_exe, PANDOC_FORMAT + "+sourcepos", source)),
     )
-    _settle_ranges(ast, source.split("\n"), tabs="\t" in source)
+    _settle_ranges(ast, source.split("\n"))
     return ast
 
 
@@ -97,7 +97,7 @@ def located_source_nodes(source: str, pandoc_exe: str) -> tuple[LocatedNode, ...
     return tuple(located_nodes(read_source_ast(source, pandoc_exe)))
 
 
-def _settle_ranges(value: PandocJson, lines: list[str], *, tabs: bool) -> None:
+def _settle_ranges(value: PandocJson, lines: list[str]) -> None:
     """
     Rewrite each range in one walk of the tree:
 
@@ -111,8 +111,7 @@ def _settle_ranges(value: PandocJson, lines: list[str], *, tabs: bool) -> None:
     position = source_position(value)
     if position is not None and isinstance(value, dict):
         start, end = position.start, position.end
-        if tabs:
-            start, end = _character_point(start, lines), _character_point(end, lines)
+        start, end = character_point(start, lines), character_point(end, lines)
         eof = (len(lines), len(lines[-1]) + 1)
         if (start.line, start.column) <= eof < (end.line, end.column):
             end = SourcePoint(*eof)
@@ -130,10 +129,10 @@ def _settle_ranges(value: PandocJson, lines: list[str], *, tabs: bool) -> None:
             entry[1] = f"{start.line}:{start.column}-{end.line}:{end.column}"
     if isinstance(value, dict):
         for child in value.values():
-            _settle_ranges(child, lines, tabs=tabs)
+            _settle_ranges(child, lines)
     elif isinstance(value, list):
         for child in value:
-            _settle_ranges(child, lines, tabs=tabs)
+            _settle_ranges(child, lines)
 
 
 _TAB_STOP = 4
@@ -153,9 +152,11 @@ def _character_column(line: str, column: int) -> int:
     return len(line) + 1 + max(0, column - expanded)
 
 
-def _character_point(point: SourcePoint, lines: list[str]) -> SourcePoint:
+def character_point(point: SourcePoint, lines: list[str]) -> SourcePoint:
     """`point` with Pandoc's tab-expanded column as a character column."""
     line = lines[point.line - 1] if point.line <= len(lines) else ""
+    if "\t" not in line:
+        return point
     return SourcePoint(point.line, _character_column(line, point.column))
 
 

@@ -20,22 +20,11 @@ import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from itertools import accumulate
 from pathlib import Path, PurePosixPath
 from typing import cast
 from urllib.parse import unquote, urlsplit
 
-from flowmark.atomic_spans import (
-    INLINE_CODE_SPAN,
-    PAIRED_HTML_COMMENT,
-    PAIRED_JINJA_COMMENT,
-    PAIRED_JINJA_TAG,
-    PAIRED_JINJA_VAR,
-    SINGLE_HTML_COMMENT,
-    SINGLE_JINJA_COMMENT,
-    SINGLE_JINJA_TAG,
-    SINGLE_JINJA_VAR,
-    iter_atomic_spans,
-)
 from flowmark.linewrapping.atomic_patterns import INLINE_MATH
 from flowmark.lint_engine import (
     LintRule,
@@ -48,12 +37,12 @@ from flowmark.lint_engine import (
 )
 from flowmark.pandoc_lint import (
     PandocJson,
-    pandoc_math_sequence,
     pandoc_plain,
     parse_pandoc_for_lint,
     walk_pandoc,
 )
-from flowmark.pandoc_math import iter_pandoc_math_spans
+from flowmark.pandoc_reader import located_source_nodes, pandoc_executable
+from flowmark.pandoc_source import dropped_pipe_table_cells
 
 
 class StyleRule(StrEnum):
@@ -246,14 +235,8 @@ _ROMANIZED_MATH_TEXT = re.compile(
 )
 _LEFT_RIGHT = re.compile(r"(?<!\\)\\(?P<kind>left|right)\b")
 
-# One block for inline scanning: a table row or heading line alone, or a run of
-# other non-blank lines.
-_INLINE_BLOCK = re.compile(
-    r"^[ \t]*[|#][^\n]*"
-    r"|^(?:[ \t]*[^\s|#][^\n]*(?:\n(?![ \t]*(?:\n|$|[|#]))|$))+",
-    re.MULTILINE,
-)
 _ANY_URL = re.compile(r"https?://[^\s<>)\]]+")
+_QUOTED_ATTRIBUTE_VALUE = re.compile(r'="[^"\n]*"')
 _LINK_DESTINATION = re.compile(r"\]\((?P<dest>[^)\s]*)")
 # TeX written in prose: a control word (`\sum`), or a sub/superscript on a base
 # character (`x_0`, `x_{n-1}`, `R^n`, `H^*`). A script is one braced group or one
@@ -261,30 +244,6 @@ _LINK_DESTINATION = re.compile(r"\]\((?P<dest>[^)\s]*)")
 _TEX_IN_PROSE = re.compile(
     r"\\[A-Za-z]+"
     r"|(?<=[^\s_^~`*\\])[_^](?:\{[^{}\n]*\}|[A-Za-z0-9*](?![A-Za-z0-9_^~]))"
-)
-
-_PROTECTED_INLINE_PATTERNS = (
-    INLINE_CODE_SPAN,
-    SINGLE_HTML_COMMENT,
-    PAIRED_HTML_COMMENT,
-    SINGLE_JINJA_TAG,
-    PAIRED_JINJA_TAG,
-    SINGLE_JINJA_COMMENT,
-    PAIRED_JINJA_COMMENT,
-    SINGLE_JINJA_VAR,
-    PAIRED_JINJA_VAR,
-)
-
-_LITERAL_ONLY_PATTERNS = (
-    INLINE_CODE_SPAN,
-    SINGLE_HTML_COMMENT,
-    PAIRED_HTML_COMMENT,
-    SINGLE_JINJA_TAG,
-    PAIRED_JINJA_TAG,
-    SINGLE_JINJA_COMMENT,
-    PAIRED_JINJA_COMMENT,
-    SINGLE_JINJA_VAR,
-    PAIRED_JINJA_VAR,
 )
 
 _NON_DESCRIPTIVE_LINK_TEXT = {
@@ -306,12 +265,22 @@ _BOLD_LABEL_RUN_IN = (".", ":")
 _NUMBERED_SECTION_TITLE = re.compile(r"\d+(?:\.\d+)*\.?\s")
 # Words that name a numbered item: environments, document divisions, and their
 # usual abbreviations.
+_NUMBERED_KIND_ABBREVIATIONS = (
+    "thm|prop|lem|cor|conj|defn|def|exer|ex|rem|eqn|eq|sec|fig|tab"
+)
 _NUMBERED_KINDS = (
     "theorem|lemma|corollary|proposition|conjecture|definition|example|exercise|"
     + "remark|claim|fact|notation|note|observation|problem|question|warning|"
     + "section|chapter|part|appendix|equation|figure|table|"
-    + "thm|prop|lem|cor|conj|defn|def|exer|ex|rem|eqn|eq|sec|fig|tab"
+    + _NUMBERED_KIND_ABBREVIATIONS
 )
+# A cross-reference ID such as `lem:main`: an abbreviated kind, a colon, a name.
+# pandoc-crossref adds the `tbl` and `lst` prefixes
+# (https://lierdakil.github.io/pandoc-crossref/#syntax).
+_CROSS_REFERENCE_ID = (
+    rf"(?:{_NUMBERED_KIND_ABBREVIATIONS}|tbl|lst):[A-Za-z0-9](?:[\w.:-]*\w)?"
+)
+_BARE_CROSS_REFERENCE = re.compile(rf"(?<![\w@#:/.-]){_CROSS_REFERENCE_ID}(?![\w:/])")
 _MANUAL_NUMBER = r"\d+(?:\.\d+)*[a-z]?(?!\w|\.\d)"
 _NUMBERED_LABEL = re.compile(
     rf"(?P<kind>(?i:{_NUMBERED_KINDS}))\.?\s+(?P<number>{_MANUAL_NUMBER})\b"
@@ -509,19 +478,16 @@ def _build_protected_map(
             continue
         index += 1
 
-    # The inline patterns match across newlines, as a code span may within one
-    # paragraph. Scanning the whole document at once let a stray backtick pair with
-    # one in a later block and invert every code span after it, so each block --
-    # a run of lines between blank lines, with every table row and heading its
-    # own block -- is scanned separately.
-    for block in _INLINE_BLOCK.finditer(text):
-        for span in iter_atomic_spans(block.group(0), _PROTECTED_INLINE_PATTERNS):
-            if span.is_atomic:
-                _mark(protected, block.start() + span.start, block.start() + span.end)
-
-    literal = _build_literal_protected_map(text, frontmatter, fences)
-    for math_span in iter_pandoc_math_spans(text, blocked=literal):
-        _mark(protected, math_span.start, math_span.end)
+    for node, start, end in _pandoc_source_spans(text):
+        if node.get("t") == "Math" or _is_literal_inline(node):
+            _mark(protected, start, end)
+        elif node.get("t") == "Div":
+            # The opener's quoted attribute values, e.g. `title="… $\mathbb Z$"`,
+            # are strings, not prose.
+            line_end = text.find("\n", start, end)
+            opener_end = end if line_end < 0 else line_end
+            for value in _QUOTED_ATTRIBUTE_VALUE.finditer(text, start, opener_end):
+                _mark(protected, value.start(), value.end())
 
     for match in _RAW_TEX_COMMAND.finditer(text):
         _mark(protected, match.start(), match.end())
@@ -541,36 +507,52 @@ def _build_literal_protected_map(
     for fence in fences:
         if fence.closing is not None:
             _mark(protected, fence.opening.start, fence.closing.raw_end)
-    for span in iter_atomic_spans(text, _LITERAL_ONLY_PATTERNS):
-        if span.is_atomic:
-            _mark(protected, span.start, span.end)
+    for node, start, end in _pandoc_source_spans(text):
+        if _is_literal_inline(node):
+            _mark(protected, start, end)
     return protected
 
 
-def _math_regions(
-    text: str,
-    pandoc_document: dict[str, PandocJson],
-) -> list[tuple[int, int]]:
-    """Locate only source spans which reconcile to actual Pandoc ``Math`` nodes."""
-    expected = pandoc_math_sequence(pandoc_document)
-    if not expected:
-        return []
+def _pandoc_source_spans(text: str) -> list[tuple[dict[str, PandocJson], int, int]]:
+    """Each Pandoc node with its source offsets, from pandoc-flowmark's positions."""
+    starts = [0, *accumulate(len(line) for line in text.splitlines(keepends=True))]
+    spans: list[tuple[dict[str, PandocJson], int, int]] = []
+    for located in located_source_nodes(text, pandoc_executable()):
+        first, last = located.source_range.start, located.source_range.end
+        spans.append(
+            (
+                located.node,
+                starts[first.line - 1] + first.column - 1,
+                starts[last.line - 1] + last.column - 1,
+            )
+        )
+    return spans
 
-    candidates = list(iter_pandoc_math_spans(text))
+
+def _is_literal_inline(node: dict[str, PandocJson]) -> bool:
+    """Whether Pandoc reads the node's source literally: inline code or raw HTML."""
+    kind = node.get("t")
+    if kind == "Code":
+        return True
+    content = node.get("c")
+    return (
+        kind in {"RawInline", "RawBlock"}
+        and isinstance(content, list)
+        and content[0] == "html"
+    )
+
+
+def _math_regions(text: str) -> list[tuple[int, int]]:
+    """Source span of the TeX inside each Pandoc ``Math`` node, delimiters excluded."""
     regions: list[tuple[int, int]] = []
-    cursor = 0
-    for display, equation in expected:
-        while cursor < len(candidates):
-            candidate = candidates[cursor]
-            cursor += 1
-            if candidate.display == display and candidate.equation == equation:
-                regions.append((candidate.content_start, candidate.content_end))
-                break
-        else:
-            # The AST is authoritative. If the source locator cannot reproduce
-            # one node, decline source-local diagnostics for that node instead
-            # of guessing where it came from.
-            break
+    for node, start, end in _pandoc_source_spans(text):
+        if node.get("t") != "Math":
+            continue
+        # Pandoc's delimiters: `$` and `$$`, and `\(`, `\[` with their closers.
+        width = (
+            1 if text.startswith("$", start) and not text.startswith("$$", start) else 2
+        )
+        regions.append((start + width, end - width))
     return regions
 
 
@@ -673,13 +655,10 @@ def _tex_group_findings(source: str, source_offset: int) -> list[RuleFinding]:
     return findings
 
 
-def _mathematical_findings(
-    text: str,
-    pandoc_document: dict[str, PandocJson],
-) -> list[RuleFinding]:
+def _mathematical_findings(text: str) -> list[RuleFinding]:
     """High-confidence TeX/math diagnostics that normalization cannot repair."""
     findings: list[RuleFinding] = []
-    for start, end in _math_regions(text, pandoc_document):
+    for start, end in _math_regions(text):
         source = text[start:end]
         findings.extend(_tex_group_findings(source, start))
         for match in _REPEATED_MATH_SCRIPT.finditer(source):
@@ -1449,7 +1428,7 @@ def _manual_numbering_findings(
             (_numbering_family(match.group("kind"), "item"), number),
         )
 
-    for region_start, region_end in _math_regions(text, pandoc_document):
+    for region_start, region_end in _math_regions(text):
         for match in _EQUATION_TAG.finditer(text, region_start, region_end):
             report(
                 f"`{match.group(0)}` numbers the equation by hand. Delete it, give "
@@ -1594,6 +1573,63 @@ def _file_path_findings(
     return findings
 
 
+def _uncited_cross_references(value: PandocJson) -> list[tuple[str, bool]]:
+    """Cross-reference IDs written as prose or inline code, in document order.
+
+    Each item is the ID and whether it sits in inline code. Citations and links
+    already refer to their target, so IDs inside them are skipped.
+    """
+    if isinstance(value, list):
+        return [found for item in value for found in _uncited_cross_references(item)]
+    if not isinstance(value, dict) or value.get("t") in {"Link", "Cite"}:
+        return []
+    content = value.get("c")
+    if value.get("t") == "Code" and isinstance(content, list) and len(content) == 2:
+        code = str(content[1]).strip()
+        if re.fullmatch(_CROSS_REFERENCE_ID, code):
+            return [(code, True)]
+        return []
+    if value.get("t") == "Str" and isinstance(content, str):
+        return [
+            (match.group(0), False) for match in _BARE_CROSS_REFERENCE.finditer(content)
+        ]
+    return [
+        found for child in value.values() for found in _uncited_cross_references(child)
+    ]
+
+
+def _reference_format_findings(
+    text: str, pandoc_document: dict[str, PandocJson], protected: bytearray
+) -> list[RuleFinding]:
+    """Cross-reference IDs that are not written as `@` citations."""
+    findings: list[RuleFinding] = []
+    cursor = 0
+    for identifier, in_code in _uncited_cross_references(pandoc_document.get("blocks")):
+        escaped = re.escape(identifier)
+        if in_code:
+            source = re.compile(rf"`+[ \t]*{escaped}[ \t]*`+")
+        else:
+            source = re.compile(rf"(?<![\w@#:/.-]){escaped}(?![\w:/])")
+        start, end = 0, 0
+        for located in source.finditer(text, cursor):
+            if in_code or not _overlaps(protected, located.start(), located.end()):
+                start, end = located.span()
+                cursor = end
+                break
+        findings.append(
+            RuleFinding(
+                "link/reference-format",
+                "error",
+                f'"{identifier}" names a cross-reference ID but does not cite it. '
+                + f"Write `@{identifier}`; the renderer links it and fills in "
+                + "the number.",
+                start,
+                end,
+            )
+        )
+    return findings
+
+
 def _pandoc_semantic_findings(
     text: str,
     pandoc_document: dict[str, PandocJson],
@@ -1627,6 +1663,18 @@ def _pandoc_semantic_findings(
     findings.extend(_bold_label_findings(text, pandoc_document, protected))
     findings.extend(_yaml_in_body_findings(text, pandoc_document, protected))
     findings.extend(_file_path_findings(text, pandoc_document))
+    findings.extend(_reference_format_findings(text, pandoc_document, protected))
+    for dropped in dropped_pipe_table_cells(text, pandoc_executable()):
+        line = lines[dropped.line - 1]
+        findings.append(
+            RuleFinding(
+                "table/dropped-cells",
+                "error",
+                dropped.message[0].upper() + dropped.message[1:] + ".",
+                line.start,
+                line.end,
+            )
+        )
 
     headers_with_depth = _pandoc_headers_with_div_depth(pandoc_document)
     headers = [
@@ -2091,7 +2139,7 @@ def lint_rule_findings(
             source_path,
         ),
         *_pandoc_resource_findings(text, pandoc_document, source_path),
-        *_mathematical_findings(text, pandoc_document),
+        *_mathematical_findings(text),
         *_math_notation_findings(text, protected, fences),
         *_style_findings(text, lines, fences, protected, styles, max_line_length),
     ]
@@ -2141,11 +2189,8 @@ def source_literal_protected_map(
     return _build_literal_protected_map(text, frontmatter, fences)
 
 
-def pandoc_math_regions(
-    text: str,
-    pandoc_document: dict[str, PandocJson],
-) -> list[tuple[int, int]]:
-    return _math_regions(text, pandoc_document)
+def pandoc_math_regions(text: str) -> list[tuple[int, int]]:
+    return _math_regions(text)
 
 
 def mask_tex_comments(text: str) -> str:
@@ -2294,6 +2339,18 @@ _BUILTIN_RULES = (
         "Inline code hard-codes a file path instead of linking the file.",
         RuleLevel.ERROR,
         _correctness_check("link/file-path"),
+    ),
+    LintRule(
+        "table/dropped-cells",
+        "Pipe table row has text past the table's columns; Pandoc drops it.",
+        RuleLevel.ERROR,
+        _correctness_check("table/dropped-cells"),
+    ),
+    LintRule(
+        "link/reference-format",
+        "Cross-reference ID is written without `@`.",
+        RuleLevel.ERROR,
+        _correctness_check("link/reference-format"),
     ),
     LintRule(
         "link/invalid-fragment",

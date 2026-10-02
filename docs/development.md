@@ -99,11 +99,10 @@ is cached by input text, so a pass that changes nothing costs the next one no Pa
 run. `check_meaning_preserved` compares the Pandoc readings of the input and the result
 and accepts only the named normalizations in `src/flowmark/pandoc_verify.py`.
 
-Install the release build (the tag CI pins is in the `install-pandoc-flowmark` recipe of the `justfile`):
+Install the release build that CI pins:
 
 ```shell
-gh release download flowmark-3.10.2-4 -R dzackgarza/pandoc -p pandoc-flowmark
-install -m755 pandoc-flowmark ~/.local/bin/pandoc-flowmark
+just install-pandoc-flowmark
 ```
 
 `FLOWMARK_PANDOC` names another executable, for example a local build of the fork.

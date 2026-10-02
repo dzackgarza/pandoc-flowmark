@@ -19,6 +19,8 @@ from dataclasses import replace
 import pytest
 
 from flowmark import Semantic, Width
+from flowmark.pandoc_reader import located_source_nodes, pandoc_executable
+from flowmark.preflight import MalformedInputError
 from flowmark.reformat_api import REFORMAT_DEFAULTS, reformat_text
 
 # --- #5: footnote definitions ---------------------------------------------
@@ -122,7 +124,10 @@ def test_indented_code_block_as_first_block_stays_code() -> None:
     The four-space indent is the only thing marking the block as code, and it
     sits where the document-edge strip could reach it.
     """
-    assert reformat_text("    literal code\n\nAfter.\n") == "```\nliteral code\n```\n\nAfter.\n"
+    assert (
+        reformat_text("    literal code\n\nAfter.\n")
+        == "```\nliteral code\n```\n\nAfter.\n"
+    )
 
 
 def test_indented_code_block_alone_stays_code() -> None:
@@ -131,7 +136,10 @@ def test_indented_code_block_alone_stays_code() -> None:
 
 
 def test_indented_code_block_after_paragraph_stays_code() -> None:
-    assert reformat_text("Intro.\n\n    literal code\n\nAfter.\n") == "Intro.\n\n```\nliteral code\n```\n\nAfter.\n"
+    assert (
+        reformat_text("Intro.\n\n    literal code\n\nAfter.\n")
+        == "Intro.\n\n```\nliteral code\n```\n\nAfter.\n"
+    )
 
 
 def test_leading_blank_lines_are_still_stripped() -> None:
@@ -298,18 +306,66 @@ def test_bars_only_inside_math_do_not_start_a_table() -> None:
     assert "- Graded skew-symmetry." in result
 
 
-def test_row_wider_than_its_header_keeps_its_text() -> None:
+@pytest.mark.parametrize(
+    "row",
+    [
+        "| Lambert series | b_N = \\sum_{d|N} a_d and Mobius inversion |\n",
+        "| a | [[target|label]] |\n",
+    ],
+)
+def test_a_row_wider_than_its_header_is_refused(row: str) -> None:
     """
-    A bare `d|N` splits the row, and pandoc drops the cells past the header's
-    width. Its reading is the same whatever flowmark writes there, so the gate is
-    blind to those cells: writing them back is what keeps their text in the file.
+    A bare `|` inside a cell ends the cell, and Pandoc drops the cells past the
+    delimiter row's width. Pandoc's reading is the same whatever is written there, so
+    flowmark refuses the file rather than rewrite the author's `|`.
     """
-    header = "| lead | capability |\n| --- | --- |\n"
-    source = header + "| Lambert series | b_N = \\sum_{d|N} a_d and Mobius inversion |\n"
-    # Every cell boundary is written padded, the accidental one included.
-    written = header + "| Lambert series | b_N = \\sum_{d | N} a_d and Mobius inversion |\n"
+    source = "| lead | capability |\n| --- | --- |\n" + row
+    with pytest.raises(
+        MalformedInputError, match=r"input:3: this row has text past the table's 2"
+    ):
+        reformat_text(source)
 
-    assert reformat_text(source) == written
+
+def test_a_header_wider_than_its_delimiter_row_is_refused() -> None:
+    """Pandoc takes the column count from the delimiter row, not the header."""
+    source = "| a | b | c |\n| --- | --- |\n| x | y |\n"
+    with pytest.raises(MalformedInputError, match=r"input:1: .* drops it: `c`"):
+        reformat_text(source)
+
+
+def test_a_bar_inside_code_or_math_is_cell_content() -> None:
+    """
+    Pandoc's pipe table reader does not end a cell at a `|` inside a code span or
+    `$...$` math, so these rows have two cells each and flowmark keeps their text.
+    """
+    source = (
+        "| construct | status |\n|---|---|\n"
+        "| explicit `|X(F_{q^r})|` for `A^n` | proposed |\n"
+        "| $|-2K_{\\widetilde V}|=\\{C\\}$ generically | established |\n"
+    )
+
+    assert reformat_text(source) == (
+        "| construct | status |\n| --- | --- |\n"
+        "| explicit `|X(F_{q^r})|` for `A^n` | proposed |\n"
+        "| $|-2K_{\\widetilde V}|=\\{C\\}$ generically | established |\n"
+    )
+
+
+def test_an_escaped_wikilink_pipe_in_a_table_cell_keeps_its_target() -> None:
+    """
+    In a pipe table cell the alias pipe of a wikilink is written `\\|`. Pandoc
+    reads the link target without the backslash, and flowmark keeps the row.
+    """
+    source = "| lead | capability |\n| --- | --- |\n| a | [[target\\|label]] |\n"
+    nodes = located_source_nodes(source, pandoc_executable())
+    link = next(item.node for item in nodes if item.node.get("t") == "Link")
+    content = link["c"]
+    assert isinstance(content, list)
+    target = content[2]
+    assert isinstance(target, list)
+
+    assert target[0] == "target"
+    assert "[[target\\|label]]" in reformat_text(source)
 
 
 def test_a_multiline_html_comment_block_is_kept_verbatim() -> None:
@@ -318,7 +374,9 @@ def test_a_multiline_html_comment_block_is_kept_verbatim() -> None:
     `RawBlock` whose text includes the line breaks, so reflowing it changes that
     text. The README's generated-file banner is this shape (#41).
     """
-    source = "<!-- Generated from a file via\nscripts/gen.py.\n-->\n\n# Title\n\nText.\n"
+    source = (
+        "<!-- Generated from a file via\nscripts/gen.py.\n-->\n\n# Title\n\nText.\n"
+    )
 
     result = reformat_text(source, replace(REFORMAT_DEFAULTS, wrap=Width()))
 
