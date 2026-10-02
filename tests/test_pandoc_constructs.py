@@ -19,6 +19,7 @@ from dataclasses import replace
 import pytest
 
 from flowmark import Semantic, Width
+from flowmark.preflight import MalformedInputError
 from flowmark.reformat_api import REFORMAT_DEFAULTS, reformat_text
 
 # --- #5: footnote definitions ---------------------------------------------
@@ -298,18 +299,22 @@ def test_bars_only_inside_math_do_not_start_a_table() -> None:
     assert "- Graded skew-symmetry." in result
 
 
-def test_row_wider_than_its_header_keeps_its_text() -> None:
+@pytest.mark.parametrize(
+    "row",
+    [
+        "| Lambert series | b_N = \\sum_{d|N} a_d and Mobius inversion |\n",
+        "| a | [[target|label]] |\n",
+    ],
+)
+def test_a_row_wider_than_its_header_is_refused(row: str) -> None:
     """
-    A bare `d|N` splits the row, and pandoc drops the cells past the header's
-    width. Its reading is the same whatever flowmark writes there, so the gate is
-    blind to those cells: writing them back is what keeps their text in the file.
+    A bare `|` inside a cell ends the cell, and Pandoc drops the cells past the
+    header's width. Pandoc's reading is the same whatever is written there, so
+    flowmark refuses the file rather than rewrite the author's `|`.
     """
-    header = "| lead | capability |\n| --- | --- |\n"
-    source = header + "| Lambert series | b_N = \\sum_{d|N} a_d and Mobius inversion |\n"
-    # Every cell boundary is written padded, the accidental one included.
-    written = header + "| Lambert series | b_N = \\sum_{d | N} a_d and Mobius inversion |\n"
-
-    assert reformat_text(source) == written
+    source = "| lead | capability |\n| --- | --- |\n" + row
+    with pytest.raises(MalformedInputError, match=r"input:3: this row has 3 cells"):
+        reformat_text(source)
 
 
 def test_a_multiline_html_comment_block_is_kept_verbatim() -> None:

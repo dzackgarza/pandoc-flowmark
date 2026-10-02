@@ -680,6 +680,14 @@ def test_code_that_is_not_a_file_path_passes(source: str) -> None:
     assert rule_lines(source, "link/file-path") == []
 
 
+def test_table_rows_wider_than_the_header_are_errors() -> None:
+    source = (
+        "| Note | Link |\n| --- | --- |\n| a | [[target|label]] |\n"
+        "| b | [[target\\|label]] |\n| c |\n"
+    )
+    assert rule_lines(source, "table/dropped-cells") == [3]
+
+
 def test_cross_reference_ids_without_at_are_errors() -> None:
     source = (
         "The proof of `lem:divisibilityTcoOne` assumes uniqueness.\n\n"
