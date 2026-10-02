@@ -67,13 +67,13 @@ runtime.
 
 ```console
 $ flowmark --help
-usage: flowmark [-h] [-o OUTPUT] [-w WIDTH] [-p]
+usage: flowmark [-h] [-o OUTPUT | -i | --auto] [-w WIDTH] [-p]
                 [-s | --semantic | --no-semantic]
                 [-c | --cleanups | --no-cleanups]
                 [--smartquotes | --no-smartquotes]
                 [--ellipses | --no-ellipses] [--verify | --no-verify]
-                [--list-spacing {preserve,loose,tight}] [-i] [--nobackup]
-                [--auto] [--extend-include PATTERN] [--exclude PATTERN]
+                [--list-spacing {preserve,loose,tight}] [--nobackup]
+                [--extend-include PATTERN] [--exclude PATTERN]
                 [--extend-exclude PATTERN]
                 [--respect-gitignore | --no-respect-gitignore]
                 [--force-exclude | --no-force-exclude] [--list-files]

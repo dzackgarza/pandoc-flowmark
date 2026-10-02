@@ -105,20 +105,19 @@ Error: Cannot specify output file when processing multiple files (use --inplace 
 
 ## E12: Output with --auto leaves the file unchanged
 
-`--auto` sets `--inplace`, so an output destination contradicts it.
+`--auto` writes in place, so an output destination contradicts it.
 
 ```console
-$ printf '# Test\nFirst sentence. Second sentence.\n' > auto-out.md && flowmark --auto -o - auto-out.md 2>&1; cat auto-out.md
-Error: --output cannot be combined with --inplace, which --auto sets
+$ printf '# Test\nFirst sentence. Second sentence.\n' > auto-out.md && flowmark --auto -o - auto-out.md 2>&1 | tail -1; cat auto-out.md
+flowmark: error: argument -o/--output: not allowed with argument --auto
 # Test
 First sentence. Second sentence.
-? 0
 ```
 
 ## E13: Output with --inplace
 
 ```console
-$ flowmark --inplace -o out.md fixtures/content/simple.md 2>&1
-Error: --output cannot be combined with --inplace, which --auto sets
-? 1
+$ flowmark --inplace -o out.md fixtures/content/simple.md 2>&1 | tail -1; test ! -e out.md && echo "no output written"
+flowmark: error: argument -o/--output: not allowed with argument -i/--inplace
+no output written
 ```

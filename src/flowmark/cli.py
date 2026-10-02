@@ -72,7 +72,7 @@ class Options:
     """Command-line options for the flowmark tool, one field per argparse destination."""
 
     files: list[str]
-    output: str | None
+    output: str
     width: int | None
     plaintext: bool
     semantic: bool
@@ -135,7 +135,7 @@ class Options:
         """Where the flags send the result."""
         if self.inplace:
             return InPlace("" if self.nobackup else ".orig")
-        if self.output is not None and self.output != "-":
+        if self.output and self.output != "-":
             return ToFile(Path(self.output))
         return Stdout()
 
@@ -161,10 +161,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Input files or directories (required; use '-' for stdin, '.' for current directory)",
     )
-    parser.add_argument(
+    # Each names where the result goes, so argparse refuses any two together.
+    destination = parser.add_mutually_exclusive_group()
+    destination.add_argument(
         "-o",
         "--output",
         type=str,
+        default="-",
         help="Output file (use '-' for stdout, the default). Only one input file may be "
         "given; not with --inplace or --auto",
     )
@@ -234,7 +237,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "(default: %(default)s). Flowmark normalizes list spacing to one style, as it "
         "normalizes other formatting",
     )
-    parser.add_argument(
+    destination.add_argument(
         "-i",
         "--inplace",
         action="store_true",
@@ -245,7 +248,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not make a backup of the original file when using --inplace",
     )
-    parser.add_argument(
+    destination.add_argument(
         "--auto",
         action="store_true",
         help="Fully auto-format files in place: sets `--inplace --nobackup --semantic "
@@ -450,12 +453,6 @@ def main(args: list[str] | None = None) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     options = Options(**vars(parser.parse_args(args)))
-    if options.inplace and options.output is not None:
-        print(
-            "Error: --output cannot be combined with --inplace, which --auto sets",
-            file=sys.stderr,
-        )
-        return 1
 
     # Resolve files if any input is a directory, glob, or --list-files is used
     resolved_files = _resolve_files(options)
