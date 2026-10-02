@@ -107,6 +107,19 @@ just install-pandoc-flowmark
 
 `FLOWMARK_PANDOC` names another executable, for example a local build of the fork.
 
+## The Note Corpus
+
+`tests/notes` holds excerpts of real notes on which flowmark reported a false
+positive, missed a defect, or changed a document's meaning.
+Each excerpt is copied verbatim from the note, with only the lines needed to
+reproduce the behavior, and it fails on the flowmark build that had the problem.
+`tests/test_note_corpus.py` pins every warning and error on each excerpt, checks that
+formatting keeps its meaning, and checks each machine-applicable fix.
+
+A defect found in a note is a report against flowmark.
+Add the excerpt here and change flowmark; never repair the note by hand, because that
+deletes the only copy of the real case.
+
 ## Agent Rules
 
 See [.cursor/rules](.cursor/rules) for agent rules.
