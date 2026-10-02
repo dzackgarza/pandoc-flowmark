@@ -27,13 +27,7 @@ from urllib.parse import unquote, urlsplit
 from flowmark.atomic_spans import (
     INLINE_CODE_SPAN,
     PAIRED_HTML_COMMENT,
-    PAIRED_JINJA_COMMENT,
-    PAIRED_JINJA_TAG,
-    PAIRED_JINJA_VAR,
     SINGLE_HTML_COMMENT,
-    SINGLE_JINJA_COMMENT,
-    SINGLE_JINJA_TAG,
-    SINGLE_JINJA_VAR,
     iter_atomic_spans,
 )
 from flowmark.linewrapping.atomic_patterns import INLINE_MATH
@@ -263,28 +257,12 @@ _TEX_IN_PROSE = re.compile(
     r"|(?<=[^\s_^~`*\\])[_^](?:\{[^{}\n]*\}|[A-Za-z0-9*](?![A-Za-z0-9_^~]))"
 )
 
-_PROTECTED_INLINE_PATTERNS = (
+# Inline constructs whose content Pandoc reads literally. Pandoc has no template
+# syntax: `{#id}` is an attribute and `{{` is TeX grouping.
+_LITERAL_INLINE_PATTERNS = (
     INLINE_CODE_SPAN,
     SINGLE_HTML_COMMENT,
     PAIRED_HTML_COMMENT,
-    SINGLE_JINJA_TAG,
-    PAIRED_JINJA_TAG,
-    SINGLE_JINJA_COMMENT,
-    PAIRED_JINJA_COMMENT,
-    SINGLE_JINJA_VAR,
-    PAIRED_JINJA_VAR,
-)
-
-_LITERAL_ONLY_PATTERNS = (
-    INLINE_CODE_SPAN,
-    SINGLE_HTML_COMMENT,
-    PAIRED_HTML_COMMENT,
-    SINGLE_JINJA_TAG,
-    PAIRED_JINJA_TAG,
-    SINGLE_JINJA_COMMENT,
-    PAIRED_JINJA_COMMENT,
-    SINGLE_JINJA_VAR,
-    PAIRED_JINJA_VAR,
 )
 
 _NON_DESCRIPTIVE_LINK_TEXT = {
@@ -525,7 +503,7 @@ def _build_protected_map(
     # a run of lines between blank lines, with every table row and heading its
     # own block -- is scanned separately.
     for block in _INLINE_BLOCK.finditer(text):
-        for span in iter_atomic_spans(block.group(0), _PROTECTED_INLINE_PATTERNS):
+        for span in iter_atomic_spans(block.group(0), _LITERAL_INLINE_PATTERNS):
             if span.is_atomic:
                 _mark(protected, block.start() + span.start, block.start() + span.end)
 
@@ -551,7 +529,7 @@ def _build_literal_protected_map(
     for fence in fences:
         if fence.closing is not None:
             _mark(protected, fence.opening.start, fence.closing.raw_end)
-    for span in iter_atomic_spans(text, _LITERAL_ONLY_PATTERNS):
+    for span in iter_atomic_spans(text, _LITERAL_INLINE_PATTERNS):
         if span.is_atomic:
             _mark(protected, span.start, span.end)
     return protected
