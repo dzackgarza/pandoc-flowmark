@@ -112,7 +112,7 @@ def _settle_ranges(value: PandocJson, lines: list[str], *, tabs: bool) -> None:
     if position is not None and isinstance(value, dict):
         start, end = position.start, position.end
         if tabs:
-            start, end = _character_point(start, lines), _character_point(end, lines)
+            start, end = character_point(start, lines), character_point(end, lines)
         eof = (len(lines), len(lines[-1]) + 1)
         if (start.line, start.column) <= eof < (end.line, end.column):
             end = SourcePoint(*eof)
@@ -153,7 +153,7 @@ def _character_column(line: str, column: int) -> int:
     return len(line) + 1 + max(0, column - expanded)
 
 
-def _character_point(point: SourcePoint, lines: list[str]) -> SourcePoint:
+def character_point(point: SourcePoint, lines: list[str]) -> SourcePoint:
     """`point` with Pandoc's tab-expanded column as a character column."""
     line = lines[point.line - 1] if point.line <= len(lines) else ""
     return SourcePoint(point.line, _character_column(line, point.column))

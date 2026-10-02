@@ -316,12 +316,39 @@ def test_bars_only_inside_math_do_not_start_a_table() -> None:
 def test_a_row_wider_than_its_header_is_refused(row: str) -> None:
     """
     A bare `|` inside a cell ends the cell, and Pandoc drops the cells past the
-    header's width. Pandoc's reading is the same whatever is written there, so
+    delimiter row's width. Pandoc's reading is the same whatever is written there, so
     flowmark refuses the file rather than rewrite the author's `|`.
     """
     source = "| lead | capability |\n| --- | --- |\n" + row
-    with pytest.raises(MalformedInputError, match=r"input:3: this row has 3 cells"):
+    with pytest.raises(
+        MalformedInputError, match=r"input:3: this row has text past the table's 2"
+    ):
         reformat_text(source)
+
+
+def test_a_header_wider_than_its_delimiter_row_is_refused() -> None:
+    """Pandoc takes the column count from the delimiter row, not the header."""
+    source = "| a | b | c |\n| --- | --- |\n| x | y |\n"
+    with pytest.raises(MalformedInputError, match=r"input:1: .* drops it: `c`"):
+        reformat_text(source)
+
+
+def test_a_bar_inside_code_or_math_is_cell_content() -> None:
+    """
+    Pandoc's pipe table reader does not end a cell at a `|` inside a code span or
+    `$...$` math, so these rows have two cells each and flowmark keeps their text.
+    """
+    source = (
+        "| construct | status |\n|---|---|\n"
+        "| explicit `|X(F_{q^r})|` for `A^n` | proposed |\n"
+        "| $|-2K_{\\widetilde V}|=\\{C\\}$ generically | established |\n"
+    )
+
+    assert reformat_text(source) == (
+        "| construct | status |\n| --- | --- |\n"
+        "| explicit `|X(F_{q^r})|` for `A^n` | proposed |\n"
+        "| $|-2K_{\\widetilde V}|=\\{C\\}$ generically | established |\n"
+    )
 
 
 def test_an_escaped_wikilink_pipe_in_a_table_cell_keeps_its_target() -> None:

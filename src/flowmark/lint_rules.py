@@ -2345,7 +2345,7 @@ _BUILTIN_RULES = (
     ),
     LintRule(
         "table/dropped-cells",
-        "Pipe table row has more cells than its header; Pandoc drops them.",
+        "Pipe table row has text past the table's columns; Pandoc drops it.",
         RuleLevel.ERROR,
         _correctness_check("table/dropped-cells"),
     ),

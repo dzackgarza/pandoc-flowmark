@@ -20,27 +20,10 @@ from flowmark.reformat_api import reformat_text
 AMBIGUOUS_FENCE = "Intro.\n\n```python\nx = 1\n\nmore   text   here\n"
 
 
-def test_preflight_reads_a_bar_inside_a_span_as_cell_content() -> None:
-    """
-    Pandoc's `markdown` reader does not split a pipe-table cell at a `|` inside a
-    code span or `$...$` math, so these rows are well-formed, two cells each.
-    Reporting them sent the #17 reporter and a later user to "fix" input that was
-    correct -- and escaping the bar inside a code span changes the code's text.
-    """
-    rows = "| construct | status |\n|---|---|\n| explicit `|X(F_{q^r})|` for `A^n` | proposed |\n| $|-2K_{\\widetilde V}|=\\{C\\}$ generically | established |\n"
-
-    assert preflight(rows) == []
-
-
-def test_preflight_finds_a_row_whose_cell_count_disagrees() -> None:
-    """Pandoc drops the third cell, so its text never reaches the output."""
-    findings = preflight("| a | `b|c` |\n|---|---|\n| one | two | three |\n")
-
-    assert [f.line for f in findings] == [3]
-
-
 def test_preflight_finds_unterminated_math() -> None:
-    assert [f.line for f in preflight("A paragraph with $x + y and no closer.\n")] == [1]
+    assert [f.line for f in preflight("A paragraph with $x + y and no closer.\n")] == [
+        1
+    ]
 
 
 def test_preflight_finds_an_unbalanced_fence() -> None:

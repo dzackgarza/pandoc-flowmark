@@ -3,8 +3,8 @@ Cheap checks for input that was already ambiguous before flowmark touched it.
 
 When verification fails there are two different questions: *did flowmark break
 this?* and *was this already broken?*  The pandoc gate can only ask the first, so
-on input that was already broken -- a fence never closed, a table row with more
-cells than its header -- it reports a flowmark bug that no report can fix.
+on input that was already broken -- a fence never closed, a `$` with no closer
+-- it reports a flowmark bug that no report can fix.
 
 So these run only when verification has already failed, and only to say "here is
 something in your input that pandoc reads differently than you probably meant".
@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from flowmark.linewrapping.atomic_patterns import DOLLAR_MATH, INLINE_CODE_SPAN
+from flowmark.linewrapping.atomic_patterns import DOLLAR_MATH
 
 
 class MalformedInputError(ValueError):
@@ -40,41 +40,6 @@ class Finding:
 
     line: int
     message: str
-
-
-# A table row is a line whose stripped form starts and ends with `|`. That is
-# stricter than GFM needs, but a leading-pipe-only row is rare enough that
-# demanding both keeps prose containing a bar from being read as a table.
-_TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
-_DELIMITER_ROW = re.compile(r"^\s*\|(\s*:?-+:?\s*\|)+\s*$")
-
-# Pandoc's pipeTableCell reader consumes code and math spans before it uses a
-# pipe as a cell separator (Text.Pandoc.Readers.Markdown). This scan only counts
-# source cells for the malformed-row diagnostic; Pandoc owns valid table parsing.
-_PIPE_ROW_TOKEN = re.compile(
-    rf"{INLINE_CODE_SPAN.pattern}|{DOLLAR_MATH}|\\.|(?P<bar>\|)"
-)
-
-
-def raw_pipe_table_cells(line: str) -> list[str]:
-    """The cells of a pipe table row, with the spaces around their text."""
-    stripped = line.strip()
-    bars = [
-        match.start()
-        for match in _PIPE_ROW_TOKEN.finditer(stripped)
-        if match.group("bar")
-    ]
-    edges = [-1, *bars, len(stripped)]
-    cells = [stripped[start + 1 : end] for start, end in zip(edges, edges[1:])]
-    if cells and stripped.startswith("|"):
-        cells.pop(0)
-    if cells and not cells[-1].strip() and stripped.endswith("|"):
-        cells.pop()
-    return cells
-
-
-def split_pipe_table_row(line: str) -> list[str]:
-    return [cell.strip() for cell in raw_pipe_table_cells(line)]
 
 
 _FENCE = re.compile(r"^ {,3}(`{3,}|~{3,})(.*)$")
@@ -90,47 +55,6 @@ def opens_fence(line: str) -> bool:
     return match is not None and not (
         match.group(1)[0] == "`" and "`" in match.group(2)
     )
-
-
-def _check_table(lines: list[str], start: int, end: int) -> list[Finding]:
-    """
-    Report each row of `lines[start:end]` whose cell count differs from the header's.
-
-    Pandoc pads a short row and drops the cells past the header's count, so the
-    text of an extra cell never reaches the output.
-    """
-    expected = len(split_pipe_table_row(lines[start]))
-    findings: list[Finding] = []
-    for offset in range(start, end):
-        row = lines[offset]
-        if _DELIMITER_ROW.match(row):
-            continue
-        count = len(split_pipe_table_row(row))
-        if count != expected:
-            findings.append(
-                Finding(
-                    offset + 1,
-                    f"this row has {count} cells; the header row has {expected}",
-                )
-            )
-    return findings
-
-
-def _table_findings(lines: list[str]) -> list[Finding]:
-    findings: list[Finding] = []
-    index = 0
-    while index < len(lines):
-        if not _TABLE_ROW.match(lines[index]):
-            index += 1
-            continue
-        start = index
-        while index < len(lines) and _TABLE_ROW.match(lines[index]):
-            index += 1
-        # A single pipe-delimited line is not a table -- GFM needs a delimiter row --
-        # so there is no header to disagree with and nothing to say.
-        if index - start >= 2:
-            findings.extend(_check_table(lines, start, index))
-    return findings
 
 
 def unclosed_fences(text: str) -> list[Finding]:
@@ -284,7 +208,6 @@ def preflight(text: str) -> list[Finding]:
     """
     lines = text.split("\n")
     findings = [
-        *_table_findings(lines),
         *unclosed_fences(text),
         *rejected_math(text),
         *_math_findings(lines),
