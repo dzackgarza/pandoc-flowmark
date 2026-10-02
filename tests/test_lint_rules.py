@@ -547,6 +547,12 @@ def test_an_unmatched_backtick_does_not_unprotect_later_code_spans() -> None:
     assert "math/outside-math-mode" not in rule_ids(source)
 
 
+def test_math_between_a_heading_attribute_and_an_escaped_hash_is_math() -> None:
+    """`{#sec-t}` and `^{\\#}` are Pandoc syntax, not the ends of one Jinja comment."""
+    source = "# T {#sec-t}\n\nA $\\mathcal B_{R,R}$ x.\n\nB $H^{\\#}=H$ y.\n"
+    assert "math/outside-math-mode" not in rule_ids(source)
+
+
 def test_unicode_math_symbols_are_reported_in_code_and_math_too() -> None:
     """Only a fence that names its language keeps Unicode: Lean's syntax uses it."""
     source = (
