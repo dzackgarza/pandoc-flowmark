@@ -1051,33 +1051,26 @@ def _json_tag(value: PandocJson) -> str:
     return cast(str, value["t"])
 
 
-def _cell_ranges(
-    table: dict[str, PandocJson], lines: list[str]
-) -> dict[int, list[tuple[int, int]]]:
+def _cell_ranges(row: PandocJson, lines: list[str]) -> list[tuple[int, int]]:
     """
-    The 0-based offsets of the raw text of each cell of `table`, by 1-based line.
+    The 0-based offsets in its line of the raw text of each cell of `row`.
 
     pandoc-flowmark gives each pipe table cell the `data-pos` range of its raw text
     between the pipes, in Pandoc's tab-expanded columns.
     """
-    content = _json_list(table["c"])
-    rows = list(_json_list(_json_list(content[3])[1]))
-    for body in _json_list(content[4]):
-        rows.extend(_json_list(_json_list(body)[3]))
-    ranges: dict[int, list[tuple[int, int]]] = {}
-    for row in rows:
-        for cell in _json_list(_json_list(row)[1]):
-            attributes = _json_list(_json_list(_json_list(cell)[0])[2])
-            raw = next(
-                cast(str, pair[1])
-                for pair in map(_json_list, attributes)
-                if pair[0] == "data-pos"
-            )
-            start, end = (
-                character_point(SourcePoint(*map(int, point.split(":"))), lines)
-                for point in raw.split("-")
-            )
-            ranges.setdefault(start.line, []).append((start.column - 1, end.column - 1))
+    ranges: list[tuple[int, int]] = []
+    for cell in _json_list(_json_list(row)[1]):
+        attributes = _json_list(_json_list(_json_list(cell)[0])[2])
+        raw = next(
+            cast(str, pair[1])
+            for pair in map(_json_list, attributes)
+            if pair[0] == "data-pos"
+        )
+        start, end = (
+            character_point(SourcePoint(*map(int, point.split(":"))), lines)
+            for point in raw.split("-")
+        )
+        ranges.append((start.column - 1, end.column - 1))
     return ranges
 
 
@@ -1098,16 +1091,22 @@ def _pipe_tables(source: str, pandoc_exe: str) -> list[_PipeTable]:
         while last > first and not lines[last - 1].strip():
             last -= 1
         rows = [lines[index].rstrip("\r\n") for index in range(first - 1, last)]
-        ranges = _cell_ranges(located.node, texts)
-        colspecs = list(map(_json_list, _json_list(_json_list(located.node["c"])[2])))
+        content = _json_list(located.node["c"])
+        # Pandoc drops a header whose cells are all empty.
+        head = [
+            _cell_ranges(row, texts) for row in _json_list(_json_list(content[3])[1])
+        ]
+        body = [
+            _cell_ranges(row, texts)
+            for part in _json_list(content[4])
+            for row in _json_list(_json_list(part)[3])
+        ]
+        colspecs = list(map(_json_list, _json_list(content[2])))
         tables.append(
             _PipeTable(
                 first,
                 rows,
-                [
-                    [] if offset == 1 else ranges.get(first + offset, [])
-                    for offset in range(len(rows))
-                ],
+                [head[0] if head else [], [], *body],
                 [_DELIMITER_CELLS[_json_tag(spec[0])] for spec in colspecs],
                 any(_json_tag(spec[1]) == "ColWidth" for spec in colspecs),
             )

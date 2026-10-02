@@ -56,7 +56,7 @@ build:
 
 # The release tag and the tarball's SHA-256 change together; see SUPPLY-CHAIN-SECURITY.md.
 # Install the pinned pandoc-flowmark reader into `bindir`.
-install-pandoc-flowmark bindir="/usr/local/bin":
+install-pandoc-flowmark bindir=(home_directory() / ".local/bin"):
     #!/usr/bin/env bash
     set -euo pipefail
     tag=flowmark-3.10.2-7
@@ -64,7 +64,6 @@ install-pandoc-flowmark bindir="/usr/local/bin":
     curl -sSfL -o "$dir/pandoc-flowmark.tar.gz" "https://github.com/dzackgarza/pandoc/releases/download/$tag/$tag-linux-amd64.tar.gz"
     echo "6ff42ab2f99bc59b31c1ae149a9df2aa50a0e41b01252f3f86c4c50fabda75ce  $dir/pandoc-flowmark.tar.gz" | sha256sum -c -
     tar xzf "$dir/pandoc-flowmark.tar.gz" -C "$dir"
-    sudo=""
-    [ -w "{{bindir}}" ] || sudo=sudo
-    $sudo install -m755 "$dir/$tag-linux-amd64/pandoc-flowmark" "{{bindir}}/pandoc-flowmark"
-    "{{bindir}}/pandoc-flowmark" --version | head -1
+    mkdir -p "{{bindir}}"
+    install -m755 "$dir/$tag-linux-amd64/pandoc-flowmark" "{{bindir}}/pandoc-flowmark"
+    pandoc-flowmark --version | head -1

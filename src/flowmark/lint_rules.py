@@ -655,10 +655,7 @@ def _tex_group_findings(source: str, source_offset: int) -> list[RuleFinding]:
     return findings
 
 
-def _mathematical_findings(
-    text: str,
-    pandoc_document: dict[str, PandocJson],
-) -> list[RuleFinding]:
+def _mathematical_findings(text: str) -> list[RuleFinding]:
     """High-confidence TeX/math diagnostics that normalization cannot repair."""
     findings: list[RuleFinding] = []
     for start, end in _math_regions(text):
@@ -2142,7 +2139,7 @@ def lint_rule_findings(
             source_path,
         ),
         *_pandoc_resource_findings(text, pandoc_document, source_path),
-        *_mathematical_findings(text, pandoc_document),
+        *_mathematical_findings(text),
         *_math_notation_findings(text, protected, fences),
         *_style_findings(text, lines, fences, protected, styles, max_line_length),
     ]

@@ -102,7 +102,7 @@ and accepts only the named normalizations in `src/flowmark/pandoc_verify.py`.
 Install the release build that CI pins:
 
 ```shell
-just install-pandoc-flowmark ~/.local/bin
+just install-pandoc-flowmark
 ```
 
 `FLOWMARK_PANDOC` names another executable, for example a local build of the fork.
