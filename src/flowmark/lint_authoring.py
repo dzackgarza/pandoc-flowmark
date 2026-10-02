@@ -668,7 +668,7 @@ def _source_analysis(context: RuleContext) -> dict[str, object]:
     fences = core.source_fences(lines, frontmatter_lines)
     protected = core.source_protected_map(context.text, lines, frontmatter, fences)
     literal = core.source_literal_protected_map(context.text, frontmatter, fences)
-    math = core.pandoc_math_regions(context.text, context.pandoc_document)
+    math = core.pandoc_math_regions(context.text)
     result: dict[str, object] = {
         "lines": lines,
         "frontmatter": frontmatter,
