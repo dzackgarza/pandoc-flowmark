@@ -331,9 +331,13 @@ def test_an_escaped_wikilink_pipe_in_a_table_cell_keeps_its_target() -> None:
     """
     source = "| lead | capability |\n| --- | --- |\n| a | [[target\\|label]] |\n"
     nodes = located_source_nodes(source, pandoc_executable())
-    targets = [item.node["c"][2][0] for item in nodes if item.node.get("t") == "Link"]
+    link = next(item.node for item in nodes if item.node.get("t") == "Link")
+    content = link["c"]
+    assert isinstance(content, list)
+    target = content[2]
+    assert isinstance(target, list)
 
-    assert targets == ["target"]
+    assert target[0] == "target"
     assert "[[target\\|label]]" in reformat_text(source)
 
 
