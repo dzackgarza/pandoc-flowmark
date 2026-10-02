@@ -26,12 +26,15 @@ LONG_SENTENCE = (
 def _format_in_place(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, doc: str, *flags: str
 ) -> str:
-    """Write `config` and `doc` into `tmp_path`, format the doc in place from there."""
+    """Write `config` and `doc` into `tmp_path`, format the doc there with `flags`.
+
+    `flags` names the destination: `--auto`, or `--inplace --nobackup`.
+    """
     (tmp_path / "flowmark.toml").write_text(config)
     doc_path = tmp_path / "doc.md"
     doc_path.write_text(doc)
     monkeypatch.chdir(tmp_path)
-    assert main(["--inplace", "--nobackup", *flags, "doc.md"]) == 0
+    assert main([*flags, "doc.md"]) == 0
     return doc_path.read_text()
 
 
@@ -81,7 +84,13 @@ def test_explicit_flag_beats_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     out = _format_in_place(
-        tmp_path, monkeypatch, "smartquotes = true\n", QUOTED, "--no-smartquotes"
+        tmp_path,
+        monkeypatch,
+        "smartquotes = true\n",
+        QUOTED,
+        "--inplace",
+        "--nobackup",
+        "--no-smartquotes",
     )
     assert out == QUOTED
 
@@ -123,7 +132,14 @@ def test_config_width_beats_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A config width wraps each sentence; it is not dropped by semantic breaks."""
-    out = _format_in_place(tmp_path, monkeypatch, "width = 40\n", LONG_SENTENCE)
+    out = _format_in_place(
+        tmp_path,
+        monkeypatch,
+        "width = 40\n",
+        LONG_SENTENCE,
+        "--inplace",
+        "--nobackup",
+    )
     assert out == (
         "The quick brown fox jumps over the lazy\ndog again and again.\nIt rests.\n"
     )

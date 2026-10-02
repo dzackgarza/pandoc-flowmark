@@ -153,7 +153,7 @@ The main flags:
 
 | Flag | Description |
 | --- | --- |
-| `-o, --output FILE` | Output file (use `-` for stdout); only one input file may be given |
+| `-o, --output FILE` | Output file (use `-` for stdout, the default); only one input file may be given; not with `--inplace` or `--auto` |
 | `-w, --width WIDTH` | Line width. When not given: no limit with semantic line breaks, 88 with `--no-semantic` or `--plaintext`. 0 disables wrapping |
 | `-p, --plaintext` | Process as plaintext (no Markdown parsing) |
 | `-s, --semantic` | Semantic (sentence-based) line breaks (default: on; `--no-semantic` wraps to a column width) |

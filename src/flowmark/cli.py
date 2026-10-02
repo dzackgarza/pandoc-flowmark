@@ -161,12 +161,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Input files or directories (required; use '-' for stdin, '.' for current directory)",
     )
-    parser.add_argument(
+    # Each names where the result goes, so argparse refuses any two together.
+    destination = parser.add_mutually_exclusive_group()
+    destination.add_argument(
         "-o",
         "--output",
         type=str,
         default="-",
-        help="Output file (use '-' for stdout). Only one input file may be given",
+        help="Output file (use '-' for stdout, the default). Only one input file may be "
+        "given; not with --inplace or --auto",
     )
     parser.add_argument(
         "-w",
@@ -234,18 +237,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "(default: %(default)s). Flowmark normalizes list spacing to one style, as it "
         "normalizes other formatting",
     )
-    parser.add_argument(
+    destination.add_argument(
         "-i",
         "--inplace",
         action="store_true",
-        help="Edit the file in place (ignores --output)",
+        help="Edit the file in place",
     )
     parser.add_argument(
         "--nobackup",
         action="store_true",
         help="Do not make a backup of the original file when using --inplace",
     )
-    parser.add_argument(
+    destination.add_argument(
         "--auto",
         action="store_true",
         help="Fully auto-format files in place: sets `--inplace --nobackup --semantic "
