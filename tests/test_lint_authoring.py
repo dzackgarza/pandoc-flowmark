@@ -263,6 +263,91 @@ def test_trailing_argument_macro_candidate_requires_an_argument(tmp_path: Path) 
     ]
 
 
+def test_macro_candidate_span_reclaims_braces_normalization_dropped(
+    tmp_path: Path,
+) -> None:
+    macros = tmp_path / "macros"
+    macros.mkdir()
+    (macros / "defs.tex").write_text(
+        "\\newcommand{\\Agn}{\\mathrm{A}}\n\\newcommand{\\Agbar}{\\overline{\\Agn}}\n"
+    )
+    source = "The fibre is $\\overline{\\Agn}$ here.\n"
+
+    diagnostic = next(
+        diagnostic
+        for diagnostic in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
+        if diagnostic.rule == "math/user-macro-candidates"
+    )
+
+    assert diagnostic.message == (
+        "`\\overline{\\Agn}` matches a macro; consider `\\Agbar` instead."
+    )
+    assert (
+        source[diagnostic.column - 1 : diagnostic.end_column - 1] == "\\overline{\\Agn}"
+    )
+
+
+def test_leading_argument_macro_candidate_matches_manual_expansion(
+    tmp_path: Path,
+) -> None:
+    macros = tmp_path / "macros"
+    macros.mkdir()
+    (macros / "mark.tex").write_text("\\newcommand{\\red}[1]{#1_{\\mathrm{red}}}\n")
+    source = "The marked set is $x_{\\mathrm{red}}$ here.\n"
+
+    diagnostic = next(
+        diagnostic
+        for diagnostic in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
+        if diagnostic.rule == "math/user-macro-candidates"
+    )
+
+    assert diagnostic.data == {"candidates": ("\\red{…}",)}
+    assert diagnostic.suggestions[0].replacement == "\\red{x}"
+    assert (
+        source[diagnostic.column - 1 : diagnostic.end_column - 1] == "x_{\\mathrm{red}}"
+    )
+
+
+def test_leading_argument_macro_candidate_reads_control_word_argument(
+    tmp_path: Path,
+) -> None:
+    macros = tmp_path / "macros"
+    macros.mkdir()
+    (macros / "mark.tex").write_text("\\newcommand{\\red}[1]{#1_{\\mathrm{red}}}\n")
+    source = "The marked set is $\\alpha_{\\mathrm{red}}$ here.\n"
+
+    diagnostic = next(
+        diagnostic
+        for diagnostic in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
+        if diagnostic.rule == "math/user-macro-candidates"
+    )
+
+    assert diagnostic.suggestions[0].replacement == "\\red{\\alpha}"
+
+
+def test_leading_argument_macro_candidate_requires_an_argument(
+    tmp_path: Path,
+) -> None:
+    macros = tmp_path / "macros"
+    macros.mkdir()
+    (macros / "mark.tex").write_text("\\newcommand{\\red}[1]{#1_{\\mathrm{red}}}\n")
+    source = "A subscript with no base is $_{\\mathrm{red}}$.\n"
+
+    assert not [
+        diagnostic
+        for diagnostic in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
+        if diagnostic.rule == "math/user-macro-candidates"
+    ]
+
+
 def test_table_reference_id_belongs_on_fenced_div() -> None:
     table = "| Name | Value |\n|:-----|------:|\n| one | 1 |\n"
     short_form = table + "\n: Measurements {#tbl:measurements}\n"

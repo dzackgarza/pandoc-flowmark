@@ -88,6 +88,7 @@ _PAIRED_DELIMITER_DEFINITION = re.compile(
     + r"\\(?P<name>[A-Za-z@]+)\s*\}?\s*"
 )
 _TRAILING_ARGUMENT = re.compile(r"#(?P<number>[1-9])$")
+_LEADING_ARGUMENT = re.compile(r"^#(?P<number>[1-9])")
 _IGNORED_MATCH_CONTROL_WORDS = frozenset({"left", "right", "quad", "qquad"})
 _IGNORED_MATCH_CONTROL_SYMBOLS = frozenset({",", "!", ";", ":", " "})
 _PACKAGE_DECLARATION = re.compile(
@@ -201,13 +202,16 @@ class _MacroMatcher:
     """How one macro body is looked for in a document.
 
     ``pattern`` matches a body whose arguments are delimited by fixed text on
-    both sides. ``prefix`` matches the fixed text of a body whose only argument
-    is its last element, which normalization cannot delimit. At most one is set.
+    both sides. Otherwise ``edge`` matches the fixed text of a body whose only
+    argument sits at one end, which normalization cannot delimit, and
+    ``argument_at_start`` says whether the argument precedes that text or
+    follows it. At most one of the two is set.
     """
 
     definition: _MacroDefinition
     pattern: re.Pattern[str] | None
-    prefix: re.Pattern[str] | None
+    edge: re.Pattern[str] | None
+    argument_at_start: bool
 
 
 def _section(context: RuleContext, name: str) -> Mapping[str, object]:
@@ -812,6 +816,64 @@ def _argument_span(source: str, start: int) -> tuple[int, int, int] | None:
     return index, end, end
 
 
+def _argument_start(source: str, end: int) -> tuple[int, int, int] | None:
+    """``(content_from, content_to, start)`` for the TeX argument ending at or before ``end``.
+
+    A braced argument is the group whose closing brace precedes ``end``. An
+    unbraced one is the single control word, control symbol, or character that
+    TeX itself would read.
+    """
+
+    index = end - 1
+    while index >= 0 and source[index].isspace():
+        index -= 1
+    if index < 0:
+        return None
+    if source[index] == "}":
+        depth = 0
+        scan = index
+        while scan >= 0:
+            char = source[scan]
+            escaped = scan > 0 and source[scan - 1] == "\\"
+            if char == "}" and not escaped:
+                depth += 1
+            elif char == "{" and not escaped:
+                depth -= 1
+                if depth == 0:
+                    return scan + 1, index, scan
+            scan -= 1
+        return None
+    if source[index] == "\\" and index > 0:
+        if source[index - 1].isalpha() or source[index - 1] == "@":
+            scan = index - 1
+            while scan >= 0 and (source[scan].isalpha() or source[scan] == "@"):
+                scan -= 1
+            return scan + 1, index + 1, scan + 1
+        return index, index + 1, index
+    scan = index
+    while scan > 0 and (source[scan - 1].isalpha() or source[scan - 1] == "@"):
+        scan -= 1
+    if scan > 0 and source[scan - 1] == "\\":
+        scan -= 1
+    return scan, index + 1, scan
+
+
+def _extend_over_groups(source: str, start: int, end: int) -> int:
+    """Extend ``end`` over the closing braces that normalization dropped.
+
+    Normalization removes braces, so a match can stop inside the group it came
+    from: ``\\overline{\\Agn}`` matches only as far as ``\\Agn``. Reclaiming the
+    braces the span leaves unbalanced keeps the reported text, and the range a
+    fix replaces, well formed.
+    """
+
+    depth = source.count("{", start, end) - source.count("}", start, end)
+    while depth > 0 and end < len(source) and source[end] == "}":
+        end += 1
+        depth -= 1
+    return end
+
+
 def _trailing_argument_prefix(definition: _MacroDefinition) -> re.Pattern[str] | None:
     """Matcher for the fixed text of a body whose last element is its argument.
 
@@ -831,19 +893,39 @@ def _trailing_argument_prefix(definition: _MacroDefinition) -> re.Pattern[str] |
     return re.compile(re.escape(fixed))
 
 
+def _leading_argument_prefix(definition: _MacroDefinition) -> re.Pattern[str] | None:
+    """Matcher for the fixed text of a body whose first element is its argument.
+
+    The mirror of ``_trailing_argument_prefix``: the argument has no opening
+    delimiter in normalized text, but it is delimited on its right, so
+    ``_argument_start`` recovers where it began in the source.
+    """
+
+    normalized = _normalize_tex_for_macro_match(definition.replacement).text
+    leading = _LEADING_ARGUMENT.match(normalized)
+    if leading is None or leading.group("number") != "1":
+        return None
+    fixed = normalized[leading.end() :]
+    if "#" in fixed or len(fixed) < 4:
+        return None
+    return re.compile(re.escape(fixed))
+
+
 def _macro_matchers(
     definitions: Iterable[_MacroDefinition],
 ) -> tuple[_MacroMatcher, ...]:
     matchers: list[_MacroMatcher] = []
     for definition in definitions:
         pattern = _macro_pattern(definition)
-        matchers.append(
-            _MacroMatcher(
-                definition,
-                pattern,
-                None if pattern is not None else _trailing_argument_prefix(definition),
-            )
-        )
+        if pattern is not None:
+            matchers.append(_MacroMatcher(definition, pattern, None, False))
+            continue
+        trailing = _trailing_argument_prefix(definition)
+        if trailing is not None:
+            matchers.append(_MacroMatcher(definition, None, trailing, False))
+            continue
+        leading = _leading_argument_prefix(definition)
+        matchers.append(_MacroMatcher(definition, None, leading, leading is not None))
     return tuple(matchers)
 
 
@@ -867,6 +949,7 @@ def _macro_proposals(
                 continue
             source_from = normalized.positions[match.start()]
             source_to = normalized.positions[match.end() - 1] + 1
+            source_to = _extend_over_groups(source, source_from, source_to)
             if (
                 source_from in control_word_interiors
                 or source_to in control_word_interiors
@@ -879,23 +962,31 @@ def _macro_proposals(
             )
         return
 
-    prefix = matcher.prefix
-    if prefix is None:
+    edge = matcher.edge
+    if edge is None:
         return
-    for match in prefix.finditer(normalized.text):
-        prefix_from = normalized.positions[match.start()]
-        prefix_to = normalized.positions[match.end() - 1] + 1
-        if prefix_from in control_word_interiors or prefix_to in control_word_interiors:
+    for match in edge.finditer(normalized.text):
+        edge_from = normalized.positions[match.start()]
+        edge_to = normalized.positions[match.end() - 1] + 1
+        if edge_from in control_word_interiors or edge_to in control_word_interiors:
             continue
-        argument = _argument_span(source, prefix_to)
-        if argument is None:
-            continue
-        content_from, content_to, argument_end = argument
-        if argument_end in control_word_interiors:
+        if matcher.argument_at_start:
+            argument = _argument_start(source, edge_from)
+            if argument is None:
+                continue
+            content_from, content_to, source_from = argument
+            source_to = _extend_over_groups(source, edge_from, edge_to)
+        else:
+            argument = _argument_span(source, edge_to)
+            if argument is None:
+                continue
+            content_from, content_to, source_to = argument
+            source_from = edge_from
+        if source_to in control_word_interiors:
             continue
         yield (
-            prefix_from,
-            argument_end,
+            source_from,
+            source_to,
             f"{definition.name}{{{source[content_from:content_to]}}}",
         )
 
