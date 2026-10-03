@@ -452,6 +452,54 @@ flowmark-lint --max-line-length 100 README.md
 
 Editor/stdin clients can supply `--source-path PATH` so relative links and cross-file Markdown fragments are checked against the document’s real location.
 
+### Mathematical authoring rules
+
+Some rules need facts only the surrounding project knows: which macros exist, which packages are loaded, where reference targets live.
+Supply them as JSON in the `[lint.context]` table of `flowmark.toml`. Without them those rules stay silent, so a clean run may mean “not configured” rather than “nothing to fix”.
+
+`math/user-macro-candidates` reports a hand-written expansion of one of your own macros and offers the macro instead:
+
+```markdown
+The fibre is $\overline{\Agn}$.
+--> math/user-macro-candidates: `\overline{\Agn}` matches a macro;
+    consider `\Agbar` instead.
+```
+
+It matches a macro’s body after normalizing whitespace and braces away, so `\overline{\Agn}` and `\overline \Agn` both match `\newcommand{\Agbar}{\overline{\Agn}}`. An argument may sit at either end of the body (`\newcommand{\red}[1]{#1_{\mathrm{red}}}` is matched too), but a body whose argument is both first and last (`#1\overline{#1}`) is not, because neither end is then delimited.
+The rule is advisory: it carries `suggestions`, not a `fix`, so `--fix` never rewrites math.
+Where several macros fit one span it lists them all rather than choosing, because no single rewrite is correct.
+
+```toml
+# flowmark.toml
+[lint.context.tex]
+# Macro definitions, read from .tex/.sty/.cls files and .json maps.
+# A directory is walked recursively; a glob is accepted.
+macro_sources = ["macros", "tex/preamble.tex"]
+# Base that relative macro_sources resolve against. Defaults to the document's
+# own directory.
+macro_base = "."
+# Inline definitions, name = body. Overrides file-sourced ones of the same name.
+[lint.context.tex.macros]
+Agn = "\\mathrm{A}"
+Agbar = "\\overline{\\Agn}"
+
+# Packages the document loads, so their commands are not reported as unknown.
+packages = ["amssymb", "amsthm"]
+classes = ["report"]
+
+# Extra roots for \input and \includegraphics lookups, and a TEXINPUTS-style
+# search path (entries ending in // are searched recursively).
+project_roots = ["figures"]
+texinputs = "tex//"
+
+# Commands to treat as defined without a definition, for environments Flowmark
+# cannot parse.
+known_commands = ["\\ bespoke"]
+```
+
+`tex/unknown-command` also draws on this table: it consults a bundled TeXstudio command index to say a command belongs to a package the document does not load, which is a more useful report than “undefined”.
+The other context tables are `references` (`snapshot`, `resolutions`, `theorem_families`, `theorem_class_to_prefix`, `referenceable_div_classes`, `proof_div_classes`, `family_aliases`), `wikilinks`, and `compiler` (`tikz.diagnostics`).
+
 ## Project Docs
 
 For development workflows, see [development.md](docs/development.md).
