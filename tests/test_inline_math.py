@@ -133,6 +133,8 @@ def test_wrapping_never_breaks_inside_a_raw_tex_command() -> None:
     at one of its spaces changes that string. At width 78 the command straddles the
     limit: no regex describes it, only the parser knows it is one construct.
     """
-    result = reformat_text(RAW_TEX_WRAP_SOURCE, replace(REFORMAT_DEFAULTS, wrap=Width(78)))
+    result = reformat_text(
+        RAW_TEX_WRAP_SOURCE, replace(REFORMAT_DEFAULTS, wrap=Width(78))
+    )
 
     assert "\\overline{ \\mathcal{M}_{1} }" in result, result

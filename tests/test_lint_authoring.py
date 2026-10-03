@@ -181,24 +181,34 @@ def test_macro_candidate_requires_complete_tex_control_words(tmp_path: Path) -> 
     ]
 
 
-def test_trailing_argument_macro_candidate_matches_manual_expansion(tmp_path: Path) -> None:
+def test_trailing_argument_macro_candidate_matches_manual_expansion(
+    tmp_path: Path,
+) -> None:
     macros = tmp_path / "macros"
     macros.mkdir()
-    (macros / "compact.tex").write_text("\\newcommand{\\compactification}[1]{\\overline{#1}}\n")
+    (macros / "compact.tex").write_text(
+        "\\newcommand{\\compactification}[1]{\\overline{#1}}\n"
+    )
     source = "The compactification is $\\overline{\\mathcal{M}}$ here.\n"
 
     diagnostics = [
         diagnostic
-        for diagnostic in lint_text(source, options(tex_context({"macro_sources": [str(macros)]})))
+        for diagnostic in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
         if diagnostic.rule == "math/user-macro-candidates"
     ]
 
     assert len(diagnostics) == 1
     assert diagnostics[0].data == {"candidates": ("\\compactification{…}",)}
-    assert diagnostics[0].suggestions[0].replacement == "\\compactification{\\mathcal{M}}"
+    assert (
+        diagnostics[0].suggestions[0].replacement == "\\compactification{\\mathcal{M}}"
+    )
 
 
-def test_trailing_argument_macro_candidate_reads_unbraced_argument(tmp_path: Path) -> None:
+def test_trailing_argument_macro_candidate_reads_unbraced_argument(
+    tmp_path: Path,
+) -> None:
     macros = tmp_path / "macros"
     macros.mkdir()
     (macros / "compact.tex").write_text("\\newcommand{\\closed}[1]{\\overline{#1}}\n")
@@ -206,17 +216,24 @@ def test_trailing_argument_macro_candidate_reads_unbraced_argument(tmp_path: Pat
 
     diagnostics = [
         diagnostic
-        for diagnostic in lint_text(source, options(tex_context({"macro_sources": [str(macros)]})))
+        for diagnostic in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
         if diagnostic.rule == "math/user-macro-candidates"
     ]
 
-    assert [(diagnostic.column, diagnostic.suggestions[0].replacement) for diagnostic in diagnostics] == [
+    assert [
+        (diagnostic.column, diagnostic.suggestions[0].replacement)
+        for diagnostic in diagnostics
+    ] == [
         (10, "\\closed{x}"),
         (29, "\\closed{y}"),
     ]
 
 
-def test_trailing_argument_macro_candidate_ignores_partial_control_words(tmp_path: Path) -> None:
+def test_trailing_argument_macro_candidate_ignores_partial_control_words(
+    tmp_path: Path,
+) -> None:
     macros = tmp_path / "macros"
     macros.mkdir()
     (macros / "compact.tex").write_text("\\newcommand{\\closed}[1]{\\overline{#1}}\n")
@@ -224,7 +241,9 @@ def test_trailing_argument_macro_candidate_ignores_partial_control_words(tmp_pat
 
     assert not [
         diagnostic
-        for diagnostic in lint_text(source, options(tex_context({"macro_sources": [str(macros)]})))
+        for diagnostic in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
         if diagnostic.rule == "math/user-macro-candidates"
     ]
 
@@ -237,7 +256,9 @@ def test_trailing_argument_macro_candidate_requires_an_argument(tmp_path: Path) 
 
     assert not [
         diagnostic
-        for diagnostic in lint_text(source, options(tex_context({"macro_sources": [str(macros)]})))
+        for diagnostic in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
         if diagnostic.rule == "math/user-macro-candidates"
     ]
 
@@ -349,7 +370,9 @@ def test_header_includes_tex_that_pandoc_reads_as_text_is_fixed(
     )
 
 
-def test_header_includes_text_in_a_yaml_escaped_string_is_reported_without_a_fix() -> None:
+def test_header_includes_text_in_a_yaml_escaped_string_is_reported_without_a_fix() -> (
+    None
+):
     source = '---\nheader-includes: "\\\\\\\\usepackage{x}"\n---\n\nText.\n'
     diagnostics = [
         diagnostic

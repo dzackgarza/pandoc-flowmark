@@ -47,7 +47,10 @@ def test_formatting_preserves_pandoc_div_attributes_and_raw_tex() -> None:
         ["theorem"],
         [["title", "A source-position theorem"]],
     ]
-    assert reformat_text(formatted, replace(REFORMAT_DEFAULTS, wrap=Width(48))) == formatted
+    assert (
+        reformat_text(formatted, replace(REFORMAT_DEFAULTS, wrap=Width(48)))
+        == formatted
+    )
 
 
 def test_pandoc_positions_locate_div_paragraph_and_inline_math() -> None:
@@ -60,7 +63,9 @@ def test_pandoc_positions_locate_div_paragraph_and_inline_math() -> None:
     assert paragraph.source_range.start.line == 4
     assert paragraph.source_range.start.column == 1
     assert math.source_range.start.line == 4
-    assert math.source_range.start.column == source.splitlines()[3].index(r"\(x+y\)") + 1
+    assert (
+        math.source_range.start.column == source.splitlines()[3].index(r"\(x+y\)") + 1
+    )
 
 
 def test_pandoc_edit_wraps_inside_multiline_div_without_rewriting_raw_source() -> None:
@@ -83,7 +88,10 @@ def test_pandoc_edit_wraps_inside_multiline_div_without_rewriting_raw_source() -
     assert 'title="A source-position theorem"\n' in formatted
     assert "#thm:source-position\n" in formatted
     assert "\\begin{align*}\na &= b\n\\end{align*}" in formatted
-    assert wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(48))) == formatted
+    assert (
+        wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(48)))
+        == formatted
+    )
 
 
 def test_pandoc_edit_keeps_inline_constructs_atomic() -> None:
@@ -95,7 +103,10 @@ def test_pandoc_edit_keeps_inline_constructs_atomic() -> None:
     assert "[a linked phrase](https://example.org)" in formatted
     assert "\\(x+y\\)" in formatted
     assert "`code with spaces`" in formatted
-    assert wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(48))) == formatted
+    assert (
+        wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(48)))
+        == formatted
+    )
 
 
 def test_pandoc_edit_joins_multiline_code_source() -> None:
@@ -104,7 +115,10 @@ def test_pandoc_edit_joins_multiline_code_source() -> None:
     formatted = wrap_plain_paragraphs(source, pandoc, paragraph_wrappers(Width(48)))
 
     assert "`first line second line`" in formatted
-    assert wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(48))) == formatted
+    assert (
+        wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(48)))
+        == formatted
+    )
 
 
 def test_pandoc_edit_wraps_list_item_under_its_marker() -> None:
@@ -114,7 +128,10 @@ def test_pandoc_edit_wraps_list_item_under_its_marker() -> None:
 
     assert formatted.startswith("- A long first item has enough words to\n  ")
     assert "\n- A second item stays separate.\n" in formatted
-    assert wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(40))) == formatted
+    assert (
+        wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(40)))
+        == formatted
+    )
 
 
 def test_pandoc_edit_wraps_quote_under_its_marker() -> None:
@@ -123,7 +140,10 @@ def test_pandoc_edit_wraps_quote_under_its_marker() -> None:
     formatted = wrap_plain_paragraphs(source, pandoc, paragraph_wrappers(Width(40)))
 
     assert formatted.startswith("> A quoted sentence has enough words to\n> ")
-    assert wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(40))) == formatted
+    assert (
+        wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(40)))
+        == formatted
+    )
 
 
 def test_pandoc_edit_wraps_list_item_with_inline_syntax() -> None:
@@ -134,7 +154,10 @@ def test_pandoc_edit_wraps_list_item_with_inline_syntax() -> None:
     assert formatted != source
     assert "[a linked phrase](https://example.org)" in formatted
     assert formatted.splitlines()[1].startswith("  ")
-    assert wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(50))) == formatted
+    assert (
+        wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(50)))
+        == formatted
+    )
 
 
 def test_pandoc_edit_preserves_hard_break_source() -> None:
@@ -144,7 +167,10 @@ def test_pandoc_edit_preserves_hard_break_source() -> None:
 
     assert formatted != source
     assert "break.  \nAnd" in formatted
-    assert wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(40))) == formatted
+    assert (
+        wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(40)))
+        == formatted
+    )
 
 
 def test_pandoc_edit_wraps_at_sentence_boundaries() -> None:
@@ -153,14 +179,20 @@ def test_pandoc_edit_wraps_at_sentence_boundaries() -> None:
     formatted = wrap_plain_paragraphs(source, pandoc, paragraph_wrappers(Semantic(60)))
 
     assert "line.\nA second sentence" in formatted
-    assert wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Semantic(60))) == formatted
+    assert (
+        wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Semantic(60)))
+        == formatted
+    )
 
 
 def test_pandoc_edit_preserves_template_owned_lines() -> None:
     source = '{% field kind="select" %}\n- [ ] First option {% first %}\n- [ ] Second option {% second %}\n{% /field %}\n'
     pandoc = pandoc_executable()
 
-    assert wrap_plain_paragraphs(source, pandoc, paragraph_wrappers(Semantic(40))) == source
+    assert (
+        wrap_plain_paragraphs(source, pandoc, paragraph_wrappers(Semantic(40)))
+        == source
+    )
 
 
 def test_pandoc_edit_wraps_both_levels_of_a_nested_list() -> None:
@@ -170,7 +202,10 @@ def test_pandoc_edit_wraps_both_levels_of_a_nested_list() -> None:
 
     assert formatted.startswith("- A first list item has enough words to\n  ")
     assert "  - A nested list item also has enough\n    " in formatted
-    assert wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(42))) == formatted
+    assert (
+        wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(42)))
+        == formatted
+    )
 
 
 def test_pandoc_edit_keeps_nested_marker_after_outer_item() -> None:
@@ -180,7 +215,10 @@ def test_pandoc_edit_keeps_nested_marker_after_outer_item() -> None:
 
     assert formatted.startswith("* An outer list item has enough words to\n  ")
     assert "\n\n  + The inner list item follows" in formatted
-    assert wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(42))) == formatted
+    assert (
+        wrap_plain_paragraphs(formatted, pandoc, paragraph_wrappers(Width(42)))
+        == formatted
+    )
 
 
 def test_pandoc_cleanup_unbolds_only_whole_strong_headings() -> None:

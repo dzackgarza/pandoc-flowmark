@@ -292,13 +292,18 @@ def test_wide_table_adjacent_to_paragraph() -> None:
         result = fill_markdown(input_doc, FormatOptions(wrap))
 
         # Every table row must remain on its own single line
-        assert "| Quarter | Revenue ($M) | YoY % | QoQ % | Segment A % | Segment B % | Geo: US % | Geo: Intl % |" in result
+        assert (
+            "| Quarter | Revenue ($M) | YoY % | QoQ % | Segment A % | Segment B % | Geo: US % | Geo: Intl % |"
+            in result
+        )
         assert "| Q1 2025 | 125.3 | +12% | +3% | 45% | 55% | 60% | 40% |" in result
 
         # Verify rows are each on their own line (not merged with text)
         result_lines = result.strip().split("\n")
         table_lines = [line for line in result_lines if line.startswith("|")]
-        assert len(table_lines) == 3, f"Expected 3 table lines, got {len(table_lines)} in {wrap=}"
+        assert len(table_lines) == 3, (
+            f"Expected 3 table lines, got {len(table_lines)} in {wrap=}"
+        )
 
 
 def test_standalone_wide_table() -> None:
@@ -333,6 +338,8 @@ def test_semantic_breaks_without_a_width_collapse_runs_of_spaces() -> None:
     Every mode normalizes the spaces between words; semantic line breaks with no
     column limit, the CLI default, must too (#40).
     """
-    result = fill_markdown("some   text   here. More   text.\n", FormatOptions(Semantic(0)))
+    result = fill_markdown(
+        "some   text   here. More   text.\n", FormatOptions(Semantic(0))
+    )
 
     assert result == "some text here.\nMore text.\n"
