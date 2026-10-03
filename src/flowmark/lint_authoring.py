@@ -75,6 +75,7 @@ _SIMPLE_COMMAND_DEFINITION = re.compile(r"\\(?:newcommand|renewcommand|provideco
 _OPERATOR_DEFINITION = re.compile(r"\\DeclareMathOperator(?P<star>\*)?\s*\{\s*\\(?P<name>[A-Za-z@]+)\s*\}\s*")
 _DEF_DEFINITION = re.compile(r"\\(?:def|gdef|edef|xdef)\s*\\(?P<name>[A-Za-z@]+)\s*")
 _PAIRED_DELIMITER_DEFINITION = re.compile(r"\\DeclarePairedDelimiter(?:X|XPP)?\*?\s*(?:\{\s*)?" + r"\\(?P<name>[A-Za-z@]+)\s*\}?\s*")
+_TRAILING_ARGUMENT = re.compile(r"#(?P<number>[1-9])$")
 _IGNORED_MATCH_CONTROL_WORDS = frozenset({"left", "right", "quad", "qquad"})
 _IGNORED_MATCH_CONTROL_SYMBOLS = frozenset({",", "!", ";", ":", " "})
 _PACKAGE_DECLARATION = re.compile(r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\]\s*)?\{(?P<names>[^{}]+)\}")
@@ -177,6 +178,20 @@ class _MacroDefinition:
 class _NormalizedTex:
     text: str
     positions: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class _MacroMatcher:
+    """How one macro body is looked for in a document.
+
+    ``pattern`` matches a body whose arguments are delimited by fixed text on
+    both sides. ``prefix`` matches the fixed text of a body whose only argument
+    is its last element, which normalization cannot delimit. At most one is set.
+    """
+
+    definition: _MacroDefinition
+    pattern: re.Pattern[str] | None
+    prefix: re.Pattern[str] | None
 
 
 def _section(context: RuleContext, name: str) -> Mapping[str, object]:
@@ -736,6 +751,101 @@ def _macro_invocation(definition: _MacroDefinition) -> str:
     return definition.name + "{…}" * definition.argument_count
 
 
+def _argument_span(source: str, start: int) -> tuple[int, int, int] | None:
+    """``(content_from, content_to, end)`` for the TeX argument at or after ``start``.
+
+    A braced argument runs to its matching brace and contributes only its
+    interior. An unbraced one is the single control word, control symbol, or
+    character that TeX itself would read.
+    """
+
+    index = _skip_space(source, start)
+    if index >= len(source) or source[index] == "}":
+        return None
+    if source[index] == "{":
+        group = _balanced_group(source, index)
+        if group is None:
+            return None
+        return index + 1, group[1] - 1, group[1]
+    if source[index] != "\\":
+        return index, index + 1, index + 1
+    if index + 1 >= len(source):
+        return None
+    end = index + 2
+    while end < len(source) and (source[end].isalpha() or source[end] == "@"):
+        end += 1
+    return index, end, end
+
+
+def _trailing_argument_prefix(definition: _MacroDefinition) -> re.Pattern[str] | None:
+    """Matcher for the fixed text of a body whose last element is its argument.
+
+    Normalization drops braces, so such an argument has no closing delimiter and
+    an extent measured in normalized text would run to the end of the math
+    region. The argument is delimited on its left instead, so ``_argument_span``
+    recovers how far it reaches in the source.
+    """
+
+    normalized = _normalize_tex_for_macro_match(definition.replacement).text
+    trailing = _TRAILING_ARGUMENT.search(normalized)
+    if trailing is None or trailing.group("number") != "1":
+        return None
+    fixed = normalized[: trailing.start()]
+    if "#" in fixed or len(fixed) < 4:
+        return None
+    return re.compile(re.escape(fixed))
+
+
+def _macro_matchers(definitions: Iterable[_MacroDefinition]) -> tuple[_MacroMatcher, ...]:
+    matchers: list[_MacroMatcher] = []
+    for definition in definitions:
+        pattern = _macro_pattern(definition)
+        matchers.append(_MacroMatcher(definition, pattern, None if pattern is not None else _trailing_argument_prefix(definition)))
+    return tuple(matchers)
+
+
+def _macro_proposals(
+    matcher: _MacroMatcher,
+    source: str,
+    normalized: _NormalizedTex,
+    control_word_interiors: frozenset[int],
+) -> Iterable[tuple[int, int, str | None]]:
+    """Yield ``(from, to, invocation)`` in region coordinates for each authored
+    occurrence of ``matcher``'s body, skipping control-word interiors.
+
+    The invocation is None when an argument cannot be recovered from the match.
+    """
+
+    definition = matcher.definition
+    pattern = matcher.pattern
+    if pattern is not None:
+        for match in pattern.finditer(normalized.text):
+            if match.start() == match.end():
+                continue
+            source_from = normalized.positions[match.start()]
+            source_to = normalized.positions[match.end() - 1] + 1
+            if source_from in control_word_interiors or source_to in control_word_interiors:
+                continue
+            yield source_from, source_to, _concrete_invocation(definition, match, source, normalized)
+        return
+
+    prefix = matcher.prefix
+    if prefix is None:
+        return
+    for match in prefix.finditer(normalized.text):
+        prefix_from = normalized.positions[match.start()]
+        prefix_to = normalized.positions[match.end() - 1] + 1
+        if prefix_from in control_word_interiors or prefix_to in control_word_interiors:
+            continue
+        argument = _argument_span(source, prefix_to)
+        if argument is None:
+            continue
+        content_from, content_to, argument_end = argument
+        if argument_end in control_word_interiors:
+            continue
+        yield prefix_from, argument_end, f"{definition.name}{{{source[content_from:content_to]}}}"
+
+
 def _source_analysis(context: RuleContext) -> dict[str, object]:
     cached = context.cache.get("authoring/source-analysis")
     if isinstance(cached, dict):
@@ -940,7 +1050,7 @@ def _user_macro_candidates(
     _options: Mapping[str, object],
 ) -> Iterable[RuleFinding]:
     _known, definitions = _macro_inventory(context)
-    patterns = [(definition, pattern) for definition in definitions if (pattern := _macro_pattern(definition)) is not None]
+    matchers = _macro_matchers(definitions)
     # Per matched source span: macro name -> (definition, concrete invocation).
     # The invocation is None when an argument cannot be recovered from the match.
     span_candidates: dict[tuple[int, int], dict[str, tuple[_MacroDefinition, str | None]]] = {}
@@ -949,25 +1059,14 @@ def _user_macro_candidates(
         normalized = _normalize_tex_for_macro_match(source)
         if not normalized.text:
             continue
-        control_word_interiors = {
+        control_word_interiors = frozenset(
             offset
             for command in _CONTROL_WORD.finditer(source)
             for offset in range(command.start() + 1, command.end())
-        }
-        for definition, pattern in patterns:
-            for match in pattern.finditer(normalized.text):
-                if match.start() == match.end():
-                    continue
-                source_from = normalized.positions[match.start()]
-                source_to = normalized.positions[match.end() - 1] + 1
-                if source_from in control_word_interiors or source_to in control_word_interiors:
-                    continue
-                authored_from = start + source_from
-                authored_to = start + source_to
-                span_candidates.setdefault((authored_from, authored_to), {})[definition.name] = (
-                    definition,
-                    _concrete_invocation(definition, match, source, normalized),
-                )
+        )
+        for matcher in matchers:
+            for source_from, source_to, invocation in _macro_proposals(matcher, source, normalized, control_word_interiors):
+                span_candidates.setdefault((start + source_from, start + source_to), {})[matcher.definition.name] = (matcher.definition, invocation)
 
     findings: list[RuleFinding] = []
     spans = sorted(span_candidates)

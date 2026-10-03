@@ -181,6 +181,67 @@ def test_macro_candidate_requires_complete_tex_control_words(tmp_path: Path) -> 
     ]
 
 
+def test_trailing_argument_macro_candidate_matches_manual_expansion(tmp_path: Path) -> None:
+    macros = tmp_path / "macros"
+    macros.mkdir()
+    (macros / "compact.tex").write_text("\\newcommand{\\compactification}[1]{\\overline{#1}}\n")
+    source = "The compactification is $\\overline{\\mathcal{M}}$ here.\n"
+
+    diagnostics = [
+        diagnostic
+        for diagnostic in lint_text(source, options(tex_context({"macro_sources": [str(macros)]})))
+        if diagnostic.rule == "math/user-macro-candidates"
+    ]
+
+    assert len(diagnostics) == 1
+    assert diagnostics[0].data == {"candidates": ("\\compactification{…}",)}
+    assert diagnostics[0].suggestions[0].replacement == "\\compactification{\\mathcal{M}}"
+
+
+def test_trailing_argument_macro_candidate_reads_unbraced_argument(tmp_path: Path) -> None:
+    macros = tmp_path / "macros"
+    macros.mkdir()
+    (macros / "compact.tex").write_text("\\newcommand{\\closed}[1]{\\overline{#1}}\n")
+    source = "Compare $\\overline x$ with $\\overline{y}$.\n"
+
+    diagnostics = [
+        diagnostic
+        for diagnostic in lint_text(source, options(tex_context({"macro_sources": [str(macros)]})))
+        if diagnostic.rule == "math/user-macro-candidates"
+    ]
+
+    assert [(diagnostic.column, diagnostic.suggestions[0].replacement) for diagnostic in diagnostics] == [
+        (10, "\\closed{x}"),
+        (29, "\\closed{y}"),
+    ]
+
+
+def test_trailing_argument_macro_candidate_ignores_partial_control_words(tmp_path: Path) -> None:
+    macros = tmp_path / "macros"
+    macros.mkdir()
+    (macros / "compact.tex").write_text("\\newcommand{\\closed}[1]{\\overline{#1}}\n")
+    source = "The command $\\overlined$ is not a macro here.\n"
+
+    assert not [
+        diagnostic
+        for diagnostic in lint_text(source, options(tex_context({"macro_sources": [str(macros)]})))
+        if diagnostic.rule == "math/user-macro-candidates"
+    ]
+
+
+def test_trailing_argument_macro_candidate_requires_an_argument(tmp_path: Path) -> None:
+    macros = tmp_path / "macros"
+    macros.mkdir()
+    (macros / "compact.tex").write_text("\\newcommand{\\closed}[1]{\\overline{#1}}\n")
+    source = "A bare $\\overline$ stands alone.\n"
+
+    assert not [
+        diagnostic
+        for diagnostic in lint_text(source, options(tex_context({"macro_sources": [str(macros)]})))
+        if diagnostic.rule == "math/user-macro-candidates"
+    ]
+
+
 def test_table_reference_id_belongs_on_fenced_div() -> None:
     table = "| Name | Value |\n|:-----|------:|\n| one | 1 |\n"
     short_form = table + "\n: Measurements {#tbl:measurements}\n"
