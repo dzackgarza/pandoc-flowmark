@@ -7,9 +7,9 @@ on:
   push:
     # Use ["main", "master"] for CI only on the default branch.
     # Use ["**"] for CI on all branches.
-    branches: ['main', 'master']
+    branches: ["main", "master"]
   pull_request:
-    branches: ['main', 'master']
+    branches: ["main", "master"]
 
 permissions:
   contents: read
@@ -21,8 +21,8 @@ jobs:
         # Update this as needed:
 
         # Common platforms: ["ubuntu-latest", "macos-latest", "windows-latest"]
-        os: ['ubuntu-latest']
-        python-version: ['3.14']
+        os: ["ubuntu-latest"]
+        python-version: ["3.14"]
 
     # Linux only by default. Use ${{ matrix.os }} for other OSes.
     runs-on: ${{ matrix.os }}
@@ -33,7 +33,7 @@ jobs:
       # `uv sync --frozen` does not re-resolve, so this is belt-and-suspenders for it.
       # NOTE: deliberately NOT setting UV_NO_BUILD — it blocks building the editable
       # local package and breaks `uv sync`. See SUPPLY-CHAIN-SECURITY.md.
-      UV_EXCLUDE_NEWER: '14 days'
+      UV_EXCLUDE_NEWER: "14 days"
 
     steps:
       # Generally following uv docs:
@@ -49,7 +49,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           # Update this as needed:
-          version: '0.11.13'
+          version: "0.11.13"
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
@@ -68,7 +68,9 @@ jobs:
         run: uv sync --all-extras --frozen
 
       - name: Run linting
-        run: uv run python devtools/lint.py
+        # --check reports drift instead of rewriting, so CI fails on unformatted
+        # or misspelled source rather than passing after silently fixing it.
+        run: uv run python devtools/lint.py --check
 
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4

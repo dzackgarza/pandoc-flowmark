@@ -1,4 +1,5 @@
 import subprocess
+import sys
 
 from funlog import log_calls
 from rich import get_console, reconfigure
@@ -15,18 +16,28 @@ reconfigure(
 
 
 def main() -> int:
+    # Check mode reports what a fix would change instead of rewriting it, so a
+    # CI run fails on drift rather than silently repairing the checkout.
+    check = "--check" in sys.argv[1:]
     rprint()
+    rprint(f"[bold cyan]Mode: {'check' if check else 'fix'}[/bold cyan]")
 
     errcount = 0
-    errcount += run(["codespell", "--write-changes", *SRC_PATHS, *DOC_PATHS])
-    errcount += run(["ruff", "check", "--fix", *SRC_PATHS])
-    errcount += run(["ruff", "format", *SRC_PATHS])
+    errcount += run(
+        ["codespell", *([] if check else ["--write-changes"]), *SRC_PATHS, *DOC_PATHS]
+    )
+    errcount += run(["ruff", "check", *([] if check else ["--fix"]), *SRC_PATHS])
+    errcount += run(["ruff", "format", *(["--check"] if check else []), *SRC_PATHS])
     errcount += run(["basedpyright", "--stats", *SRC_PATHS])
 
     rprint()
 
     if errcount != 0:
         rprint(f"[bold red]:x: Lint failed with {errcount} errors.[/bold red]")
+        if not check:
+            rprint(
+                "[bold yellow]Run `just lint`, then commit the result.[/bold yellow]"
+            )
     else:
         rprint("[bold green]:white_check_mark: Lint passed![/bold green]")
     rprint()
