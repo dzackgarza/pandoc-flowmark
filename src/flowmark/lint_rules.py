@@ -2127,7 +2127,41 @@ def lint_rule_findings(
     fences = _fences(lines, frontmatter_line_numbers)
     protected = _build_protected_map(text, lines, frontmatter, fences)
 
+    tikz_fence_findings: list[RuleFinding] = []
+    for fence in fences:
+        info = fence.info.strip()
+        if info in {"tikz", "tikzcd"}:
+            continue
+        language: str | None = None
+        if info.startswith("{"):
+            candidate = _fence_language(info)
+            if candidate in {"tikz", "tikzcd"}:
+                language = candidate
+        else:
+            match = re.match(r"^(tikzcd|tikz)(?=$|[\s{#])", info)
+            if match is not None:
+                language = match.group(1)
+        if language is None:
+            continue
+        indentation = fence.opening.text[
+            : len(fence.opening.text) - len(fence.opening.text.lstrip(" "))
+        ]
+        replacement = f"{indentation}{fence.marker}{language}"
+        suggestion = Suggestion(f"Use a bare `{language}` fence", replacement)
+        tikz_fence_findings.append(
+            RuleFinding(
+                "tikz/fence-attributes",
+                "error",
+                f"`{language}` fences do not support attributes or trailing metadata. "
+                + f"Use the bare `{language}` fence opener.",
+                fence.opening.start,
+                fence.opening.end,
+                suggestions=(suggestion,),
+            )
+        )
+
     findings = [
+        *tikz_fence_findings,
         *_pandoc_semantic_findings(
             text,
             pandoc_document,
@@ -2345,6 +2379,12 @@ _BUILTIN_RULES = (
         "Pipe table row has text past the table's columns; Pandoc drops it.",
         RuleLevel.ERROR,
         _correctness_check("table/dropped-cells"),
+    ),
+    LintRule(
+        "tikz/fence-attributes",
+        "TikZ and TikZCD code fences must use bare language info strings.",
+        RuleLevel.ERROR,
+        _correctness_check("tikz/fence-attributes"),
     ),
     LintRule(
         "link/reference-format",

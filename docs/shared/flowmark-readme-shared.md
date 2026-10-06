@@ -412,8 +412,9 @@ The Python API is `flowmark.lint_text()`. Diagnostics use 1-based source coordin
 stable rule ids. The default rule layer checks structural/semantic failures that a
 formatter cannot safely infer away: heading hierarchy/duplicates, reference and footnote
 integrity, malformed or empty links, local fragments and local-file targets, image alt
-text, fenced-code language/tabs/boundaries, frontmatter integrity, duplicate Pandoc ids,
-malformed attributes, and unclosed fenced-div/math/TeX constructs. It also reports
+text, fenced-code language/tabs/boundaries, non-bare TikZ/TikZCD fence info strings,
+frontmatter integrity, duplicate Pandoc ids, malformed attributes, and unclosed
+fenced-div/math/TeX constructs. It also reports
 mathematics written outside `$...$`: `math/outside-math-mode` for TeX notation in prose
 (`x_0`, `R^n`, `\sum`), which pandoc reads as emphasis delimiters, plain text, or raw TeX
 that HTML output drops, and `math/unicode-symbol` for Unicode math symbols (`⊗`, `→`,

@@ -434,7 +434,7 @@ flowmark-lint --format json --exit-zero - < document.md
 ```
 
 The Python API is `flowmark.lint_text()`. Diagnostics use 1-based source coordinates and stable rule ids.
-The default rule layer checks structural/semantic failures that a formatter cannot safely infer away: heading hierarchy/duplicates, reference and footnote integrity, malformed or empty links, local fragments and local-file targets, image alt text, fenced-code language/tabs/boundaries, frontmatter integrity, duplicate Pandoc ids, malformed attributes, and unclosed fenced-div/math/TeX constructs.
+The default rule layer checks structural/semantic failures that a formatter cannot safely infer away: heading hierarchy/duplicates, reference and footnote integrity, malformed or empty links, local fragments and local-file targets, image alt text, fenced-code language/tabs/boundaries, non-bare TikZ/TikZCD fence info strings, frontmatter integrity, duplicate Pandoc ids, malformed attributes, and unclosed fenced-div/math/TeX constructs.
 It also reports mathematics written outside `$...$`: `math/outside-math-mode` for TeX notation in prose (`x_0`, `R^n`, `\sum`), which pandoc reads as emphasis delimiters, plain text, or raw TeX that HTML output drops, and `math/unicode-symbol` for Unicode math symbols (`⊗`, `→`, `α`) anywhere except a fenced block that names its language.
 `math/backslash-delimiter` reports `\(...\)` and `\[...\]`, which pandoc’s `markdown` reads as a literal parenthesis or bracket, not math.
 `pandoc/ambiguous-input` adds the high-confidence ambiguity checks from Flowmark’s preflight, while `format/canonical` reports remaining source ranges that differ from Flowmark’s canonical rendering.

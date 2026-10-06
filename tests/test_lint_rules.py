@@ -35,6 +35,10 @@ def rule_ids(
         ("---\ntitle: [oops\n---\n\nText\n", "frontmatter/malformed-flow"),
         ("```\ncode\n```\n", "code/missing-language"),
         ("```python\n\tx=1\n```\n", "code/hard-tab"),
+        (
+            '```tikzcd{-- id="liftable-subgroup-pullback"--}{note}\nA\n```\n',
+            "tikz/fence-attributes",
+        ),
         ("# A {#x}\n\n# B {#x}\n", "pandoc/duplicate-identifier"),
         ("::: theorem\nText\n", "pandoc/unclosed-fenced-div"),
         (
@@ -81,6 +85,50 @@ def test_default_linter_does_not_invent_structure_pandoc_did_not_report(
     source: str,
 ) -> None:
     assert lint_text(source) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "```tikzcd\nA\n```\n",
+        "~~~tikz\nA\n~~~\n",
+        "```{.python #example}\nprint('ok')\n```\n",
+        '````markdown\n```tikzcd{-- id="literal"--}\nA\n```\n````\n',
+    ],
+)
+def test_tikz_fence_attributes_rule_accepts_bare_and_literal_nearby_forms(
+    source: str,
+) -> None:
+    assert "tikz/fence-attributes" not in rule_ids(source)
+
+
+@pytest.mark.parametrize(
+    "opener",
+    [
+        '```tikzcd{-- id="diagram"--}{annotation}',
+        '```tikzcd id="diagram"',
+        "```{.tikzcd #diagram}",
+        '~~~tikz title="diagram"',
+        "~~~{.tikz #diagram}",
+    ],
+)
+def test_tikz_fence_attributes_rule_rejects_every_nonbare_tikz_fence(
+    opener: str,
+) -> None:
+    source = f"{opener}\nA\n{opener[:3]}\n"
+    findings = [
+        diagnostic
+        for diagnostic in lint_text(source)
+        if diagnostic.rule == "tikz/fence-attributes"
+    ]
+    assert len(findings) == 1
+    assert findings[0].line == 1
+    assert findings[0].column == 1
+    assert findings[0].severity == "error"
+    assert findings[0].fix is None
+    assert len(findings[0].suggestions) == 1
+    language = "tikzcd" if "tikzcd" in opener else "tikz"
+    assert findings[0].suggestions[0].replacement == f"{opener[:3]}{language}"
 
 
 @pytest.mark.parametrize(
