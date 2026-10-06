@@ -434,7 +434,8 @@ flowmark-lint --format json --exit-zero - < document.md
 ```
 
 The Python API is `flowmark.lint_text()`. Diagnostics use 1-based source coordinates and stable rule ids.
-The default rule layer checks structural/semantic failures that a formatter cannot safely infer away: heading hierarchy/duplicates, reference and footnote integrity, malformed or empty links, local fragments and local-file targets, image alt text, fenced-code language/tabs/boundaries, non-bare TikZ/TikZCD fence info strings, frontmatter integrity, duplicate Pandoc ids, malformed attributes, and unclosed fenced-div/math/TeX constructs.
+The default rule layer checks structural/semantic failures that a formatter cannot safely infer away: heading hierarchy/duplicates, reference and footnote integrity, malformed or empty links, local fragments and local-file targets, image alt text, fenced-code language/tabs/boundaries, non-bare TikZ/TikZCD fence info strings and raw TikZ/TikZCD environment wrappers, frontmatter integrity, duplicate Pandoc ids, malformed attributes, and unclosed fenced-div/math/TeX constructs.
+It also warns when a display contains only one short inline-safe expression, when proof/example structure is nested inside a theorem-like statement, and when known vague map/vanishing prose has no local mathematical referent or typed arrow.
 It also reports mathematics written outside `$...$`: `math/outside-math-mode` for TeX notation in prose (`x_0`, `R^n`, `\sum`), which pandoc reads as emphasis delimiters, plain text, or raw TeX that HTML output drops, and `math/unicode-symbol` for Unicode math symbols (`⊗`, `→`, `α`) anywhere except a fenced block that names its language.
 `math/backslash-delimiter` reports `\(...\)` and `\[...\]`, which pandoc’s `markdown` reads as a literal parenthesis or bracket, not math.
 `pandoc/ambiguous-input` adds the high-confidence ambiguity checks from Flowmark’s preflight, while `format/canonical` reports remaining source ranges that differ from Flowmark’s canonical rendering.
@@ -468,6 +469,11 @@ The fibre is $\overline{\Agn}$.
 It matches a macro’s body after normalizing whitespace and braces away, so `\overline{\Agn}` and `\overline \Agn` both match `\newcommand{\Agbar}{\overline{\Agn}}`. An argument may sit at either end of the body (`\newcommand{\red}[1]{#1_{\mathrm{red}}}` is matched too), but a body whose argument is both first and last (`#1\overline{#1}`) is not, because neither end is then delimited.
 The rule is advisory: it carries `suggestions`, not a `fix`, so `--fix` never rewrites math.
 Where several macros fit one span it lists them all rather than choosing, because no single rewrite is correct.
+
+The same macro inventory also drives stricter source-form rules.
+`tex/macro-arity` rejects required arguments written without braces (for example `\disc L` or `\disc(L)` when `\disc` has arity one).
+`math/house-delimiter-macro` recognizes the configured house delimiter macros such as `\qty`, `\bqty`, `\abs`, and `\norm` and flags equivalent manual `\left...\right`, `\bigl...\bigr`, or `\Bigl...\Bigr` source.
+`math/manual-cardinality` is deliberately narrower: when `\cardinality` is configured it warns only on obvious named-object forms such as `|G|` or `\lvert A_M\rvert`; it does not reinterpret arbitrary `\abs{...}` as cardinality.
 
 ```toml
 # flowmark.toml

@@ -134,6 +134,119 @@ def test_tikz_fence_attributes_rule_rejects_every_nonbare_tikz_fence(
 @pytest.mark.parametrize(
     "source",
     [
+        "$$\\begin{tikzcd} A \\arrow[r] & B \\end{tikzcd}$$\n",
+        "\\begin{tikzpicture}\n\\draw (0,0) -- (1,1);\n\\end{tikzpicture}\n",
+    ],
+)
+def test_tikz_environment_wrappers_are_rejected(source: str) -> None:
+    diagnostics = [
+        item for item in lint_text(source) if item.rule == "tikz/environment-wrapper"
+    ]
+    assert len(diagnostics) == 1
+    assert diagnostics[0].severity.value == "error"
+
+
+def test_tikz_environment_text_inside_literal_code_is_not_reclassified() -> None:
+    source = "```latex\n\\begin{tikzcd} A \\end{tikzcd}\n```\n"
+    assert "tikz/environment-wrapper" not in rule_ids(source)
+
+
+def test_short_inline_safe_display_math_warns() -> None:
+    findings = [
+        item for item in lint_text("$$x=y$$\n") if item.rule == "math/display-economy"
+    ]
+    assert len(findings) == 1
+    assert findings[0].severity.value == "warning"
+    assert findings[0].fix is None
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "$$\\sum_i x_i$$\n",
+        "$$\\begin{aligned}x&=y\\\\z&=w\\end{aligned}$$\n",
+        "$$x=y\\tag{1}$$\n",
+        "$$x=y$$ {#eq:xy}\n",
+        "$$\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}$$\n",
+        "$$\nx=y\nz=w\n$$\n",
+        "$$" + "x_1+" * 20 + "x_0$$\n",
+    ],
+)
+def test_structured_or_large_display_math_does_not_warn_for_economy(
+    source: str,
+) -> None:
+    assert "math/display-economy" not in rule_ids(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "::: {.theorem}\nStatement.\n\n::: {.proof}\nProof.\n:::\n:::\n",
+        "::: {.definition}\nDefinition.\n\n::: {.example}\nExample.\n:::\n:::\n",
+        "::: {.proposition}\nStatement.\n\\begin{proof}\nProof.\n\\end{proof}\n:::\n",
+        "::: {.theorem}\nStatement.\n\nProof. This is the proof.\n:::\n",
+    ],
+)
+def test_statement_boundary_rule_flags_local_structural_violations(source: str) -> None:
+    assert "structure/statement-boundary" in rule_ids(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "::: {.theorem}\nStatement.\n:::\n\n::: {.proof}\nProof.\n:::\n",
+        "::: {.example}\nExample.\n:::\n",
+        "::: {.definition}\n```text\nProof. literal marker\n```\n:::\n",
+    ],
+)
+def test_statement_boundary_rule_accepts_separate_or_literal_structure(
+    source: str,
+) -> None:
+    assert "structure/statement-boundary" not in rule_ids(source)
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "The mixed terms vanish.",
+        "The remaining terms vanish.",
+        "The radical vanishes.",
+        "The map is natural.",
+    ],
+)
+def test_untyped_vague_claims_warn_without_a_math_referent(phrase: str) -> None:
+    assert "prose/untyped-vague-claim" in rule_ids(phrase + "\n")
+
+
+def test_vague_claim_with_math_referent_in_clause_is_accepted() -> None:
+    source = (
+        "The mixed terms vanish for $b(x,y)$. The map is natural for $f:X\\to Y$.\n"
+    )
+    assert "prose/untyped-vague-claim" not in rule_ids(source)
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "The inclusion is injective.",
+        "The natural map is surjective.",
+        "The induced map is finite.",
+        "The restriction is an isomorphism.",
+        "The carrier morphism is proper.",
+    ],
+)
+def test_adjectival_map_prose_warns_without_a_typed_arrow(phrase: str) -> None:
+    assert "prose/untyped-map-reference" in rule_ids(phrase + "\n")
+
+
+def test_adjectival_map_prose_with_nearby_typed_arrow_is_accepted() -> None:
+    source = "The inclusion $i:A\\hookrightarrow B$ is injective.\n"
+    assert "prose/untyped-map-reference" not in rule_ids(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
         "#Heading\n",
         "(text)[https://example.com]\n",
         "[text](https://example.com]\n",

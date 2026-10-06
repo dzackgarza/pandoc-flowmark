@@ -100,6 +100,22 @@ _DOCUMENT_CLASS_DECLARATION = re.compile(
 _TABLE_CAPTION_ID = re.compile(
     r"^[ \t]{0,3}:[ \t]+\S.*?[ \t]+\{#(?P<id>tbl[:\-][^\s{}]+)\}[ \t]*$"
 )
+_SIZED_DELIMITER_TOKEN = re.compile(
+    r"\\(?P<size>left|right|bigl|bigr|Bigl|Bigr|biggl|biggr|Biggl|Biggr)\s*"
+    r"(?P<delimiter>\\lVert|\\rVert|\\lvert|\\rvert|\\\{|\\\}|\(|\)|\[|\]|\|)"
+)
+_MANUAL_CARDINALITY = re.compile(
+    r"(?<![\\|])\|(?P<plain>[^|\n]+?)\|(?!\|)"
+    r"|\\lvert\s*(?P<lvert>[^\n]+?)\s*\\rvert"
+)
+_UPPER_GREEK = "Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega"
+_HOUSE_DELIMITER_NAMES: Mapping[tuple[str, str], tuple[str, ...]] = {
+    ("(", ")"): (r"\qty", r"\pqty"),
+    ("[", "]"): (r"\bqty",),
+    (r"\lvert", r"\rvert"): (r"\abs", r"\vqty"),
+    (r"\lVert", r"\rVert"): (r"\norm",),
+    (r"\{", r"\}"): (r"\cqty",),
+}
 
 
 @dataclass(frozen=True)
@@ -189,6 +205,7 @@ class _MacroDefinition:
     name: str
     replacement: str
     argument_count: int
+    optional_first_argument: bool = False
 
 
 @dataclass(frozen=True)
@@ -487,12 +504,14 @@ def _tex_macro_definitions(source: str) -> tuple[set[str], list[_MacroDefinition
         name = "\\" + match.group("name")
         cursor = _skip_space(visible, match.end())
         argument_count = 0
+        optional_first_argument = False
         option = _bracket_group(visible, cursor)
         if option is not None and option[0].strip().isdigit():
             argument_count = int(option[0].strip())
             cursor = _skip_space(visible, option[1])
             default = _bracket_group(visible, cursor)
             if default is not None:
+                optional_first_argument = True
                 cursor = _skip_space(visible, default[1])
         if cursor >= len(visible) or visible[cursor] != "{":
             continue
@@ -505,6 +524,7 @@ def _tex_macro_definitions(source: str) -> tuple[set[str], list[_MacroDefinition
                     name,
                     replacement,
                     max(argument_count, _inferred_argument_count(replacement)),
+                    optional_first_argument,
                 )
             )
 
@@ -594,12 +614,14 @@ def _macro_definition(name: str, value: object) -> _MacroDefinition | None:
     mapped_count = mapping.get("argumentCount")
     if isinstance(mapped_count, int):
         argument_count = mapped_count
+    optional_first_argument = mapping.get("optionalFirstArgument") is True
     if not replacement:
         return None
     return _MacroDefinition(
         name,
         replacement,
         max(argument_count, _inferred_argument_count(replacement)),
+        optional_first_argument,
     )
 
 
@@ -788,6 +810,310 @@ def _macro_pattern(definition: _MacroDefinition) -> re.Pattern[str] | None:
 
 def _macro_invocation(definition: _MacroDefinition) -> str:
     return definition.name + "{…}" * definition.argument_count
+
+
+def _strip_outer_braces(value: str) -> str:
+    result = value.strip()
+    while result.startswith("{"):
+        group = _balanced_group(result, 0)
+        if group is None or group[1] != len(result):
+            break
+        result = group[0].strip()
+    return result
+
+
+def _delimiter_signature(definition: _MacroDefinition) -> tuple[str, str] | None:
+    if definition.argument_count != 1:
+        return None
+    normalized = _strip_outer_braces(definition.replacement)
+    normalized = re.sub(r"\s+", "", normalized)
+    normalized = re.sub(
+        r"\\(?:left|right|bigl|bigr|Bigl|Bigr|biggl|biggr|Biggl|Biggr)",
+        "",
+        normalized,
+    )
+    previous = ""
+    while previous != normalized:
+        previous = normalized
+        normalized = normalized.replace("{#1}", "#1")
+        normalized = _strip_outer_braces(normalized)
+    for opening, closing in (
+        ("(", ")"),
+        ("[", "]"),
+        (r"\lvert", r"\rvert"),
+        (r"\lVert", r"\rVert"),
+        (r"\{", r"\}"),
+        ("|", "|"),
+    ):
+        if normalized == opening + "#1" + closing:
+            return opening, closing
+    return None
+
+
+def _delimiter_macro_candidates(
+    definitions: Iterable[_MacroDefinition],
+) -> dict[tuple[str, str], tuple[_MacroDefinition, ...]]:
+    grouped: dict[tuple[str, str], list[_MacroDefinition]] = {}
+    for definition in definitions:
+        signature = _delimiter_signature(definition)
+        if signature is not None and definition.name in _HOUSE_DELIMITER_NAMES.get(
+            signature, ()
+        ):
+            grouped.setdefault(signature, []).append(definition)
+    return {
+        signature: tuple(sorted(items, key=lambda item: item.name))
+        for signature, items in grouped.items()
+    }
+
+
+def _delimiter_key(delimiter: str, *, opening: bool) -> tuple[str, str] | None:
+    if delimiter == "|":
+        return (r"\lvert", r"\rvert")
+    mapping = {
+        "(": ("(", ")"),
+        ")": ("(", ")"),
+        "[": ("[", "]"),
+        "]": ("[", "]"),
+        r"\lvert": (r"\lvert", r"\rvert"),
+        r"\rvert": (r"\lvert", r"\rvert"),
+        r"\lVert": (r"\lVert", r"\rVert"),
+        r"\rVert": (r"\lVert", r"\rVert"),
+        r"\{": (r"\{", r"\}"),
+        r"\}": (r"\{", r"\}"),
+    }
+    pair = mapping.get(delimiter)
+    if pair is None:
+        return None
+    expected = pair[0] if opening else pair[1]
+    return pair if delimiter == expected else None
+
+
+def _house_delimiter_macros(
+    context: RuleContext,
+    _options: Mapping[str, object],
+) -> Iterable[RuleFinding]:
+    _known, definitions = _macro_inventory(context)
+    candidates = _delimiter_macro_candidates(definitions)
+    if not candidates:
+        return []
+    opening_sizes = {
+        "left": "left",
+        "bigl": "big",
+        "Bigl": "Big",
+        "biggl": "bigg",
+        "Biggl": "Bigg",
+    }
+    closing_sizes = {
+        "right": "left",
+        "bigr": "big",
+        "Bigr": "Big",
+        "biggr": "bigg",
+        "Biggr": "Bigg",
+    }
+    findings: list[RuleFinding] = []
+    for region_start, region_end in cast(
+        list[tuple[int, int]], _source_analysis(context)["math"]
+    ):
+        source = context.text[region_start:region_end]
+        stack: list[tuple[str, tuple[str, str], re.Match[str]]] = []
+        for token in _SIZED_DELIMITER_TOKEN.finditer(source):
+            size = token.group("size")
+            delimiter = token.group("delimiter")
+            if size in opening_sizes:
+                pair = _delimiter_key(delimiter, opening=True)
+                if pair is not None:
+                    stack.append((opening_sizes[size], pair, token))
+                continue
+            if size not in closing_sizes or not stack:
+                continue
+            pair = _delimiter_key(delimiter, opening=False)
+            family, opening_pair, opening_token = stack[-1]
+            if pair is None or pair != opening_pair or closing_sizes[size] != family:
+                continue
+            stack.pop()
+            macros = candidates.get(pair, ())
+            if not macros:
+                continue
+            argument = source[opening_token.end() : token.start()].strip()
+            if not argument:
+                continue
+            suggestions = tuple(
+                Suggestion(
+                    f"Use `{definition.name}`",
+                    f"{definition.name}{{{argument}}}",
+                )
+                for definition in macros
+            )
+            fix = suggestions[0] if len(suggestions) == 1 else None
+            names = _joined([f"`{item.name}`" for item in macros], "or")
+            findings.append(
+                RuleFinding(
+                    "math/house-delimiter-macro",
+                    "warning",
+                    f"Manual sized delimiters duplicate the house macro {names}.",
+                    region_start + opening_token.start(),
+                    region_start + token.end(),
+                    suggestions=suggestions,
+                    fix=fix,
+                )
+            )
+    return findings
+
+
+def _parenthesized_group(source: str, start: int) -> tuple[str, int] | None:
+    if start >= len(source) or source[start] != "(":
+        return None
+    depth = 0
+    index = start
+    while index < len(source):
+        char = source[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return source[start + 1 : index], index + 1
+        index += 1
+    return None
+
+
+def _semantic_macro_arity(
+    context: RuleContext,
+    _options: Mapping[str, object],
+) -> Iterable[RuleFinding]:
+    _known, definitions = _macro_inventory(context)
+    by_name = {definition.name: definition for definition in definitions}
+    findings: list[RuleFinding] = []
+    for region_start, region_end in cast(
+        list[tuple[int, int]], _source_analysis(context)["math"]
+    ):
+        source = context.text[region_start:region_end]
+        for match in _CONTROL_WORD.finditer(source):
+            command = "\\" + match.group(1)
+            definition = by_name.get(command)
+            if definition is None:
+                continue
+            required = definition.argument_count - int(
+                definition.optional_first_argument
+            )
+            if required <= 0:
+                continue
+            cursor = _skip_space(source, match.end())
+            rendered = source[match.start() : match.end()]
+            if definition.optional_first_argument:
+                optional = _bracket_group(source, cursor)
+                if optional is not None:
+                    rendered += source[cursor : optional[1]]
+                    cursor = _skip_space(source, optional[1])
+            malformed = False
+            suggestion_possible = True
+            for _index in range(required):
+                cursor = _skip_space(source, cursor)
+                if cursor < len(source) and source[cursor] == "{":
+                    group = _balanced_group(source, cursor)
+                    if group is None:
+                        malformed = True
+                        suggestion_possible = False
+                        break
+                    rendered += source[cursor : group[1]]
+                    cursor = group[1]
+                    continue
+                malformed = True
+                if required == 1 and cursor < len(source) and source[cursor] == "(":
+                    group = _parenthesized_group(source, cursor)
+                    if group is not None:
+                        rendered += "{" + group[0] + "}"
+                        cursor = group[1]
+                        continue
+                argument = _argument_span(source, cursor)
+                if argument is None:
+                    suggestion_possible = False
+                    break
+                content_from, content_to, cursor = argument
+                argument_text = source[content_from:content_to]
+                if not argument_text or argument_text in ",.;:!?)]}":
+                    suggestion_possible = False
+                    break
+                if cursor < len(source) and source[cursor] in "_^":
+                    suggestion_possible = False
+                rendered += "{" + argument_text + "}"
+            if not malformed:
+                continue
+            suggestions = (
+                (Suggestion(f"Use `{rendered}`", rendered),)
+                if suggestion_possible and rendered != command
+                else ()
+            )
+            findings.append(
+                RuleFinding(
+                    "tex/macro-arity",
+                    "error",
+                    f"`{command}` has arity {definition.argument_count}; required arguments "
+                    + "must use braced source form.",
+                    region_start + match.start(),
+                    region_start + max(cursor, match.end()),
+                    suggestions=suggestions,
+                    data={"macro": command, "arity": definition.argument_count},
+                )
+            )
+    return findings
+
+
+def _looks_named_object(value: str, user_macros: frozenset[str]) -> bool:
+    compact = re.sub(r"\s+", "", value)
+    script = r"(?:[_^](?:\{[^{}\n]+\}|\\[A-Za-z@]+|[A-Za-z0-9]))*"
+    if re.fullmatch(r"[A-Z]" + script, compact) is not None:
+        return True
+    if re.fullmatch(rf"\\(?:{_UPPER_GREEK})" + script, compact) is not None:
+        return True
+    if (
+        re.fullmatch(
+            r"\\(?:mathcal|mathbb|mathbf|mathrm|mathsf)\{[A-Z][A-Za-z0-9]*\}" + script,
+            compact,
+        )
+        is not None
+    ):
+        return True
+    command = re.match(r"\\[A-Za-z@]+", compact)
+    if command is None or command.group(0) not in user_macros:
+        return False
+    suffix = compact[command.end() :]
+    return re.fullmatch(r"(?:\{[^{}\n]+\})*" + script, suffix) is not None
+
+
+def _manual_cardinality(
+    context: RuleContext,
+    _options: Mapping[str, object],
+) -> Iterable[RuleFinding]:
+    _known, definitions = _macro_inventory(context)
+    user_macros = frozenset(definition.name for definition in definitions)
+    if r"\cardinality" not in user_macros:
+        return []
+    findings: list[RuleFinding] = []
+    for region_start, region_end in cast(
+        list[tuple[int, int]], _source_analysis(context)["math"]
+    ):
+        source = context.text[region_start:region_end]
+        for match in _MANUAL_CARDINALITY.finditer(source):
+            body = (match.group("plain") or match.group("lvert") or "").strip()
+            if not _looks_named_object(body, user_macros):
+                continue
+            replacement = rf"\cardinality{{{body}}}"
+            findings.append(
+                RuleFinding(
+                    "math/manual-cardinality",
+                    "warning",
+                    f"`{match.group(0)}` looks like the cardinality of the named object "
+                    + f"`{body}`. Prefer `{replacement}`.",
+                    region_start + match.start(),
+                    region_start + match.end(),
+                    suggestions=(Suggestion(f"Use `{replacement}`", replacement),),
+                )
+            )
+    return findings
 
 
 def _argument_span(source: str, start: int) -> tuple[int, int, int] | None:
@@ -2218,6 +2544,22 @@ def register_authoring_rules(registry: RuleRegistry) -> None:
                 "Math that one of the user's macros can express.",
                 RuleLevel.INFO,
                 _user_macro_candidates,
+            ),
+            LintRule(
+                "math/house-delimiter-macro",
+                "Manual sized delimiters duplicate a configured house delimiter macro.",
+                check=_house_delimiter_macros,
+            ),
+            LintRule(
+                "tex/macro-arity",
+                "Configured semantic macro arguments must use the declared braced arity.",
+                RuleLevel.ERROR,
+                _semantic_macro_arity,
+            ),
+            LintRule(
+                "math/manual-cardinality",
+                "Bare bars around a named object should use the configured cardinality macro.",
+                check=_manual_cardinality,
             ),
             LintRule(
                 "table/caption-id-on-caption",

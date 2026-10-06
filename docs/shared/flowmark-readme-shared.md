@@ -412,9 +412,12 @@ The Python API is `flowmark.lint_text()`. Diagnostics use 1-based source coordin
 stable rule ids. The default rule layer checks structural/semantic failures that a
 formatter cannot safely infer away: heading hierarchy/duplicates, reference and footnote
 integrity, malformed or empty links, local fragments and local-file targets, image alt
-text, fenced-code language/tabs/boundaries, non-bare TikZ/TikZCD fence info strings,
-frontmatter integrity, duplicate Pandoc ids, malformed attributes, and unclosed
-fenced-div/math/TeX constructs. It also reports
+text, fenced-code language/tabs/boundaries, non-bare TikZ/TikZCD fence info strings and
+raw TikZ/TikZCD environment wrappers, frontmatter integrity, duplicate Pandoc ids,
+malformed attributes, and unclosed fenced-div/math/TeX constructs. It also warns when a
+display contains only one short inline-safe expression, when proof/example structure is
+nested inside a theorem-like statement, and when known vague map/vanishing prose has no
+local mathematical referent or typed arrow. It also reports
 mathematics written outside `$...$`: `math/outside-math-mode` for TeX notation in prose
 (`x_0`, `R^n`, `\sum`), which pandoc reads as emphasis delimiters, plain text, or raw TeX
 that HTML output drops, and `math/unicode-symbol` for Unicode math symbols (`⊗`, `→`,
@@ -470,6 +473,15 @@ is matched too), but a body whose argument is both first and last
 advisory: it carries `suggestions`, not a `fix`, so `--fix` never rewrites math.
 Where several macros fit one span it lists them all rather than choosing, because
 no single rewrite is correct.
+
+The same macro inventory also drives stricter source-form rules. `tex/macro-arity`
+rejects required arguments written without braces (for example `\disc L` or
+`\disc(L)` when `\disc` has arity one). `math/house-delimiter-macro` recognizes the
+configured house delimiter macros such as `\qty`, `\bqty`, `\abs`, and `\norm` and
+flags equivalent manual `\left...\right`, `\bigl...\bigr`, or `\Bigl...\Bigr`
+source. `math/manual-cardinality` is deliberately narrower: when `\cardinality` is
+configured it warns only on obvious named-object forms such as `|G|` or
+`\lvert A_M\rvert`; it does not reinterpret arbitrary `\abs{...}` as cardinality.
 
 ```toml
 # flowmark.toml

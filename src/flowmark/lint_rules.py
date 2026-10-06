@@ -100,6 +100,44 @@ _DIV_FENCE_OPEN = re.compile(
 )
 _LATEX_BEGIN = re.compile(r"\\begin\{(?P<name>[A-Za-z*]+)\}")
 _LATEX_END_TEMPLATE = r"\\end\{%s\}"
+_TIKZ_ENVIRONMENT = re.compile(r"\\begin\{(?P<name>tikzcd|tikzpicture)\}")
+_DISPLAY_COMPLEX_TEX = re.compile(
+    r"(?:&|\\\\|\\begin\{|\\(?:tag|label|notag|nonumber)\b|"
+    r"\\(?:sum|prod|coprod|int|iint|iiint|iiiint|oint|bigcup|bigcap|"
+    r"bigoplus|bigotimes|bigsqcup|lim|limsup|liminf)(?![A-Za-z@]))"
+)
+_VAGUE_CLAIM = re.compile(
+    r"\b(?:mixed terms vanish|the remaining terms vanish|remaining terms vanish|"
+    r"the radical vanishes|the map is natural)\b",
+    re.IGNORECASE,
+)
+_UNTYPED_MAP_NOUN = re.compile(
+    r"\b(?:the inclusion|the natural map|the induced map|the restriction|"
+    r"the carrier morphism)\b",
+    re.IGNORECASE,
+)
+_TYPED_ARROW = re.compile(
+    r"\\(?:to|rightarrow|longrightarrow|hookrightarrow|longhookrightarrow|"
+    r"twoheadrightarrow|mapsto|longmapsto|xrightarrow|xhookrightarrow)\b|"
+    r"[→↪↠⟶]"
+)
+_STATEMENT_CLASSES = frozenset(
+    {
+        "theorem",
+        "lemma",
+        "corollary",
+        "proposition",
+        "conjecture",
+        "definition",
+        "exercise",
+        "claim",
+        "fact",
+        "notation",
+        "problem",
+        "question",
+    }
+)
+_PROOF_CLASSES = frozenset({"proof", "solution"})
 # A URL not already inside `<...>` or a link target `](...)`.
 _BARE_URL = re.compile(r"(?<![<\w])(?<!\]\()(https?://[^\s<>]+)")
 
@@ -698,6 +736,260 @@ def _mathematical_findings(text: str) -> list[RuleFinding]:
                     start + match.end("name"),
                     suggestions=(fix,),
                     fix=fix,
+                )
+            )
+    return findings
+
+
+def _tikz_environment_findings(text: str, literal: bytearray) -> list[RuleFinding]:
+    """Diagram environments outside literal code must use Flowmark's diagram fences."""
+
+    findings: list[RuleFinding] = []
+    for match in _TIKZ_ENVIRONMENT.finditer(text):
+        if _overlaps(literal, match.start(), match.end()):
+            continue
+        environment = match.group("name")
+        language = "tikzcd" if environment == "tikzcd" else "tikz"
+        findings.append(
+            RuleFinding(
+                "tikz/environment-wrapper",
+                "error",
+                f"`\\begin{{{environment}}}` is a noncanonical diagram wrapper. "
+                + f"Author the diagram in a bare `{language}` code fence instead.",
+                match.start(),
+                match.end(),
+            )
+        )
+    return findings
+
+
+def _display_math_economy_findings(text: str) -> list[RuleFinding]:
+    """Short single expressions do not need display-math structure."""
+
+    findings: list[RuleFinding] = []
+    for node, start, end in _pandoc_source_spans(text):
+        if node.get("t") != "Math":
+            continue
+        content = node.get("c")
+        if (
+            not isinstance(content, list)
+            or len(content) != 2
+            or not isinstance(content[0], dict)
+            or content[0].get("t") != "DisplayMath"
+            or not isinstance(content[1], str)
+        ):
+            continue
+        body = content[1].strip()
+        compact = " ".join(body.split())
+        line_start = text.rfind("\n", 0, start) + 1
+        line_end = text.find("\n", end)
+        if line_end < 0:
+            line_end = len(text)
+        if text[line_start:start].strip() or text[end:line_end].strip():
+            continue
+        if (
+            not compact
+            or len(compact) > 60
+            or "\n" in body
+            or _DISPLAY_COMPLEX_TEX.search(body) is not None
+        ):
+            continue
+        if re.match(r"[ \t]*\{[#.]", text[end : end + 96]) is not None:
+            continue
+        findings.append(
+            RuleFinding(
+                "math/display-economy",
+                "warning",
+                f"Display math contains only the short inline-safe expression `{compact}`. "
+                + "Use inline math unless display structure is required.",
+                start,
+                end,
+            )
+        )
+    return findings
+
+
+def _clause_span(text: str, start: int, end: int) -> tuple[int, int]:
+    left = max(
+        (text.rfind(delimiter, 0, start) for delimiter in (".", "?", "!", ";", "\n")),
+        default=-1,
+    )
+    right_candidates = [
+        position
+        for delimiter in (".", "?", "!", ";", "\n")
+        if (position := text.find(delimiter, end)) >= 0
+    ]
+    return left + 1, min(right_candidates, default=len(text))
+
+
+def _paragraph_span(text: str, start: int, end: int) -> tuple[int, int]:
+    left = text.rfind("\n\n", 0, start)
+    right = text.find("\n\n", end)
+    return (0 if left < 0 else left + 2, len(text) if right < 0 else right)
+
+
+def _has_math_region(
+    regions: list[tuple[int, int]],
+    start: int,
+    end: int,
+) -> bool:
+    return any(
+        region_start < end and start < region_end
+        for region_start, region_end in regions
+    )
+
+
+def _prose_precision_findings(
+    text: str,
+    protected: bytearray,
+) -> list[RuleFinding]:
+    math_regions = _math_regions(text)
+    findings: list[RuleFinding] = []
+    for match in _VAGUE_CLAIM.finditer(text):
+        if _overlaps(protected, match.start(), match.end()):
+            continue
+        clause_start, clause_end = _clause_span(text, match.start(), match.end())
+        if _has_math_region(math_regions, clause_start, clause_end):
+            continue
+        findings.append(
+            RuleFinding(
+                "prose/untyped-vague-claim",
+                "warning",
+                f'"{match.group(0)}" names no mathematical component or map in its clause. '
+                + "Name the map, component, or term that has the asserted property.",
+                match.start(),
+                match.end(),
+            )
+        )
+
+    for match in _UNTYPED_MAP_NOUN.finditer(text):
+        if _overlaps(protected, match.start(), match.end()):
+            continue
+        if (
+            match.group(0).casefold() == "the restriction"
+            and re.match(r"\s+of\b", text[match.end() :], re.IGNORECASE) is not None
+        ):
+            continue
+        paragraph_start, paragraph_end = _paragraph_span(
+            text, match.start(), match.end()
+        )
+        typed_nearby = False
+        for region_start, region_end in math_regions:
+            if not (
+                paragraph_start <= region_start
+                and region_end <= paragraph_end
+                and region_start <= match.end() + 240
+                and match.start() - 240 <= region_end
+            ):
+                continue
+            if _TYPED_ARROW.search(text[region_start:region_end]) is not None:
+                typed_nearby = True
+                break
+        if typed_nearby:
+            continue
+        findings.append(
+            RuleFinding(
+                "prose/untyped-map-reference",
+                "warning",
+                f'"{match.group(0)}" does not have a nearby typed arrow. '
+                + "Introduce the map explicitly, e.g. `$f:X\\to Y$`.",
+                match.start(),
+                match.end(),
+            )
+        )
+    return findings
+
+
+def _statement_structure_findings(text: str, literal: bytearray) -> list[RuleFinding]:
+    """Local statement/proof nesting that can be decided from block structure alone."""
+
+    divs: list[tuple[int, int, frozenset[str]]] = []
+    for node, start, end in _pandoc_source_spans(text):
+        if node.get("t") != "Div":
+            continue
+        content = node.get("c")
+        if not isinstance(content, list) or not content:
+            continue
+        attr = _pandoc_attr(content[0])
+        if attr is None:
+            continue
+        divs.append((start, end, frozenset(item.casefold() for item in attr[1])))
+
+    findings: list[RuleFinding] = []
+    for outer_start, outer_end, outer_classes in divs:
+        statement = next(
+            (item for item in outer_classes if item in _STATEMENT_CLASSES), None
+        )
+        if statement is None:
+            continue
+        children = [
+            (inner_start, inner_end, inner_classes)
+            for inner_start, inner_end, inner_classes in divs
+            if outer_start < inner_start and inner_end <= outer_end
+        ]
+        for inner_start, _inner_end, inner_classes in children:
+            proof = next(
+                (item for item in inner_classes if item in _PROOF_CLASSES), None
+            )
+            example = "example" if "example" in inner_classes else None
+            if proof is None and not (
+                statement == "definition" and example is not None
+            ):
+                continue
+            line_end = text.find("\n", inner_start, outer_end)
+            finding_end = outer_end if line_end < 0 else line_end
+            nested = proof or example or "block"
+            findings.append(
+                RuleFinding(
+                    "structure/statement-boundary",
+                    "warning",
+                    f"A `.{nested}` block is nested inside the `.{statement}` statement. "
+                    + "Close the statement before starting the proof/example block.",
+                    inner_start,
+                    finding_end,
+                )
+            )
+
+        child_ranges = [(start, end) for start, end, _classes in children]
+        fragment = text[outer_start:outer_end]
+        raw_environment = re.compile(r"\\begin\{(?P<name>proof|solution|example)\}")
+        for match in raw_environment.finditer(fragment):
+            absolute_start = outer_start + match.start()
+            absolute_end = outer_start + match.end()
+            if any(start <= absolute_start < end for start, end in child_ranges):
+                continue
+            name = match.group("name")
+            if name == "example" and statement != "definition":
+                continue
+            findings.append(
+                RuleFinding(
+                    "structure/statement-boundary",
+                    "warning",
+                    f"`\\begin{{{name}}}` occurs inside the `.{statement}` statement. "
+                    + "Close the statement before starting that environment.",
+                    absolute_start,
+                    absolute_end,
+                )
+            )
+
+        proof_marker = re.compile(
+            r"(?im)^[ \t]*(?:\*\*|__)?Proof\.(?:\*\*|__)?(?:[ \t]+|$)"
+        )
+        for match in proof_marker.finditer(fragment):
+            absolute_start = outer_start + match.start()
+            absolute_end = outer_start + match.end()
+            if _overlaps(literal, absolute_start, absolute_end) or any(
+                start <= absolute_start < end for start, end in child_ranges
+            ):
+                continue
+            findings.append(
+                RuleFinding(
+                    "structure/statement-boundary",
+                    "warning",
+                    f"An explicit `Proof.` marker occurs inside the `.{statement}` statement. "
+                    + "Close the statement and put the proof in a sibling proof block.",
+                    absolute_start,
+                    absolute_end,
                 )
             )
     return findings
@@ -2126,6 +2418,7 @@ def lint_rule_findings(
         )
     fences = _fences(lines, frontmatter_line_numbers)
     protected = _build_protected_map(text, lines, frontmatter, fences)
+    literal = _build_literal_protected_map(text, frontmatter, fences)
 
     tikz_fence_findings: list[RuleFinding] = []
     for fence in fences:
@@ -2162,6 +2455,10 @@ def lint_rule_findings(
 
     findings = [
         *tikz_fence_findings,
+        *_tikz_environment_findings(text, literal),
+        *_display_math_economy_findings(text),
+        *_statement_structure_findings(text, literal),
+        *_prose_precision_findings(text, protected),
         *_pandoc_semantic_findings(
             text,
             pandoc_document,
@@ -2387,6 +2684,17 @@ _BUILTIN_RULES = (
         _correctness_check("tikz/fence-attributes"),
     ),
     LintRule(
+        "tikz/environment-wrapper",
+        "TikZ/TikZCD environments must use canonical diagram code fences.",
+        RuleLevel.ERROR,
+        _correctness_check("tikz/environment-wrapper"),
+    ),
+    LintRule(
+        "math/display-economy",
+        "Short inline-safe expressions should not use display math.",
+        check=_correctness_check("math/display-economy"),
+    ),
+    LintRule(
         "link/reference-format",
         "Cross-reference ID is written without `@`.",
         RuleLevel.ERROR,
@@ -2495,6 +2803,21 @@ _BUILTIN_RULES = (
         "structure/nested-fenced-div",
         "Fenced div is nested inside another fenced div.",
         check=_correctness_check("structure/nested-fenced-div"),
+    ),
+    LintRule(
+        "structure/statement-boundary",
+        "Proof/example structure must not be nested inside a statement block.",
+        check=_correctness_check("structure/statement-boundary"),
+    ),
+    LintRule(
+        "prose/untyped-vague-claim",
+        "Vague vanishing/naturality prose must name its mathematical referent.",
+        check=_correctness_check("prose/untyped-vague-claim"),
+    ),
+    LintRule(
+        "prose/untyped-map-reference",
+        "Adjectival map prose must have a nearby typed arrow.",
+        check=_correctness_check("prose/untyped-map-reference"),
     ),
     LintRule(
         "style/bare-url",

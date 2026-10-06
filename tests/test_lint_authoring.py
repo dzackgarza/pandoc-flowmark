@@ -112,6 +112,87 @@ def test_json_macro_source_supplies_names_and_expansions(tmp_path: Path) -> None
     )
 
 
+def test_house_delimiter_rule_uses_only_semantic_delimiter_macros(
+    tmp_path: Path,
+) -> None:
+    macros = tmp_path / "macros.tex"
+    macros.write_text(
+        "\\DeclarePairedDelimiter{\\qty}{(}{)}\n"
+        "\\newcommand{\\functionfield}[1]{(#1)}\n"
+        "\\newcommand{\\abs}[1]{\\left\\lvert #1 \\right\\rvert}\n"
+        "\\newcommand{\\cardinality}[1]{\\left\\lvert #1 \\right\\rvert}\n"
+        "\\newcommand{\\norm}[1]{\\left\\lVert #1 \\right\\rVert}\n"
+    )
+    source = (
+        "$\\left( x \\right) + \\bigl( y \\bigr) + "
+        "\\left\\lvert G \\right\\rvert + \\left\\lVert v \\right\\rVert$.\n"
+    )
+    diagnostics = [
+        item
+        for item in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
+        if item.rule == "math/house-delimiter-macro"
+    ]
+    assert len(diagnostics) == 4
+    replacements = [item.suggestions[0].replacement for item in diagnostics]
+    assert replacements == ["\\qty{x}", "\\qty{y}", "\\abs{G}", "\\norm{v}"]
+    assert all(item.fix == item.suggestions[0] for item in diagnostics)
+    assert all("functionfield" not in item.message for item in diagnostics)
+    assert all("cardinality" not in item.message for item in diagnostics)
+
+
+def test_semantic_macro_arity_requires_braced_required_arguments(
+    tmp_path: Path,
+) -> None:
+    macros = tmp_path / "macros.tex"
+    macros.write_text(
+        "\\newcommand{\\disc}[1]{\\operatorname{disc}(#1)}\n"
+        "\\newcommand{\\padiccompletion}[2]{#1_{#2}}\n"
+        "\\newcommand{\\optional}[2][d]{#2}\n"
+    )
+    source = (
+        "$\\disc L + \\disc(L) + \\disc{L} + "
+        "\\padiccompletion R p + \\padiccompletion{R}{p} + "
+        "\\optional{x} + \\optional[q]{x}$.\n"
+    )
+    diagnostics = [
+        item
+        for item in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
+        if item.rule == "tex/macro-arity"
+    ]
+    assert len(diagnostics) == 3
+    assert [item.severity.value for item in diagnostics] == ["error", "error", "error"]
+    assert [item.suggestions[0].replacement for item in diagnostics] == [
+        "\\disc{L}",
+        "\\disc{L}",
+        "\\padiccompletion{R}{p}",
+    ]
+
+
+def test_manual_cardinality_is_limited_to_named_objects(tmp_path: Path) -> None:
+    macros = tmp_path / "macros.tex"
+    macros.write_text(
+        "\\newcommand{\\cardinality}[1]{\\left\\lvert #1 \\right\\rvert}\n"
+        "\\newcommand{\\abs}[1]{\\left\\lvert #1 \\right\\rvert}\n"
+    )
+    source = "$|G| + \\lvert A_M\\rvert + |x| + \\abs{G}$.\n"
+    diagnostics = [
+        item
+        for item in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
+        if item.rule == "math/manual-cardinality"
+    ]
+    assert [item.suggestions[0].replacement for item in diagnostics] == [
+        "\\cardinality{G}",
+        "\\cardinality{A_M}",
+    ]
+    assert all(item.fix is None for item in diagnostics)
+
+
 def test_manual_notation_lists_every_matching_parameterized_macro(
     tmp_path: Path,
 ) -> None:
