@@ -222,6 +222,94 @@ def test_manual_notation_lists_every_matching_parameterized_macro(
     }
 
 
+@pytest.mark.parametrize(
+    ("manual", "replacement"),
+    (
+        (r"sign(L)", r"\signature{L}"),
+        (r"sn(g)", r"\spinornorm{g}"),
+        (r"C_{n}", r"\cyclicgroup{n}"),
+        (r"\bigperp", r"\orthogonalsum"),
+        (
+            r"Eq(f,g) \longrightarrow X "
+            r"\mathrel{\underset{g}{\overset{f}{\rightrightarrows}}} Y",
+            r"\equalizer{X}{Y}{f}{g}",
+        ),
+        (
+            r"X \mathrel{\underset{g}{\overset{f}{\rightrightarrows}}} Y "
+            r"\longrightarrow Coeq(f,g)",
+            r"\coequalizer{X}{Y}{f}{g}",
+        ),
+        (r"T^{\perp_L}", r"\perpin{L}{T}"),
+        (r"\Orth^{\mathrm{discker}}(L)", r"\discriminantkernel{L}"),
+        (r"\Orth^{\mathrm{disccoker}}(A_L)", r"\discriminantcokernel{A_L}"),
+        (r"\Orth^{\mathrm{snker}}(L)", r"\spinorkernel{L}"),
+        (r"\Orth^{\mathrm{sncoker}}(L)", r"\spinorcokernel{L}"),
+        (
+            r"\Orth^{\mathrm{discker},\mathrm{snker}}(L)",
+            r"\discriminantspinorkernel{L}",
+        ),
+        (r"W(L)", r"\orthogonalreflectiongroup{L}"),
+        (r"Mon(L)", r"\monodromygroup{L}"),
+        (r"E(L)", r"\eichlergroup{L}"),
+        (r"MM(L)", r"\mirandamorrisongroup{L}"),
+        (r"I(L)", r"\nikulinobstructiongroup{L}"),
+        (r"g(L)", r"\genusgroup{L}"),
+    ),
+)
+def test_semantic_macro_rule_catches_common_manual_notation(
+    tmp_path: Path, manual: str, replacement: str
+) -> None:
+    macros = tmp_path / "semantic.tex"
+    names = (
+        "signature",
+        "spinornorm",
+        "cyclicgroup",
+        "orthogonalsum",
+        "equalizer",
+        "coequalizer",
+        "perpin",
+        "discriminantkernel",
+        "discriminantcokernel",
+        "spinorkernel",
+        "spinorcokernel",
+        "discriminantspinorkernel",
+        "orthogonalreflectiongroup",
+        "monodromygroup",
+        "eichlergroup",
+        "mirandamorrisongroup",
+        "nikulinobstructiongroup",
+        "genusgroup",
+    )
+    macros.write_text("".join(f"\\newcommand{{\\{name}}}{{x}}\n" for name in names))
+    diagnostics = [
+        diagnostic
+        for diagnostic in lint_text(
+            f"Use ${manual}$.\n",
+            options(tex_context({"macro_sources": [str(macros)]})),
+        )
+        if diagnostic.rule == "math/manual-semantic-macro"
+    ]
+    assert len(diagnostics) == 1
+    assert diagnostics[0].suggestions[0].replacement == replacement
+
+
+def test_semantic_macro_rule_accepts_canonical_calls(tmp_path: Path) -> None:
+    macros = tmp_path / "semantic.tex"
+    macros.write_text(
+        "\\newcommand{\\signature}[1]{x}\n"
+        "\\newcommand{\\perpin}[2]{x}\n"
+        "\\newcommand{\\discriminantkernel}[1]{x}\n"
+    )
+    source = r"Use $\signature{L}$, $\perpin{L}{T}$, and $\discriminantkernel{L}$."
+    assert not [
+        diagnostic
+        for diagnostic in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
+        if diagnostic.rule == "math/manual-semantic-macro"
+    ]
+
+
 def test_parameterized_macro_candidates_respect_required_structure(
     tmp_path: Path,
 ) -> None:

@@ -54,6 +54,109 @@ _NOTATION_VARIANTS = (
     ("\\sigma", "\\varsigma"),
     ("\\kappa", "\\varkappa"),
 )
+_MANUAL_SEMANTIC_MACROS: tuple[tuple[str, re.Pattern[str], tuple[str, ...]], ...] = (
+    (
+        r"\signature",
+        re.compile(
+            r"(?<![A-Za-z@])(?:\\operatornamesign|\\mathrmsign|\\sign|\\sig|sign)\((?P<a1>[^()]+)\)"
+        ),
+        ("a1",),
+    ),
+    (
+        r"\spinornorm",
+        re.compile(
+            r"(?<![A-Za-z@])(?:\\operatornamesn|\\mathrmsn|\\sn|sn)\((?P<a1>[^()]+)\)"
+        ),
+        ("a1",),
+    ),
+    (
+        r"\cyclicgroup",
+        re.compile(r"(?<![A-Za-z@])C_(?P<a1>[A-Za-z0-9\\^_@]+)"),
+        ("a1",),
+    ),
+    (r"\orthogonalsum", re.compile(r"(?<![A-Za-z@])\\bigperp(?![A-Za-z@])"), ()),
+    (
+        r"\equalizer",
+        re.compile(
+            r"(?:\\operatornameEq|Eq)\((?P<a3>[^,()]+),(?P<a4>[^,()]+)\)"
+            r"\\longrightarrow(?P<a1>[^,()]+?)\\mathrel\\underset(?P=a4)"
+            r"\\overset(?P=a3)\\rightrightarrows(?P<a2>[^,()]+)"
+        ),
+        ("a1", "a2", "a3", "a4"),
+    ),
+    (
+        r"\coequalizer",
+        re.compile(
+            r"(?P<a1>[^,()]+?)\\mathrel\\underset(?P<a4>[^,()]+)"
+            r"\\overset(?P<a3>[^,()]+)\\rightrightarrows(?P<a2>[^,()]+?)"
+            r"\\longrightarrow(?:\\operatornameCoeq|Coeq)\((?P=a3),(?P=a4)\)"
+        ),
+        ("a1", "a2", "a3", "a4"),
+    ),
+    (
+        r"\perpin",
+        re.compile(r"(?P<a2>[^+(),]+?)\^\\perp_(?P<a1>[^+(),]+)"),
+        ("a1", "a2"),
+    ),
+    (
+        r"\discriminantkernel",
+        re.compile(
+            r"(?:\\Orth|O|\\operatornameO)\^(?:\\mathrm)?discker\((?P<a1>[^()]+)\)"
+        ),
+        ("a1",),
+    ),
+    (
+        r"\discriminantcokernel",
+        re.compile(
+            r"(?:\\Orth|O|\\operatornameO)\^(?:\\mathrm)?disccoker\((?P<a1>[^()]+)\)"
+        ),
+        ("a1",),
+    ),
+    (
+        r"\spinorkernel",
+        re.compile(
+            r"(?:\\Orth|O|\\operatornameO)\^(?:\\mathrm)?snker\((?P<a1>[^()]+)\)"
+        ),
+        ("a1",),
+    ),
+    (
+        r"\spinorcokernel",
+        re.compile(
+            r"(?:\\Orth|O|\\operatornameO)\^(?:\\mathrm)?sncoker\((?P<a1>[^()]+)\)"
+        ),
+        ("a1",),
+    ),
+    (
+        r"\discriminantspinorkernel",
+        re.compile(
+            r"(?:\\Orth|O|\\operatornameO)\^(?:\\mathrm)?discker,(?:\\mathrm)?snker"
+            r"\((?P<a1>[^()]+)\)"
+        ),
+        ("a1",),
+    ),
+    (
+        r"\orthogonalreflectiongroup",
+        re.compile(r"(?<![A-Za-z@])W\((?P<a1>[^()]+)\)"),
+        ("a1",),
+    ),
+    (
+        r"\monodromygroup",
+        re.compile(r"(?:\\operatornameMon|Mon)\((?P<a1>[^()]+)\)"),
+        ("a1",),
+    ),
+    (r"\eichlergroup", re.compile(r"(?<![A-Za-z@])E\((?P<a1>[^()]+)\)"), ("a1",)),
+    (
+        r"\mirandamorrisongroup",
+        re.compile(r"(?:\\operatornameMM|MM)\((?P<a1>[^()]+)\)"),
+        ("a1",),
+    ),
+    (
+        r"\nikulinobstructiongroup",
+        re.compile(r"(?<![A-Za-z@])I\((?P<a1>[^()]+)\)"),
+        ("a1",),
+    ),
+    (r"\genusgroup", re.compile(r"(?<![A-Za-z@])g\((?P<a1>[^()]+)\)"), ("a1",)),
+)
 _AUTHORIAL_RESIDUE = (
     (re.compile(r"\b(?:TODO|FIXME|XXX)\b"), "unfinished-note", "Unfinished note"),
     (
@@ -1621,6 +1724,47 @@ def _user_macro_candidates(
     return findings
 
 
+def _manual_semantic_macros(
+    context: RuleContext,
+    _options: Mapping[str, object],
+) -> Iterable[RuleFinding]:
+    known, _definitions = _macro_inventory(context)
+    findings: list[RuleFinding] = []
+    for region_start, region_end in cast(
+        list[tuple[int, int]], _source_analysis(context)["math"]
+    ):
+        source = context.text[region_start:region_end]
+        normalized = _normalize_tex_for_macro_match(source)
+        for macro, pattern, argument_names in _MANUAL_SEMANTIC_MACROS:
+            if macro not in known:
+                continue
+            for match in pattern.finditer(normalized.text):
+                source_from = normalized.positions[match.start()]
+                source_to = normalized.positions[match.end() - 1] + 1
+                arguments: list[str] = []
+                for name in argument_names:
+                    capture_from, capture_to = match.span(name)
+                    argument_from = normalized.positions[capture_from]
+                    argument_to = normalized.positions[capture_to - 1] + 1
+                    arguments.append(source[argument_from:argument_to])
+                invocation = macro + "".join(f"{{{value}}}" for value in arguments)
+                authored_from = region_start + source_from
+                authored_to = region_start + source_to
+                authored = " ".join(context.text[authored_from:authored_to].split())
+                findings.append(
+                    RuleFinding(
+                        "math/manual-semantic-macro",
+                        "warning",
+                        f"`{authored}` manually spells the semantic object `{macro}`.",
+                        authored_from,
+                        authored_to,
+                        suggestions=(Suggestion(f"Use `{invocation}`", invocation),),
+                        data={"macro": macro},
+                    )
+                )
+    return findings
+
+
 def _table_caption_id_on_caption(
     context: RuleContext,
     _options: Mapping[str, object],
@@ -2544,6 +2688,11 @@ def register_authoring_rules(registry: RuleRegistry) -> None:
                 "Math that one of the user's macros can express.",
                 RuleLevel.INFO,
                 _user_macro_candidates,
+            ),
+            LintRule(
+                "math/manual-semantic-macro",
+                "Manual notation bypasses a configured semantic macro.",
+                check=_manual_semantic_macros,
             ),
             LintRule(
                 "math/house-delimiter-macro",
