@@ -853,7 +853,11 @@ def _inline_structural_sequence_findings(text: str) -> list[RuleFinding]:
                 body,
             )
         )
-        preceding_context = text[max(0, start - 160) : start].lower()
+        sentence_start = max(
+            (text.rfind(delimiter, 0, start) for delimiter in (".", "?", "!", ";")),
+            default=-1,
+        )
+        preceding_context = text[sentence_start + 1 : start].lower()
         structural_sequence = arrow_count >= 2 and (
             re.match(r"^\s*0(?:\s|\\)", body) is not None
             or re.search(
