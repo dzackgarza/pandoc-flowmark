@@ -470,6 +470,17 @@ It matches a macro’s body after normalizing whitespace and braces away, so `\o
 The rule is advisory: it carries `suggestions`, not a `fix`, so `--fix` never rewrites math.
 Where several macros fit one span it lists them all rather than choosing, because no single rewrite is correct.
 
+`math/script-macro-candidates` catches ambiguous symbolic superscripts and subscripts.
+It derives choices from loaded unary macros whose bodies are a base with one symbolic script.
+For example, `$A^\ast$` can offer `\units{A}` even when the units macro renders a multiplication sign.
+Complexes, filtrations, duals, and other configured meanings appear as separate choices.
+Upper and lower scripts use their respective macro inventories.
+
+The rule recognizes bullets, dots, crosses, stars, dual marks, circles, and daggers, plus the symbols used by the configured macros.
+Macro names are unrestricted.
+Each suggestion replaces the complete operand and script.
+The author must choose the intended meaning; `--fix` leaves these expressions unchanged.
+
 The same macro inventory also drives stricter source-form rules.
 `tex/macro-arity` rejects required arguments written without braces (for example `\disc L` or `\disc(L)` when `\disc` has arity one).
 `math/house-delimiter-macro` recognizes the configured house delimiter macros such as `\qty`, `\bqty`, `\abs`, and `\norm` and flags equivalent manual `\left...\right`, `\bigl...\bigr`, or `\Bigl...\Bigr` source.

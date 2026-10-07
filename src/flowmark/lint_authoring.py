@@ -54,6 +54,24 @@ _NOTATION_VARIANTS = (
     ("\\sigma", "\\varsigma"),
     ("\\kappa", "\\varkappa"),
 )
+_COMMON_SCRIPT_MARKERS = frozenset(
+    (
+        r"\bullet",
+        r"\cdot",
+        r"\times",
+        "*",
+        r"\ast",
+        r"\star",
+        r"\vee",
+        r"\circ",
+        r"\dagger",
+        r"\ddagger",
+    )
+)
+_SCRIPT_STYLE = re.compile(
+    r"\\(?:scriptscriptstyle|scriptstyle|textstyle|displaystyle)\b"
+)
+_SCRIPT_SYMBOL = re.compile(r"\\[A-Za-z]+|[^\w\s\\{}]")
 _MANUAL_SEMANTIC_MACROS: tuple[tuple[str, re.Pattern[str], tuple[str, ...]], ...] = (
     (
         r"\signature",
@@ -1724,6 +1742,107 @@ def _user_macro_candidates(
     return findings
 
 
+def _script_signature(definition: _MacroDefinition) -> tuple[str, str] | None:
+    if definition.argument_count != 1 or definition.optional_first_argument:
+        return None
+    body = _strip_outer_braces(definition.replacement)
+    match = re.match(r"(?:#1|\{\s*#1\s*\})\s*([_^])", body)
+    if match is None:
+        return None
+    argument = _argument_span(body, match.end())
+    if argument is None:
+        return None
+    start, end, after = argument
+    marker = _strip_outer_braces(_SCRIPT_STYLE.sub("", body[start:end]))
+    if body[after:].strip() or _SCRIPT_SYMBOL.fullmatch(marker) is None:
+        return None
+    return match[1], marker
+
+
+def _script_operand(source: str, end: int) -> tuple[int, str] | None:
+    """Recover a script base with the existing TeX argument readers.
+
+    TeX's math atom owns its scripts; command arguments remain inside the base.
+    See Knuth, The TeXbook, chapter 16 (math lists and sub/superscripts).
+    """
+    argument = _argument_start(source, end)
+    if argument is None:
+        return None
+    content_from, content_to, start = argument
+    prefix = source[:start].rstrip()
+    if prefix.endswith(("_", "^")):
+        base = _script_operand(source, len(prefix) - 1)
+        if base is None:
+            return None
+        return base[0], source[base[0] : end].strip()
+    if source[start] == "{":
+        cursor = start
+        previous = _argument_start(source, cursor)
+        while previous is not None and source[previous[2]] == "{":
+            cursor = previous[2]
+            previous = _argument_start(source, cursor)
+        if previous is not None and _CONTROL_WORD.fullmatch(
+            source[previous[0] : previous[1]]
+        ):
+            return previous[2], source[previous[2] : end].strip()
+        return start, source[content_from:content_to]
+    operand = source[content_from:content_to]
+    if _CONTROL_WORD.fullmatch(operand):
+        return start, operand
+    if operand and operand[-1].isalnum():
+        # TeX reads adjacent letters as separate atoms.
+        return content_to - 1, operand[-1]
+    return None
+
+
+def _script_macro_candidates(context: RuleContext) -> Iterable[RuleFinding]:
+    _known, definitions = _macro_inventory(context)
+    candidates: dict[str, list[str]] = {"^": [], "_": []}
+    markers: set[str] = set(_COMMON_SCRIPT_MARKERS)
+    for definition in definitions:
+        signature = _script_signature(definition)
+        if signature is not None:
+            position, marker = signature
+            candidates[position].append(definition.name)
+            markers.add(marker)
+    for region_start, region_end in core.pandoc_math_regions(context.text):
+        source = context.text[region_start:region_end]
+        for script in re.finditer(r"(?<!\\)[_^]", source):
+            names = sorted(candidates[script[0]])
+            if not names:
+                continue
+            argument = _argument_span(source, script.end())
+            if argument is None:
+                continue
+            content_from, content_to, end = argument
+            marker = _strip_outer_braces(
+                _SCRIPT_STYLE.sub("", source[content_from:content_to])
+            )
+            if marker not in markers:
+                continue
+            operand = _script_operand(source, script.start())
+            if operand is None:
+                continue
+            start, body = operand
+            if not body.strip():
+                continue
+            suggestions = tuple(
+                Suggestion(f"Use `{name}{{{body}}}`", f"{name}{{{body}}}")
+                for name in names
+            )
+            yield RuleFinding(
+                "math/script-macro-candidates",
+                "info",
+                "Manual script notation is ambiguous; choose a macro for the intended meaning: "
+                + _joined([f"`{item.replacement}`" for item in suggestions], "or")
+                + ".",
+                region_start + start,
+                region_start + end,
+                suggestions=suggestions,
+                data={"candidates": tuple(f"{name}{{…}}" for name in names)},
+            )
+
+
 def _manual_semantic_macros(
     context: RuleContext,
     _options: Mapping[str, object],
@@ -2688,6 +2807,12 @@ def register_authoring_rules(registry: RuleRegistry) -> None:
                 "Math that one of the user's macros can express.",
                 RuleLevel.INFO,
                 _user_macro_candidates,
+            ),
+            LintRule(
+                "math/script-macro-candidates",
+                "Symbolic scripts with several possible semantic macro meanings.",
+                RuleLevel.INFO,
+                lambda context, options: _script_macro_candidates(context),
             ),
             LintRule(
                 "math/manual-semantic-macro",

@@ -62,8 +62,7 @@ Some Markdown auto-formatters never wrap lines, while others wrap at a fixed wid
 By default, Flowmark does neither: it puts each sentence on its own line and sets no column limit.
 This is a small change that can dramatically improve diff readability when collaborating or working with AI tools.
 
-With `--width N`, sentences are split first, and a sentence longer than N is then wrapped to N.
-A line shorter than 20 characters is joined with the next sentence when both fit in N.
+With `--width N`, sentences are split first, and a sentence longer than N is then wrapped to N. A line shorter than 20 characters is joined with the next sentence when both fit in N.
 
 Pass `--no-semantic` to wrap paragraphs at a fixed width instead, as traditional formatters do.
 The width is then **88 columns** unless `--width` is given.
@@ -249,8 +248,7 @@ It searches for config files in this order (first match wins, walking up directo
 
 3. `pyproject.toml` (only if it has a `[tool.flowmark]` section)
 
-A config key is the long name of a CLI flag, for example `list-spacing` for `--list-spacing`.
-Unparsable TOML, an unknown key, or a value of the wrong type is an error: Flowmark names the file and key and formats nothing.
+A config key is the long name of a CLI flag, for example `list-spacing` for `--list-spacing`. Unparsable TOML, an unknown key, or a value of the wrong type is an error: Flowmark names the file and key and formats nothing.
 
 ### Example Config
 
@@ -367,22 +365,19 @@ There are several other Markdown auto-formatters:
 - Finally, the [remark ecosystem](https://github.com/remarkjs/remark) is by far the most powerful library ecosystem for building your own Markdown tooling in JavaScript/TypeScript.
   You can build auto-formatters with it but there isn’t one that’s broadly used as a CLI tool.
 
-None of these reads Pandoc Markdown with Pandoc's own reader, so none of them can guarantee that formatting keeps the meaning Pandoc gives a document. None of them applies semantic line breaks automatically.
+None of these reads Pandoc Markdown with Pandoc’s own reader, so none of them can guarantee that formatting keeps the meaning Pandoc gives a document.
+None of them applies semantic line breaks automatically.
 
 ## Python API
 
 `flowmark.reformat_text(text, options)` formats one document.
-It checks with Pandoc that the result reads as the input does, and raises
-`flowmark.MeaningChangedError` if it does not, and
-`flowmark.MalformedInputError` for input it refuses to read, such as unclosed
-fences or `$ x $`.
-`flowmark.reformat_text_unchecked` formats without that check.
+It checks with Pandoc that the result reads as the input does, and raises `flowmark.MeaningChangedError` if it does not, and `flowmark.MalformedInputError` for input it refuses to read, such as unclosed fences or `$ x $`. `flowmark.reformat_text_unchecked` formats without that check.
 The options are one frozen `FormatOptions` value:
 
-- `wrap`: `Width(n)` wraps paragraphs to `n` columns, `Semantic(n)` starts each
-  sentence on a new line, and `Plain(n)` wraps plain text, not Markdown.
-- `passes`: a `frozenset` of `Pass.cleanups`, `Pass.smartquotes`, and
-  `Pass.ellipses`.
+- `wrap`: `Width(n)` wraps paragraphs to `n` columns, `Semantic(n)` starts each sentence on a new line, and `Plain(n)` wraps plain text, not Markdown.
+
+- `passes`: a `frozenset` of `Pass.cleanups`, `Pass.smartquotes`, and `Pass.ellipses`.
+
 - `list_spacing`: `ListSpacing.loose`, `tight`, or `preserve`.
 
 ```python
@@ -393,49 +388,26 @@ reformat_text('He said "hi" there to me. That was fine.\n', options)
 # 'He said “hi” there to me.\nThat was fine.\n'
 ```
 
-`flowmark.reformat_file(path, destination, options)` writes to a `Stdout()`,
-`ToFile(path)`, or `InPlace(backup_suffix)` destination.
+`flowmark.reformat_file(path, destination, options)` writes to a `Stdout()`, `ToFile(path)`, or `InPlace(backup_suffix)` destination.
 
 ## Pandoc-aware linting
 
-Flowmark also ships a standalone linter over the same semantic Markdown parser used by
-the formatter. It understands Flowmark's Pandoc-oriented constructs (including math, raw
-TeX, fenced divs, definition lists, tables, and footnotes) before applying style checks,
-so TeX underscores and asterisks are not reinterpreted as Markdown emphasis.
+Flowmark also ships a standalone linter over the same semantic Markdown parser used by the formatter.
+It understands Flowmark’s Pandoc-oriented constructs (including math, raw TeX, fenced divs, definition lists, tables, and footnotes) before applying style checks, so TeX underscores and asterisks are not reinterpreted as Markdown emphasis.
 
 ```bash
 flowmark-lint README.md
 flowmark-lint --format json --exit-zero - < document.md
 ```
 
-The Python API is `flowmark.lint_text()`. Diagnostics use 1-based source coordinates and
-stable rule ids. The default rule layer checks structural/semantic failures that a
-formatter cannot safely infer away: heading hierarchy/duplicates, reference and footnote
-integrity, malformed or empty links, local fragments and local-file targets, image alt
-text, fenced-code language/tabs/boundaries, non-bare TikZ/TikZCD fence info strings and
-raw TikZ/TikZCD environment wrappers, frontmatter integrity, duplicate Pandoc ids,
-malformed attributes, and unclosed fenced-div/math/TeX constructs. It also warns when a
-display contains only one short inline-safe expression, when proof/example structure is
-nested inside a theorem-like statement, and when known vague map/vanishing prose has no
-local mathematical referent or typed arrow. It also reports
-mathematics written outside `$...$`: `math/outside-math-mode` for TeX notation in prose
-(`x_0`, `R^n`, `\sum`), which pandoc reads as emphasis delimiters, plain text, or raw TeX
-that HTML output drops, and `math/unicode-symbol` for Unicode math symbols (`⊗`, `→`,
-`α`) anywhere except a fenced block that names its language. `math/backslash-delimiter`
-reports `\(...\)` and `\[...\]`, which pandoc's `markdown` reads as a literal
-parenthesis or bracket, not math. `pandoc/ambiguous-input`
-adds the high-confidence ambiguity checks from Flowmark's preflight, while
-`format/canonical` reports remaining source ranges that differ from Flowmark's canonical
-rendering.
+The Python API is `flowmark.lint_text()`. Diagnostics use 1-based source coordinates and stable rule ids.
+The default rule layer checks structural/semantic failures that a formatter cannot safely infer away: heading hierarchy/duplicates, reference and footnote integrity, malformed or empty links, local fragments and local-file targets, image alt text, fenced-code language/tabs/boundaries, non-bare TikZ/TikZCD fence info strings and raw TikZ/TikZCD environment wrappers, frontmatter integrity, duplicate Pandoc ids, malformed attributes, and unclosed fenced-div/math/TeX constructs.
+It also warns when a display contains only one short inline-safe expression, when proof/example structure is nested inside a theorem-like statement, and when known vague map/vanishing prose has no local mathematical referent or typed arrow.
+It also reports mathematics written outside `$...$`: `math/outside-math-mode` for TeX notation in prose (`x_0`, `R^n`, `\sum`), which pandoc reads as emphasis delimiters, plain text, or raw TeX that HTML output drops, and `math/unicode-symbol` for Unicode math symbols (`⊗`, `→`, `α`) anywhere except a fenced block that names its language.
+`math/backslash-delimiter` reports `\(...\)` and `\[...\]`, which pandoc’s `markdown` reads as a literal parenthesis or bracket, not math.
+`pandoc/ambiguous-input` adds the high-confidence ambiguity checks from Flowmark’s preflight, while `format/canonical` reports remaining source ranges that differ from Flowmark’s canonical rendering.
 
-A diagnostic may carry `suggestions`, edits an editor offers for the author to choose,
-and a `fix`, the one edit that needs no choice and keeps the document's meaning (ESLint's
-`fix` beside its `suggestions`). `flowmark-lint --fix` applies every `fix`, writes the
-file, and reports the diagnostics that remain; `flowmark.fix_text()` is the Python API.
-The rules with a `fix` are `math/bare-operator` (`sin` → `\sin`), `style/bare-url`
-(`<url>`), `style/unordered-list-marker` (the majority marker),
-`link/relative-wikilink` (the canonical name) and `citation/mixed-reference-types`
-(a group without locators split into a cross-reference and a citation).
+A diagnostic may carry `suggestions`, edits an editor offers for the author to choose, and a `fix`, the one edit that needs no choice and keeps the document’s meaning (ESLint’s `fix` beside its `suggestions`). `flowmark-lint --fix` applies every `fix`, writes the file, and reports the diagnostics that remain; `flowmark.fix_text()` is the Python API. The rules with a `fix` are `math/bare-operator` (`sin` → `\sin`), `style/bare-url` (`<url>`), `style/unordered-list-marker` (the majority marker), `link/relative-wikilink` (the canonical name) and `citation/mixed-reference-types` (a group without locators split into a cross-reference and a citation).
 
 Pure house-style policies are opt-in instead of being treated as Markdown correctness:
 
@@ -446,18 +418,14 @@ flowmark-lint --style require-h1 --style no-inline-html README.md
 flowmark-lint --max-line-length 100 README.md
 ```
 
-Editor/stdin clients can supply `--source-path PATH` so relative links and cross-file
-Markdown fragments are checked against the document's real location.
+Editor/stdin clients can supply `--source-path PATH` so relative links and cross-file Markdown fragments are checked against the document’s real location.
 
 ### Mathematical authoring rules
 
-Some rules need facts only the surrounding project knows: which macros exist,
-which packages are loaded, where reference targets live. Supply them as JSON in
-the `[lint.context]` table of `flowmark.toml`. Without them those rules stay
-silent, so a clean run may mean "not configured" rather than "nothing to fix".
+Some rules need facts only the surrounding project knows: which macros exist, which packages are loaded, where reference targets live.
+Supply them as JSON in the `[lint.context]` table of `flowmark.toml`. Without them those rules stay silent, so a clean run may mean “not configured” rather than “nothing to fix”.
 
-`math/user-macro-candidates` reports a hand-written expansion of one of your own
-macros and offers the macro instead:
+`math/user-macro-candidates` reports a hand-written expansion of one of your own macros and offers the macro instead:
 
 ```markdown
 The fibre is $\overline{\Agn}$.
@@ -465,23 +433,25 @@ The fibre is $\overline{\Agn}$.
     consider `\Agbar` instead.
 ```
 
-It matches a macro's body after normalizing whitespace and braces away, so
-`\overline{\Agn}` and `\overline \Agn` both match `\newcommand{\Agbar}{\overline{\Agn}}`.
-An argument may sit at either end of the body (`\newcommand{\red}[1]{#1_{\mathrm{red}}}`
-is matched too), but a body whose argument is both first and last
-(`#1\overline{#1}`) is not, because neither end is then delimited. The rule is
-advisory: it carries `suggestions`, not a `fix`, so `--fix` never rewrites math.
-Where several macros fit one span it lists them all rather than choosing, because
-no single rewrite is correct.
+It matches a macro’s body after normalizing whitespace and braces away, so `\overline{\Agn}` and `\overline \Agn` both match `\newcommand{\Agbar}{\overline{\Agn}}`. An argument may sit at either end of the body (`\newcommand{\red}[1]{#1_{\mathrm{red}}}` is matched too), but a body whose argument is both first and last (`#1\overline{#1}`) is not, because neither end is then delimited.
+The rule is advisory: it carries `suggestions`, not a `fix`, so `--fix` never rewrites math.
+Where several macros fit one span it lists them all rather than choosing, because no single rewrite is correct.
 
-The same macro inventory also drives stricter source-form rules. `tex/macro-arity`
-rejects required arguments written without braces (for example `\disc L` or
-`\disc(L)` when `\disc` has arity one). `math/house-delimiter-macro` recognizes the
-configured house delimiter macros such as `\qty`, `\bqty`, `\abs`, and `\norm` and
-flags equivalent manual `\left...\right`, `\bigl...\bigr`, or `\Bigl...\Bigr`
-source. `math/manual-cardinality` is deliberately narrower: when `\cardinality` is
-configured it warns only on obvious named-object forms such as `|G|` or
-`\lvert A_M\rvert`; it does not reinterpret arbitrary `\abs{...}` as cardinality.
+`math/script-macro-candidates` catches ambiguous symbolic superscripts and subscripts.
+It derives choices from loaded unary macros whose bodies are a base with one symbolic script.
+For example, `$A^\ast$` can offer `\units{A}` even when the units macro renders a multiplication sign.
+Complexes, filtrations, duals, and other configured meanings appear as separate choices.
+Upper and lower scripts use their respective macro inventories.
+
+The rule recognizes bullets, dots, crosses, stars, dual marks, circles, and daggers, plus the symbols used by the configured macros.
+Macro names are unrestricted.
+Each suggestion replaces the complete operand and script.
+The author must choose the intended meaning; `--fix` leaves these expressions unchanged.
+
+The same macro inventory also drives stricter source-form rules.
+`tex/macro-arity` rejects required arguments written without braces (for example `\disc L` or `\disc(L)` when `\disc` has arity one).
+`math/house-delimiter-macro` recognizes the configured house delimiter macros such as `\qty`, `\bqty`, `\abs`, and `\norm` and flags equivalent manual `\left...\right`, `\bigl...\bigr`, or `\Bigl...\Bigr` source.
+`math/manual-cardinality` is deliberately narrower: when `\cardinality` is configured it warns only on obvious named-object forms such as `|G|` or `\lvert A_M\rvert`; it does not reinterpret arbitrary `\abs{...}` as cardinality.
 
 ```toml
 # flowmark.toml
@@ -511,12 +481,8 @@ texinputs = "tex//"
 known_commands = ["\\ bespoke"]
 ```
 
-`tex/unknown-command` also draws on this table: it consults a bundled TeXstudio
-command index to say a command belongs to a package the document does not load,
-which is a more useful report than "undefined". The other context tables are
-`references` (`snapshot`, `resolutions`, `theorem_families`,
-`theorem_class_to_prefix`, `referenceable_div_classes`, `proof_div_classes`,
-`family_aliases`), `wikilinks`, and `compiler` (`tikz.diagnostics`).
+`tex/unknown-command` also draws on this table: it consults a bundled TeXstudio command index to say a command belongs to a package the document does not load, which is a more useful report than “undefined”.
+The other context tables are `references` (`snapshot`, `resolutions`, `theorem_families`, `theorem_class_to_prefix`, `referenceable_div_classes`, `proof_div_classes`, `family_aliases`), `wikilinks`, and `compiler` (`tikz.diagnostics`).
 
 ## Project Docs
 
