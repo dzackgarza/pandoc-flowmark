@@ -781,6 +781,26 @@ def _display_math_economy_findings(text: str) -> list[RuleFinding]:
             continue
         body = content[1].strip()
         compact = " ".join(body.split())
+        arrow_count = len(
+            re.findall(
+                r"\\(?:too|to|longrightarrow|xrightarrow|injects|twoheadrightarrow)\b",
+                body,
+            )
+        )
+        preceding_context = text[max(0, start - 160) : start].lower()
+        structural_sequence = arrow_count >= 2 and (
+            re.match(r"^\s*0(?:\s|\\)", body) is not None
+            or re.search(
+                r"\\(?:too|to|longrightarrow|xrightarrow|injects|twoheadrightarrow)\s*0[.,;:]?\s*$",
+                body,
+            )
+            is not None
+            or re.search(
+                r"\b(?:short\s+)?(?:exact|kernel|cokernel|fiber|cofiber)\s+sequence\b",
+                preceding_context,
+            )
+            is not None
+        )
         line_start = text.rfind("\n", 0, start) + 1
         line_end = text.find("\n", end)
         if line_end < 0:
@@ -791,6 +811,7 @@ def _display_math_economy_findings(text: str) -> list[RuleFinding]:
             not compact
             or len(compact) > 60
             or "\n" in body
+            or structural_sequence
             or _DISPLAY_COMPLEX_TEX.search(body) is not None
         ):
             continue
@@ -802,6 +823,57 @@ def _display_math_economy_findings(text: str) -> list[RuleFinding]:
                 "warning",
                 f"Display math contains only the short inline-safe expression `{compact}`. "
                 + "Use inline math unless display structure is required.",
+                start,
+                end,
+            )
+        )
+    return findings
+
+
+def _inline_structural_sequence_findings(text: str) -> list[RuleFinding]:
+    """Exact and related structural sequences belong in display math."""
+
+    findings: list[RuleFinding] = []
+    for node, start, end in _pandoc_source_spans(text):
+        if node.get("t") != "Math":
+            continue
+        content = node.get("c")
+        if (
+            not isinstance(content, list)
+            or len(content) != 2
+            or not isinstance(content[0], dict)
+            or content[0].get("t") != "InlineMath"
+            or not isinstance(content[1], str)
+        ):
+            continue
+        body = content[1].strip()
+        arrow_count = len(
+            re.findall(
+                r"\\(?:too|to|longrightarrow|xrightarrow|injects|twoheadrightarrow)\b",
+                body,
+            )
+        )
+        preceding_context = text[max(0, start - 160) : start].lower()
+        structural_sequence = arrow_count >= 2 and (
+            re.match(r"^\s*0(?:\s|\\)", body) is not None
+            or re.search(
+                r"\\(?:too|to|longrightarrow|xrightarrow|injects|twoheadrightarrow)\s*0[.,;:]?\s*$",
+                body,
+            )
+            is not None
+            or re.search(
+                r"\b(?:short\s+)?(?:exact|kernel|cokernel|fiber|cofiber)\s+sequence\b",
+                preceding_context,
+            )
+            is not None
+        )
+        if not structural_sequence:
+            continue
+        findings.append(
+            RuleFinding(
+                "math/structural-sequence-display",
+                "error",
+                "Exact, kernel, cokernel, fiber, and cofiber sequences must use display math.",
                 start,
                 end,
             )
@@ -2457,6 +2529,7 @@ def lint_rule_findings(
         *tikz_fence_findings,
         *_tikz_environment_findings(text, literal),
         *_display_math_economy_findings(text),
+        *_inline_structural_sequence_findings(text),
         *_statement_structure_findings(text, literal),
         *_prose_precision_findings(text, protected),
         *_pandoc_semantic_findings(
@@ -2693,6 +2766,12 @@ _BUILTIN_RULES = (
         "math/display-economy",
         "Short inline-safe expressions should not use display math.",
         check=_correctness_check("math/display-economy"),
+    ),
+    LintRule(
+        "math/structural-sequence-display",
+        "Exact and related structural sequences must use display math.",
+        RuleLevel.ERROR,
+        _correctness_check("math/structural-sequence-display"),
     ),
     LintRule(
         "link/reference-format",

@@ -163,6 +163,30 @@ def test_short_inline_safe_display_math_warns() -> None:
 @pytest.mark.parametrize(
     "source",
     [
+        "Use $0\\too A\\too B\\too0$.\n",
+        "The exact sequence $A\\xrightarrow{f}B\\xrightarrow{g}C$ controls the obstruction.\n",
+        "The cokernel sequence $A\\injects B\\twoheadrightarrow C$ defines the quotient.\n",
+    ],
+)
+def test_inline_structural_sequences_are_rejected(source: str) -> None:
+    findings = [
+        item
+        for item in lint_text(source)
+        if item.rule == "math/structural-sequence-display"
+    ]
+    assert len(findings) == 1
+    assert findings[0].severity.value == "error"
+
+
+def test_single_inline_arrow_is_not_a_structural_sequence() -> None:
+    assert "math/structural-sequence-display" not in rule_ids(
+        "The morphism $A\\xrightarrow{f}B$ is monic.\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
         "$$\\sum_i x_i$$\n",
         "$$\\begin{aligned}x&=y\\\\z&=w\\end{aligned}$$\n",
         "$$x=y\\tag{1}$$\n",
@@ -170,6 +194,9 @@ def test_short_inline_safe_display_math_warns() -> None:
         "$$\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}$$\n",
         "$$\nx=y\nz=w\n$$\n",
         "$$" + "x_1+" * 20 + "x_0$$\n",
+        "$$0\\too A\\too B\\too0$$\n",
+        "The exact sequence\n$$A\\xrightarrow{f}B\\xrightarrow{g}C$$\nis exact.\n",
+        "The cokernel sequence\n$$A\\injects B\\twoheadrightarrow C$$\ncontrols the quotient.\n",
     ],
 )
 def test_structured_or_large_display_math_does_not_warn_for_economy(
