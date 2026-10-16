@@ -987,26 +987,26 @@ def _delimiter_macro_candidates(
     }
 
 
-def _delimiter_key(delimiter: str, *, opening: bool) -> tuple[str, str] | None:
-    if delimiter == "|":
-        return (r"\lvert", r"\rvert")
-    mapping = {
+def _opening_delimiter_key(delimiter: str) -> tuple[str, str] | None:
+    return {
         "(": ("(", ")"),
-        ")": ("(", ")"),
         "[": ("[", "]"),
-        "]": ("[", "]"),
+        "|": (r"\lvert", r"\rvert"),
         r"\lvert": (r"\lvert", r"\rvert"),
-        r"\rvert": (r"\lvert", r"\rvert"),
         r"\lVert": (r"\lVert", r"\rVert"),
-        r"\rVert": (r"\lVert", r"\rVert"),
         r"\{": (r"\{", r"\}"),
+    }.get(delimiter)
+
+
+def _closing_delimiter_key(delimiter: str) -> tuple[str, str] | None:
+    return {
+        ")": ("(", ")"),
+        "]": ("[", "]"),
+        "|": (r"\lvert", r"\rvert"),
+        r"\rvert": (r"\lvert", r"\rvert"),
+        r"\rVert": (r"\lVert", r"\rVert"),
         r"\}": (r"\{", r"\}"),
-    }
-    pair = mapping.get(delimiter)
-    if pair is None:
-        return None
-    expected = pair[0] if opening else pair[1]
-    return pair if delimiter == expected else None
+    }.get(delimiter)
 
 
 def _house_delimiter_macros(
@@ -1041,13 +1041,13 @@ def _house_delimiter_macros(
             size = token.group("size")
             delimiter = token.group("delimiter")
             if size in opening_sizes:
-                pair = _delimiter_key(delimiter, opening=True)
+                pair = _opening_delimiter_key(delimiter)
                 if pair is not None:
                     stack.append((opening_sizes[size], pair, token))
                 continue
             if size not in closing_sizes or not stack:
                 continue
-            pair = _delimiter_key(delimiter, opening=False)
+            pair = _closing_delimiter_key(delimiter)
             family, opening_pair, opening_token = stack[-1]
             if pair is None or pair != opening_pair or closing_sizes[size] != family:
                 continue
