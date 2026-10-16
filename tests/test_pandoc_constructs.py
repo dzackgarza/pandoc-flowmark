@@ -402,3 +402,12 @@ def test_backslash_paren_math_is_opaque() -> None:
     source = f"- Return {math} for the spinor norm.\n"
 
     assert math in reformat_text(source)
+
+
+def test_wrapped_abbreviation_inside_an_ordered_item_stays_prose() -> None:
+    source = (
+        "- Parent.\n\n  1. First.\n\n"
+        "  2. In U with basis e,f and b(e,f)=1, the interchange e<->f carries "
+        "the pointed e to f. No integral automorphism carries zero to e.\n"
+    )
+    reformat_text(source)
