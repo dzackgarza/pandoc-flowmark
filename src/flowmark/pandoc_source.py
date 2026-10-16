@@ -290,6 +290,13 @@ class ParagraphWrappers:
     """For text that follows an HTML tag or raw block on its first line."""
 
 
+def _escape_source_word(word: str) -> str:
+    # A protected abbreviation can contain hidden whitespace (f.<space>No).
+    # Escape its first visible word, while preserving the protected atom.
+    first = re.split(f"[{_SPACE}{_TAB}{_NEWLINE}]", word, maxsplit=1)[0]
+    return markdown_escape_word(first) + word[len(first) :]
+
+
 def paragraph_wrappers(wrap: Width | Semantic) -> ParagraphWrappers:
     """
     The wrappers for `wrap`. The Markdown word splitter keeps template tags, HTML
@@ -298,11 +305,13 @@ def paragraph_wrappers(wrap: Width | Semantic) -> ParagraphWrappers:
     """
     match wrap:
         case Width(width):
-            prose = markdown_line_wrap_to_width(width=width)
+            prose = markdown_line_wrap_to_width(
+                width=width, escape_word=_escape_source_word
+            )
             return ParagraphWrappers(prose, prose, line_wrap_to_width(width=width))
         case Semantic(width):
             sentences = line_wrap_by_sentence(
-                width=width, escape_word=markdown_escape_word
+                width=width, escape_word=_escape_source_word
             )
             return ParagraphWrappers(
                 sentences, add_tag_newline_handling(sentences), sentences

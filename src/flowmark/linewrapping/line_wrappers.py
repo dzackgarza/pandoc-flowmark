@@ -123,6 +123,7 @@ def line_wrap_to_width(
 def markdown_line_wrap_to_width(
     width: int = DEFAULT_WRAP_WIDTH,
     len_fn: Callable[[str], int] = DEFAULT_LEN_FUNCTION,
+    escape_word: Callable[[str], str] = markdown_escape_word,
 ) -> LineWrapper:
     """
     Wrap lines of Markdown text to a given width: escape a wrapped line's first word
@@ -131,7 +132,7 @@ def markdown_line_wrap_to_width(
     # Apply tag newline handling first, then hard break handling
     # Order matters: tag handling should operate on original newlines
     # before hard break handling normalizes explicit breaks
-    wrapper = line_wrap_to_width(width, len_fn, escape_word=markdown_escape_word)
+    wrapper = line_wrap_to_width(width, len_fn, escape_word=escape_word)
     return _add_markdown_hard_break_handling(add_tag_newline_handling(wrapper))
 
 
