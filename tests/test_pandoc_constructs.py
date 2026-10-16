@@ -269,7 +269,10 @@ def test_bar_inside_a_code_span_or_math_stays_in_its_cell() -> None:
     assert reformat_text(BARS_IN_SPANS_TABLE) == BARS_IN_SPANS_TABLE
 
 
-@pytest.mark.parametrize("marker", ["(1)", "a.", "a)", "(a)", "#.", "(@)", "A)", "(ii)", "(III)", "iv.", "VI)"])
+@pytest.mark.parametrize(
+    "marker",
+    ["(1)", "a.", "a)", "(a)", "#.", "(@)", "A)", "(ii)", "(III)", "iv.", "VI)"],
+)
 def test_wrapping_never_starts_a_line_with_a_pandoc_list_marker(marker: str) -> None:
     """
     Inside a list item, pandoc's `fancy_lists` and `example_lists` start a nested

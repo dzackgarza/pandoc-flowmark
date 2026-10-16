@@ -184,7 +184,9 @@ def test_single_inline_arrow_is_not_a_structural_sequence() -> None:
     )
 
 
-def test_arrow_chain_inside_kernel_is_not_reclassified_by_prior_sequence_prose() -> None:
+def test_arrow_chain_inside_kernel_is_not_reclassified_by_prior_sequence_prose() -> (
+    None
+):
     source = (
         "Tensor the cokernel sequence with $\\QQ$.\n"
         "The universal property gives "
