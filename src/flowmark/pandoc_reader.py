@@ -199,6 +199,10 @@ def located_nodes(value: PandocJson) -> list[LocatedNode]:
             children = cast(list[PandocJson], content[1])
             if len(children) == 1 and isinstance(children[0], dict):
                 nodes.append(LocatedNode(position, children[0], ancestors))
+            elif wrapper["t"] == "Span" and len(children) > 1:
+                # Literal brackets can contain several sourced children. Their
+                # source group owns whitespace the individual children omit.
+                nodes.append(LocatedNode(position, wrapper, ancestors))
         if isinstance(item, dict):
             node_type = item.get("t")
             nested_ancestors = (

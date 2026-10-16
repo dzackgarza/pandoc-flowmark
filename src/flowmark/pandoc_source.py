@@ -251,6 +251,8 @@ def _span_kind(node: dict[str, PandocJson]) -> str:
     Pandoc reads a line break inside code, link, image, citation, span, and note
     text as one space, so those atoms are written on one line.
     """
+    if source_position(node) is not None:
+        return "other"
     if node.get("t") == "Code":
         return "code"
     if node.get("t") in _JOINED_ATOMS:
@@ -499,6 +501,18 @@ def wrap_plain_paragraphs(
             inline_spans.append(
                 (begin_offset - start, finish_offset - start, _span_kind(inline.node))
             )
+        # A sourced group owns its nested atoms: hiding both would apply
+        # offsets computed from the original text to an already hidden range.
+        inline_spans = [
+            span
+            for span in inline_spans
+            if not any(
+                outer[0] <= span[0]
+                and span[1] <= outer[1]
+                and outer != span
+                for outer in inline_spans
+            )
+        ]
         if prefix_width and any(
             "\n" in old[begin:finish] and kind in {"other", "display"}
             for begin, finish, kind in inline_spans
