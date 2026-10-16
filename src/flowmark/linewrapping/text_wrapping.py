@@ -71,9 +71,9 @@ _md_specials_pat = re.compile(r"^([-*+>]|#+)$")
 # a list item (pandoc manual, "Ordered lists": `fancy_lists`, `example_lists`, and
 # `startnum`): a number, a lowercase letter, or `#`, before `.` or `)`; an uppercase
 # letter before `)` (before `.` it needs two spaces, which a wrap never leaves).
-_md_numeral_pat = re.compile(r"^(?:[0-9]+|[a-z]|#)[.)]$|^[A-Z]\)$")
+_md_numeral_pat = re.compile(r"^(?:[0-9]+|[a-z]|[ivxlcdm]+|#)[.)]$|^(?:[A-Z]|[IVXLCDM]+)\)$")
 # The same markers enclosed in parentheses, and example-list labels: `(1)`, `(a)`, `(@)`.
-_md_enclosed_numeral_pat = re.compile(r"^\((?:[0-9]+|[A-Za-z]|@[\w-]*)\)$")
+_md_enclosed_numeral_pat = re.compile(r"^\((?:[0-9]+|[A-Za-z]|[ivxlcdmIVXLCDM]+|@[\w-]*)\)$")
 
 
 def markdown_escape_word(word: str) -> str:
