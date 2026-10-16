@@ -27,12 +27,12 @@ from flowmark.linewrapping.tag_handling import (
 )
 from flowmark.linewrapping.text_wrapping import markdown_escape_word
 from flowmark.pandoc_reader import (
-    located_source_nodes,
     LocatedNode,
     PandocJson,
-    located_nodes,
     SourcePoint,
     character_point,
+    located_nodes,
+    located_source_nodes,
     read_source_ast,
     source_position,
 )
@@ -66,17 +66,13 @@ _HTML_CLOSE_LINE = re.compile(r"^</[A-Za-z][A-Za-z0-9-]*>$")
 _PIPE_DELIMITER_ROW = re.compile(r"\|?(\s*:?-+:?\s*\|)+\s*:?-*:?\s*")
 # Inline nodes the wrapper never breaks. Emphasis, strong, strikeout, and quoted
 # text wrap between their words like plain prose.
-_WRAP_ATOMS = frozenset(
-    {"Code", "Math", "RawInline", "Link", "Image", "Cite", "Note", "Span", "LineBreak"}
-)
+_WRAP_ATOMS = frozenset({"Code", "Math", "RawInline", "Link", "Image", "Cite", "Note", "Span", "LineBreak"})
 # Atoms whose descendants are hidden with them. Every located inline sits in a
 # `data-pos` Span wrapper, so a Span ancestor says nothing.
 _NESTING_ATOMS = _WRAP_ATOMS - {"Span"}
 _JOINED_ATOMS = frozenset({"Code", "Link", "Image", "Cite", "Note", "Span"})
 # Indentation, quote markers, and one list marker with the whitespace after it.
-_LIST_LINE_PREFIX = re.compile(
-    r"[ \t]*(?:>[ \t]*)*(?:(?:[-+*]|\(?(?:\d+|[A-Za-z]+|#)[.)])[ \t]+)?"
-)
+_LIST_LINE_PREFIX = re.compile(r"[ \t]*(?:>[ \t]*)*(?:(?:[-+*]|\(?(?:\d+|[A-Za-z]+|#)[.)])[ \t]+)?")
 # The text before a list item's content: indentation, a marker, and one to four
 # spaces. Five or more spaces after a marker start indented code instead.
 _MARKER_SPACING = re.compile(r"( *)([-+*]|\(?(?:\d+|[A-Za-z]+|#)[.)])( {1,4})")
@@ -154,24 +150,13 @@ def normalize_sourced_spelling(source: str, pandoc_exe: str) -> str:
         if kind in {"Emph", "Strong"}:
             delimiter = "__" if kind == "Strong" else "_"
             if raw.startswith(delimiter) and raw.endswith(delimiter):
-                replacement = (
-                    "*" * len(delimiter)
-                    + raw[len(delimiter) : -len(delimiter)]
-                    + "*" * len(delimiter)
-                )
+                replacement = "*" * len(delimiter) + raw[len(delimiter) : -len(delimiter)] + "*" * len(delimiter)
                 edits.append(SourceEdit(start, end, replacement))
         elif kind == "Link":
             match = _SIMPLE_REFERENCE.fullmatch(raw)
             if match is not None:
                 label, reference = match.groups()
-                if (
-                    reference is None
-                    or not reference.strip()
-                    or (
-                        " ".join(label.split()).casefold()
-                        == " ".join(reference.split()).casefold()
-                    )
-                ):
+                if reference is None or not reference.strip() or (" ".join(label.split()).casefold() == " ".join(reference.split()).casefold()):
                     replacement = f"[{label}][]"
                     if replacement != raw:
                         edits.append(SourceEdit(start, end, replacement))
@@ -220,10 +205,7 @@ def normalize_sourced_html_block_layout(source: str, pandoc_exe: str) -> str:
     for located in located_source_nodes(source, pandoc_exe):
         if located.node.get("t") != "Plain":
             continue
-        if any(
-            ancestor in {"BulletList", "OrderedList", "Table", "Note", "BlockQuote"}
-            for ancestor in located.ancestors
-        ):
+        if any(ancestor in {"BulletList", "OrderedList", "Table", "Note", "BlockQuote"} for ancestor in located.ancestors):
             continue
         first = located.source_range.start.line - 1
         # A block that ends at a line start ends on the line before it.
@@ -258,12 +240,7 @@ def _span_kind(node: dict[str, PandocJson]) -> str:
     if node.get("t") in _JOINED_ATOMS:
         return "joined"
     content = node.get("c")
-    if (
-        node.get("t") == "Math"
-        and isinstance(content, list)
-        and isinstance(content[0], dict)
-        and content[0].get("t") == "DisplayMath"
-    ):
+    if node.get("t") == "Math" and isinstance(content, list) and isinstance(content[0], dict) and content[0].get("t") == "DisplayMath":
         return "display"
     return "other"
 
@@ -307,22 +284,14 @@ def paragraph_wrappers(wrap: Width | Semantic) -> ParagraphWrappers:
     """
     match wrap:
         case Width(width):
-            prose = markdown_line_wrap_to_width(
-                width=width, escape_word=_escape_source_word
-            )
+            prose = markdown_line_wrap_to_width(width=width, escape_word=_escape_source_word)
             return ParagraphWrappers(prose, prose, line_wrap_to_width(width=width))
         case Semantic(width):
-            sentences = line_wrap_by_sentence(
-                width=width, escape_word=_escape_source_word
-            )
-            return ParagraphWrappers(
-                sentences, add_tag_newline_handling(sentences), sentences
-            )
+            sentences = line_wrap_by_sentence(width=width, escape_word=_escape_source_word)
+            return ParagraphWrappers(sentences, add_tag_newline_handling(sentences), sentences)
 
 
-def _wrap_segment(
-    text: str, first_indent: str, indent: str, wrapper: LineWrapper
-) -> str:
+def _wrap_segment(text: str, first_indent: str, indent: str, wrapper: LineWrapper) -> str:
     """Wrap one run of paragraph text, without a final newline."""
     if not text.strip():
         # Consecutive hard breaks leave a line with nothing but its break.
@@ -336,15 +305,10 @@ def _wrap_text(text: str, first_indent: str, indent: str, wrapper: LineWrapper) 
     hard break, the author set the lines, so each line wraps on its own.
     """
     segments = text.rstrip("\n").split("\n") if "\\\n" in text else [text]
-    return "\n".join(
-        _wrap_segment(segment, first_indent if index == 0 else indent, indent, wrapper)
-        for index, segment in enumerate(segments)
-    )
+    return "\n".join(_wrap_segment(segment, first_indent if index == 0 else indent, indent, wrapper) for index, segment in enumerate(segments))
 
 
-def wrap_plain_paragraphs(
-    source: str, pandoc_exe: str, wrappers: ParagraphWrappers
-) -> str:
+def wrap_plain_paragraphs(source: str, pandoc_exe: str, wrappers: ParagraphWrappers) -> str:
     """Wrap sourced paragraphs and preserve Pandoc inline source atoms."""
     if any(marker in source for marker in (_SPACE, _TAB, _NEWLINE)):
         raise ValueError("The source contains reserved formatter characters")
@@ -355,32 +319,19 @@ def wrap_plain_paragraphs(
 
     edits: list[SourceEdit] = []
     nodes = located_source_nodes(source, pandoc_exe)
-    raw_block_ends = {
-        (node.source_range.end.line, node.source_range.end.column)
-        for node in nodes
-        if node.node.get("t") == "RawBlock"
-    }
+    raw_block_ends = {(node.source_range.end.line, node.source_range.end.column) for node in nodes if node.node.get("t") == "RawBlock"}
     # A paragraph still holding a line that opens a list on its own is one whose
     # list could not be set off (`separate_sourced_lazy_lists`); wrapping would
     # run the list into prose, so it is left as written.
-    top_paragraphs = [
-        node
-        for node in nodes
-        if node.node.get("t") == "Para" and set(node.ancestors) <= {"Div"}
-    ]
+    top_paragraphs = [node for node in nodes if node.node.get("t") == "Para" and set(node.ancestors) <= {"Div"}]
     interrupting = _interrupting_list_lines(lines, top_paragraphs, pandoc_exe)
     unwrapped_paragraphs = {
         (node.source_range.start.line, node.source_range.start.column)
         for node in top_paragraphs
-        if any(
-            node.source_range.start.line < line < node.source_range.end.line
-            for line in interrupting
-        )
+        if any(node.source_range.start.line < line < node.source_range.end.line for line in interrupting)
     }
     for located in nodes:
-        is_list = any(
-            ancestor in {"BulletList", "OrderedList"} for ancestor in located.ancestors
-        )
+        is_list = any(ancestor in {"BulletList", "OrderedList"} for ancestor in located.ancestors)
         is_quote = "BlockQuote" in located.ancestors
         if located.node.get("t") not in {"Para", "Plain"}:
             continue
@@ -396,12 +347,7 @@ def wrap_plain_paragraphs(
             continue
         physical_prefix = lines[first.line - 1][: first.column - 1].strip()
         inline_prefix = (
-            first.column != 1
-            and not (is_list or is_quote)
-            and (
-                (first.line, first.column) in raw_block_ends
-                or _HTML_OPEN_LINE.fullmatch(physical_prefix) is not None
-            )
+            first.column != 1 and not (is_list or is_quote) and ((first.line, first.column) in raw_block_ends or _HTML_OPEN_LINE.fullmatch(physical_prefix) is not None)
         )
         # A footnote definition's own blocks wrap under a four-space indent; a
         # block nested deeper in a note, or an inline note, is left as written.
@@ -413,15 +359,10 @@ def wrap_plain_paragraphs(
             continue
         if first.column != 1 and not (is_list or is_quote or inline_prefix or is_note):
             continue
-        prefix_width = (
-            note_marker.end() if note_marker is not None else first.column - 1
-        )
+        prefix_width = note_marker.end() if note_marker is not None else first.column - 1
         last = located.source_range.end
         end_line = min(last.line, len(lines))
-        end_before_line = (
-            last.line <= len(lines)
-            and last.column < len(lines[last.line - 1].rstrip("\r\n")) + 1
-        )
+        end_before_line = last.line <= len(lines) and last.column < len(lines[last.line - 1].rstrip("\r\n")) + 1
         partial_end = end_before_line and last.column > 1 and inline_prefix
         if end_before_line and not partial_end:
             end_line -= 1
@@ -432,12 +373,7 @@ def wrap_plain_paragraphs(
             if "|" not in lines[index] or "|" not in lines[index + 1]:
                 continue
             suffix = "".join(lines[index:end_line])
-            if any(
-                node.node.get("t") == "Table"
-                and not node.ancestors
-                and node.source_range.start.line == 1
-                for node in located_source_nodes(suffix, pandoc_exe)
-            ):
+            if any(node.node.get("t") == "Table" and not node.ancestors and node.source_range.start.line == 1 for node in located_source_nodes(suffix, pandoc_exe)):
                 end_line = index
                 break
         # A paragraph ends at a blank line, whatever range Pandoc reports.
@@ -451,11 +387,7 @@ def wrap_plain_paragraphs(
             continue
 
         start = starts[first.line - 1] + (prefix_width if inline_prefix else 0)
-        end = (
-            starts[last.line - 1] + last.column - 1
-            if partial_end and inline_prefix
-            else starts[end_line]
-        )
+        end = starts[last.line - 1] + last.column - 1 if partial_end and inline_prefix else starts[end_line]
         old = source[start:end]
         if any(line.strip() == ":::" for line in old.splitlines()):
             continue
@@ -466,57 +398,32 @@ def wrap_plain_paragraphs(
         protected = old
         inline_spans: list[tuple[int, int, str]] = []
         paragraph_inlines = located_nodes(located.node)
-        wrapper = (
-            wrappers.tagged
-            if any(is_tag_only_line(line) for line in old.splitlines())
-            else wrappers.prose
-        )
+        wrapper = wrappers.tagged if any(is_tag_only_line(line) for line in old.splitlines()) else wrappers.prose
         for inline in paragraph_inlines:
             if "Note" in inline.ancestors:
                 continue
             # Pandoc reads the space after an abbreviation such as `e.g.`, and an
             # escaped space, as a non-breaking space inside one `Str`; a line
             # break there would read as an ordinary space.
-            nonbreaking = inline.node.get("t") == "Str" and "\u00a0" in str(
-                inline.node["c"]
-            )
+            nonbreaking = inline.node.get("t") == "Str" and "\u00a0" in str(inline.node["c"])
             if inline.node.get("t") not in _WRAP_ATOMS and not nonbreaking:
                 continue
             if any(ancestor in _NESTING_ATOMS for ancestor in inline.ancestors):
                 continue
             span_start = inline.source_range.start
             span_end = inline.source_range.end
-            if (
-                span_start.line > len(lines)
-                or span_end.line > len(lines) + 1
-                or span_start.column < 1
-                or span_end.column < 1
-            ):
+            if span_start.line > len(lines) or span_end.line > len(lines) + 1 or span_start.column < 1 or span_end.column < 1:
                 raise ValueError("Pandoc returned an invalid inline source range")
             begin_offset = starts[span_start.line - 1] + span_start.column - 1
             finish_offset = starts[span_end.line - 1] + span_end.column - 1
             # A Note contains blocks sourced from its definition elsewhere.
             if not (start <= begin_offset < finish_offset <= end):
                 continue
-            inline_spans.append(
-                (begin_offset - start, finish_offset - start, _span_kind(inline.node))
-            )
+            inline_spans.append((begin_offset - start, finish_offset - start, _span_kind(inline.node)))
         # A sourced group owns its nested atoms: hiding both would apply
         # offsets computed from the original text to an already hidden range.
-        inline_spans = [
-            span
-            for span in inline_spans
-            if not any(
-                outer[0] <= span[0]
-                and span[1] <= outer[1]
-                and outer != span
-                for outer in inline_spans
-            )
-        ]
-        if prefix_width and any(
-            "\n" in old[begin:finish] and kind in {"other", "display"}
-            for begin, finish, kind in inline_spans
-        ):
+        inline_spans = [span for span in inline_spans if not any(outer[0] <= span[0] and span[1] <= outer[1] and outer != span for outer in inline_spans)]
+        if prefix_width and any("\n" in old[begin:finish] and kind in {"other", "display"} for begin, finish, kind in inline_spans):
             continue
         # Pandoc reads a line break in a joined atom as one space, so writing the
         # space keeps the atom on one line. In code, only the container's
@@ -526,11 +433,7 @@ def wrap_plain_paragraphs(
         quote_width = physical.rfind(">") + 1
         if quote_width and physical[quote_width : quote_width + 1] == " ":
             quote_width += 1
-        code_break = re.compile(
-            r"\n"
-            + (r"(?: {0,3}> ?)*" if is_quote else "")
-            + f" {{0,{prefix_width - quote_width}}}"
-        )
+        code_break = re.compile(r"\n" + (r"(?: {0,3}> ?)*" if is_quote else "") + f" {{0,{prefix_width - quote_width}}}")
         display_math: list[str] = []
         for begin, finish, kind in sorted(inline_spans, reverse=True):
             span = protected[begin:finish]
@@ -546,21 +449,14 @@ def wrap_plain_paragraphs(
                 display_math.append(hidden)
             protected = protected[:begin] + hidden + protected[finish:]
         # A backslash-escaped space is a non-breaking space to Pandoc.
-        protected = _ESCAPED_SPACE.sub(
-            lambda match: match.group(1) + "\\" + _SPACE, protected
-        )
+        protected = _ESCAPED_SPACE.sub(lambda match: match.group(1) + "\\" + _SPACE, protected)
         if inline_prefix:
             leading = " " if protected.startswith(" ") else ""
             content = protected.lstrip(" ")
             wrapped = wrappers.inline(content, " " * (prefix_width + len(leading)), "")
             # Text that ends before an inline closing tag keeps the space
             # that separates it from the tag.
-            wrapped = (
-                leading
-                + wrapped[prefix_width + len(leading) :]
-                + ("\n" if old.endswith("\n") else "")
-                + (" " if old.endswith(" ") else "")
-            ).translate(_SHOW)
+            wrapped = (leading + wrapped[prefix_width + len(leading) :] + ("\n" if old.endswith("\n") else "") + (" " if old.endswith(" ") else "")).translate(_SHOW)
             if wrapped != old:
                 edits.append(SourceEdit(start, end, wrapped))
             continue
@@ -575,15 +471,9 @@ def wrap_plain_paragraphs(
                 if quote_end < 0:
                     continue
                 quote_prefix = first_prefix[: quote_end + 1]
-                if any(
-                    not line.startswith(quote_prefix) for line in paragraph_lines[1:]
-                ):
+                if any(not line.startswith(quote_prefix) for line in paragraph_lines[1:]):
                     continue
-                continuation = (
-                    quote_prefix + " " * (len(first_prefix) - len(quote_prefix))
-                    if is_list
-                    else first_prefix
-                )
+                continuation = quote_prefix + " " * (len(first_prefix) - len(quote_prefix)) if is_list else first_prefix
             elif note_marker is not None:
                 first_prefix = note_marker.group(1) + " "
                 continuation = " " * 4
@@ -591,24 +481,17 @@ def wrap_plain_paragraphs(
                 continuation = " " * prefix_width
             protected_lines = protected.splitlines(keepends=True)
             if is_quote and is_list:
-                content = protected_lines[0][prefix_width:] + "".join(
-                    line[len(quote_prefix) :].lstrip(" ")
-                    for line in protected_lines[1:]
-                )
+                content = protected_lines[0][prefix_width:] + "".join(line[len(quote_prefix) :].lstrip(" ") for line in protected_lines[1:])
             elif is_quote:
                 content = "".join(line[prefix_width:] for line in protected_lines)
             else:
                 # Pandoc ignores a paragraph line's leading spaces, including a
                 # lazy continuation line's missing indentation.
-                content = protected_lines[0][prefix_width:] + "".join(
-                    line.lstrip(" ") for line in protected_lines[1:]
-                )
+                content = protected_lines[0][prefix_width:] + "".join(line.lstrip(" ") for line in protected_lines[1:])
             # A task box is one only when a space follows it on its line, so it
             # is kept together with the word after it.
             if is_list:
-                content = _TASK_BOX.sub(
-                    lambda match: match.group(0).translate(_HIDE), content, count=1
-                )
+                content = _TASK_BOX.sub(lambda match: match.group(0).translate(_HIDE), content, count=1)
             # A GFM alert or Obsidian callout marker keeps its own line; the
             # paragraph text below it wraps as usual.
             alert_header = ""
@@ -617,18 +500,12 @@ def wrap_plain_paragraphs(
                 alert_type = marker.group(1)
                 if alert_type.lower() in GFM_ALERT_TYPES:
                     alert_type = alert_type.upper()
-                alert_header = (
-                    first_prefix
-                    + f"[!{alert_type}]"
-                    + marker.group(0)[len(marker.group(1)) + 3 :]
-                )
+                alert_header = first_prefix + f"[!{alert_type}]" + marker.group(0)[len(marker.group(1)) + 3 :]
                 content = content[marker.end() :]
                 first_prefix = continuation
             wrapped = alert_header
             if content.strip():
-                wrapped += (
-                    _wrap_text(content, first_prefix, continuation, wrapper) + "\n"
-                )
+                wrapped += _wrap_text(content, first_prefix, continuation, wrapper) + "\n"
             wrapped = _set_off_display_math(wrapped, display_math, continuation)
             wrapped = wrapped.translate(_SHOW)
             if wrapped != old:
@@ -671,12 +548,7 @@ def unbold_sourced_headings(source: str, pandoc_exe: str) -> str:
         if not isinstance(wrapper_content, list) or len(wrapper_content) != 2:
             continue
         children = wrapper_content[1]
-        if (
-            not isinstance(children, list)
-            or len(children) != 1
-            or not isinstance(children[0], dict)
-            or children[0].get("t") != "Strong"
-        ):
+        if not isinstance(children, list) or len(children) != 1 or not isinstance(children[0], dict) or children[0].get("t") != "Strong":
             continue
         if position.start.line > len(lines) or position.end.line > len(lines):
             continue
@@ -725,9 +597,7 @@ def _last_inline_text(value: PandocJson) -> str:
     children = _inline_children(value)
     if isinstance(children, str):
         return children
-    return next(
-        (text for child in reversed(children) if (text := _last_inline_text(child))), ""
-    )
+    return next((text for child in reversed(children) if (text := _last_inline_text(child))), "")
 
 
 def join_sourced_hyphen_breaks(source: str, pandoc_exe: str) -> tuple[str, int]:
@@ -753,23 +623,12 @@ def join_sourced_hyphen_breaks(source: str, pandoc_exe: str) -> tuple[str, int]:
                         joins = (
                             before.endswith("-")
                             and bool(after)
-                            and first_word.strip(".,;:!?").lower()
-                            not in SUSPENSION_WORDS
-                            and (
-                                after[0].isdigit()
-                                or after[0].islower()
-                                or after[0] in "$\\"
-                            )
+                            and first_word.strip(".,;:!?").lower() not in SUSPENSION_WORDS
+                            and (after[0].isdigit() or after[0].islower() or after[0] in "$\\")
                         )
                         if joins and position.end.line <= len(lines) + 1:
-                            start = (
-                                starts[position.start.line - 1]
-                                + position.start.column
-                                - 1
-                            )
-                            end = (
-                                starts[position.end.line - 1] + position.end.column - 1
-                            )
+                            start = starts[position.start.line - 1] + position.start.column - 1
+                            end = starts[position.end.line - 1] + position.end.column - 1
                             if source[start:end] in {"\n", "\r\n"}:
                                 edits.append(SourceEdit(start, end, ""))
                 visit(item)
@@ -801,14 +660,10 @@ def set_sourced_list_spacing(source: str, pandoc_exe: str, spacing: ListSpacing)
             continue
         quoted = "BlockQuote" in located.ancestors
         noted = "Note" in located.ancestors
-        nested = any(
-            ancestor in {"BulletList", "OrderedList"} for ancestor in located.ancestors
-        )
+        nested = any(ancestor in {"BulletList", "OrderedList"} for ancestor in located.ancestors)
         if loose and nested:
             line_index = located.source_range.start.line - 1
-            if 0 < line_index < len(lines) and lines[line_index - 1].strip(
-                " \t\r\n>" if quoted else " \t\r\n"
-            ):
+            if 0 < line_index < len(lines) and lines[line_index - 1].strip(" \t\r\n>" if quoted else " \t\r\n"):
                 blank = ">\n" if quoted else "\n"
                 edits.append(SourceEdit(starts[line_index], starts[line_index], blank))
         content = located.node.get("c")
@@ -837,16 +692,9 @@ def set_sourced_list_spacing(source: str, pandoc_exe: str, spacing: ListSpacing)
                 blank = marker_prefix[: quote_end + 1] + "\n"
             elif noted:
                 marker_prefix = lines[line_index][: position.start.column - 1]
-                blank = (
-                    marker_prefix[
-                        : len(marker_prefix) - len(marker_prefix.lstrip(" \t"))
-                    ]
-                    + "\n"
-                )
+                blank = marker_prefix[: len(marker_prefix) - len(marker_prefix.lstrip(" \t"))] + "\n"
             previous = line_index - 1
-            while previous >= 0 and not lines[previous].strip(
-                " \t\r\n>" if quoted else " \t\r\n"
-            ):
+            while previous >= 0 and not lines[previous].strip(" \t\r\n>" if quoted else " \t\r\n"):
                 previous -= 1
             gap_start = starts[previous + 1]
             gap_end = starts[line_index]
@@ -904,9 +752,7 @@ def normalize_sourced_marker_spacing(source: str, pandoc_exe: str) -> str:
                     )
                 )
         bounds = [item[0] for item in items] + [last + 1]
-        for (line, indent, spaces, surplus, column), end in zip(
-            items, bounds[1:], strict=True
-        ):
+        for (line, indent, spaces, surplus, column), end in zip(items, bounds[1:], strict=True):
             if indent == 0 and surplus == 0:
                 continue
             offset = starts[line - 1] + spaces + 1
@@ -914,9 +760,7 @@ def normalize_sourced_marker_spacing(source: str, pandoc_exe: str) -> str:
             edits.append(SourceEdit(starts[line - 1], starts[line - 1] + indent, ""))
             for index in range(line, end - 1):
                 if lines[index].startswith(" " * column):
-                    edits.append(
-                        SourceEdit(starts[index], starts[index] + indent + surplus, "")
-                    )
+                    edits.append(SourceEdit(starts[index], starts[index] + indent + surplus, ""))
     result = source
     for edit in sorted(set(edits), key=lambda item: item.start, reverse=True):
         result = result[: edit.start] + edit.replacement + result[edit.end :]
@@ -941,9 +785,7 @@ def normalize_sourced_list_indentation(source: str, pandoc_exe: str) -> str:
             continue
         if any(ancestor in {"BlockQuote", "Note"} for ancestor in located.ancestors):
             continue
-        if not any(
-            ancestor in {"BulletList", "OrderedList"} for ancestor in located.ancestors
-        ):
+        if not any(ancestor in {"BulletList", "OrderedList"} for ancestor in located.ancestors):
             continue
         first = located.source_range.start.line - 1
         last = min(located.source_range.end.line - 1, len(lines))
@@ -1024,9 +866,7 @@ def normalize_sourced_blank_gaps(source: str, pandoc_exe: str) -> str:
             index += 1
             continue
         start = index
-        while (
-            index < len(lines) and not lines[index].strip() and index not in protected
-        ):
+        while index < len(lines) and not lines[index].strip() and index not in protected:
             index += 1
         if index - start > 1:
             edits.append(SourceEdit(starts[start], starts[index], "\n"))
@@ -1084,15 +924,8 @@ def _cell_ranges(row: PandocJson, lines: list[str]) -> list[tuple[int, int]]:
     ranges: list[tuple[int, int]] = []
     for cell in _json_list(_json_list(row)[1]):
         attributes = _json_list(_json_list(_json_list(cell)[0])[2])
-        raw = next(
-            cast(str, pair[1])
-            for pair in map(_json_list, attributes)
-            if pair[0] == "data-pos"
-        )
-        start, end = (
-            character_point(SourcePoint(*map(int, point.split(":"))), lines)
-            for point in raw.split("-")
-        )
+        raw = next(cast(str, pair[1]) for pair in map(_json_list, attributes) if pair[0] == "data-pos")
+        start, end = (character_point(SourcePoint(*map(int, point.split(":"))), lines) for point in raw.split("-"))
         ranges.append((start.column - 1, end.column - 1))
     return ranges
 
@@ -1116,14 +949,8 @@ def _pipe_tables(source: str, pandoc_exe: str) -> list[_PipeTable]:
         rows = [lines[index].rstrip("\r\n") for index in range(first - 1, last)]
         content = _json_list(located.node["c"])
         # Pandoc drops a header whose cells are all empty.
-        head = [
-            _cell_ranges(row, texts) for row in _json_list(_json_list(content[3])[1])
-        ]
-        body = [
-            _cell_ranges(row, texts)
-            for part in _json_list(content[4])
-            for row in _json_list(_json_list(part)[3])
-        ]
+        head = [_cell_ranges(row, texts) for row in _json_list(_json_list(content[3])[1])]
+        body = [_cell_ranges(row, texts) for part in _json_list(content[4]) for row in _json_list(_json_list(part)[3])]
         colspecs = list(map(_json_list, _json_list(content[2])))
         tables.append(
             _PipeTable(
@@ -1180,9 +1007,7 @@ def _normalized_pipe_table(table: _PipeTable) -> list[str]:
     rows: list[str] = []
     for offset, (row, cells) in enumerate(zip(table.rows, table.cells)):
         if offset == 1:
-            rows.append(
-                row if table.wide else "| " + " | ".join(table.alignments) + " |"
-            )
+            rows.append(row if table.wide else "| " + " | ".join(table.alignments) + " |")
             continue
         texts = [row[start:end].strip() for start, end in cells]
         if offset == 0 and not cells:
@@ -1207,21 +1032,14 @@ def normalize_sourced_pipe_tables(source: str, pandoc_exe: str) -> str:
                 starts[table.first - 1 + offset] + len(raw),
                 row,
             )
-            for offset, (raw, row) in enumerate(
-                zip(table.rows, _normalized_pipe_table(table), strict=True)
-            )
+            for offset, (raw, row) in enumerate(zip(table.rows, _normalized_pipe_table(table), strict=True))
             if row != raw
         ]
         for table in tables
     ]
     rewritten = _apply_edits(source, [edit for table in edits for edit in table])
     widths = [table.wide for table in _pipe_tables(rewritten, pandoc_exe)]
-    kept = [
-        edit
-        for table, table_edits, wide in zip(tables, edits, widths, strict=True)
-        if table.wide == wide
-        for edit in table_edits
-    ]
+    kept = [edit for table, table_edits, wide in zip(tables, edits, widths, strict=True) if table.wide == wide for edit in table_edits]
     return _apply_edits(source, kept)
 
 
@@ -1260,18 +1078,11 @@ def separate_sourced_note_definitions(source: str, pandoc_exe: str) -> str:
     starts = [0]
     for line in lines:
         starts.append(starts[-1] + len(line))
-    definition_lines = {
-        located.source_range.start.line
-        for located in located_source_nodes(source, pandoc_exe)
-        if located.ancestors and located.ancestors[-1] == "Note"
-    }
+    definition_lines = {located.source_range.start.line for located in located_source_nodes(source, pandoc_exe) if located.ancestors and located.ancestors[-1] == "Note"}
     blank_before = [
         line_number
         for line_number in definition_lines
-        if 1 < line_number <= len(lines)
-        and lines[line_number - 1].startswith("[^")
-        and lines[line_number - 2].strip()
-        and not _LINK_DEFINITION.match(lines[line_number - 2])
+        if 1 < line_number <= len(lines) and lines[line_number - 1].startswith("[^") and lines[line_number - 2].strip() and not _LINK_DEFINITION.match(lines[line_number - 2])
     ]
     result = source
     for line_number in sorted(blank_before, reverse=True):
@@ -1292,8 +1103,7 @@ def normalize_sourced_quote_blank_lines(source: str, pandoc_exe: str) -> str:
     kept_lines = {
         index
         for node in nodes
-        if node.node.get("t") in {"BulletList", "OrderedList", "CodeBlock"}
-        and "BlockQuote" in node.ancestors
+        if node.node.get("t") in {"BulletList", "OrderedList", "CodeBlock"} and "BlockQuote" in node.ancestors
         for index in range(
             node.source_range.start.line - 1,
             min(node.source_range.end.line - 1, len(lines)),
@@ -1307,9 +1117,7 @@ def normalize_sourced_quote_blank_lines(source: str, pandoc_exe: str) -> str:
         for index in range(first, last):
             raw = lines[index].rstrip("\r\n")
             if index not in kept_lines and re.fullmatch(r"[ >]*>", raw):
-                edits.add(
-                    SourceEdit(starts[index] + len(raw), starts[index] + len(raw), " ")
-                )
+                edits.add(SourceEdit(starts[index] + len(raw), starts[index] + len(raw), " "))
     result = source
     for edit in sorted(edits, key=lambda item: item.start, reverse=True):
         result = result[: edit.start] + edit.replacement + result[edit.end :]
@@ -1362,9 +1170,7 @@ def _apply_smart_quotes_once(source: str, pandoc_exe: str) -> str:
         elif kind == "Table":
             first = located.source_range.start.line - 1
             last = min(located.source_range.end.line, len(lines) + 1) - 1
-            runs.extend(
-                (starts[index], starts[index + 1]) for index in range(first, last)
-            )
+            runs.extend((starts[index], starts[index + 1]) for index in range(first, last))
     styled = list(source)
     for start, end in runs:
         text = smart_quotes(source[start:end])
@@ -1470,10 +1276,7 @@ def set_sourced_heading_spacing(source: str, pandoc_exe: str) -> str:
         prefix = lines[next_line - 1][: located.source_range.end.column - 1]
         if "BlockQuote" in located.ancestors and ">" in prefix:
             blank = prefix[: prefix.rfind(">") + 1] + "\n"
-        elif any(
-            ancestor in {"BulletList", "OrderedList", "Note"}
-            for ancestor in located.ancestors
-        ):
+        elif any(ancestor in {"BulletList", "OrderedList", "Note"} for ancestor in located.ancestors):
             blank = prefix[: len(prefix) - len(prefix.lstrip(" \t"))] + "\n"
         else:
             blank = "\n"
@@ -1498,11 +1301,7 @@ def set_sourced_tag_block_spacing(source: str, pandoc_exe: str) -> str:
     starts = [0]
     for line in lines:
         starts.append(starts[-1] + len(line))
-    nodes = [
-        node
-        for node in located_source_nodes(source, pandoc_exe)
-        if set(node.ancestors) <= {"Div"}
-    ]
+    nodes = [node for node in located_source_nodes(source, pandoc_exe) if set(node.ancestors) <= {"Div"}]
     tags = [
         node
         for node in nodes
@@ -1510,11 +1309,7 @@ def set_sourced_tag_block_spacing(source: str, pandoc_exe: str) -> str:
         and cast(list[PandocJson], node.node["c"])[0] in {"flowmark-tag", "html"}
         and is_tag_only_line(cast(str, cast(list[PandocJson], node.node["c"])[1]))
     ]
-    blocks = [
-        node
-        for node in nodes
-        if node.node.get("t") in {"BulletList", "OrderedList", "Table"}
-    ]
+    blocks = [node for node in nodes if node.node.get("t") in {"BulletList", "OrderedList", "Table"}]
 
     # A range ends where the next block starts, so it can span trailing blank
     # lines; adjacency is judged from the node's last non-blank line.
@@ -1540,9 +1335,7 @@ def set_sourced_tag_block_spacing(source: str, pandoc_exe: str) -> str:
     return result
 
 
-def _interrupting_list_lines(
-    lines: list[str], paragraphs: list[LocatedNode], pandoc_exe: str
-) -> set[int]:
+def _interrupting_list_lines(lines: list[str], paragraphs: list[LocatedNode], pandoc_exe: str) -> set[int]:
     """
     The 1-based lines after the first of `paragraphs` that open a list when read
     on their own: a bullet list, or an ordered list starting at 1, the lists
@@ -1561,20 +1354,14 @@ def _interrupting_list_lines(
         return set()
     # Probe every candidate line in one parse, each on its own between unindented
     # paragraphs that close any list the line before opened.
-    probe = "".join(
-        f"x\n\n{lines[line_number - 1].rstrip()}\n\n" for line_number in candidates
-    )
+    probe = "".join(f"x\n\n{lines[line_number - 1].rstrip()}\n\n" for line_number in candidates)
     list_starts: set[int] = set()
     for located in located_source_nodes(probe, pandoc_exe):
         if located.ancestors:
             continue
         kind = located.node.get("t")
         content = located.node.get("c")
-        opens_list = kind == "BulletList" or (
-            kind == "OrderedList"
-            and isinstance(content, list)
-            and cast(list[PandocJson], content[0])[0] == 1
-        )
+        opens_list = kind == "BulletList" or (kind == "OrderedList" and isinstance(content, list) and cast(list[PandocJson], content[0])[0] == 1)
         if opens_list:
             probe_index = (located.source_range.start.line - 3) // 4
             list_starts.add(candidates[probe_index])
@@ -1595,25 +1382,14 @@ def separate_sourced_lazy_lists(source: str, pandoc_exe: str) -> str:
     starts = [0]
     for line in lines:
         starts.append(starts[-1] + len(line))
-    paragraphs = [
-        node
-        for node in located_source_nodes(source, pandoc_exe)
-        if node.node.get("t") == "Para" and set(node.ancestors) <= {"Div"}
-    ]
+    paragraphs = [node for node in located_source_nodes(source, pandoc_exe) if node.node.get("t") == "Para" and set(node.ancestors) <= {"Div"}]
     list_starts = _interrupting_list_lines(lines, paragraphs, pandoc_exe)
     if not list_starts:
         return source
     blank_before = {
-        min(
-            line
-            for line in list_starts
-            if node.source_range.start.line < line < node.source_range.end.line
-        )
+        min(line for line in list_starts if node.source_range.start.line < line < node.source_range.end.line)
         for node in paragraphs
-        if any(
-            node.source_range.start.line < line < node.source_range.end.line
-            for line in list_starts
-        )
+        if any(node.source_range.start.line < line < node.source_range.end.line for line in list_starts)
     }
 
     def separated(lines_before: set[int]) -> str:

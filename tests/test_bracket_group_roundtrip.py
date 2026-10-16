@@ -2,8 +2,8 @@
 
 import pytest
 
-from flowmark.reformat_api import reformat_text
 from flowmark.pandoc_verify import check_meaning_preserved
+from flowmark.reformat_api import reformat_text
 
 
 @pytest.mark.parametrize(

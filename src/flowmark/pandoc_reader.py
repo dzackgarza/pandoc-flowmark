@@ -12,9 +12,7 @@ from typing import cast
 
 from flowmark.pandoc_dialect import PANDOC_FORMAT
 
-PandocJson = (
-    str | int | float | bool | None | list["PandocJson"] | dict[str, "PandocJson"]
-)
+PandocJson = str | int | float | bool | None | list["PandocJson"] | dict[str, "PandocJson"]
 
 
 class PandocUnavailableError(RuntimeError):
@@ -48,9 +46,7 @@ def pandoc_executable() -> str:
     name = os.environ.get("FLOWMARK_PANDOC", "pandoc-flowmark")
     executable = shutil.which(name)
     if executable is None:
-        raise PandocUnavailableError(
-            f"Flowmark requires the source-position Pandoc reader `{name}`."
-        )
+        raise PandocUnavailableError(f"Flowmark requires the source-position Pandoc reader `{name}`.")
     return executable
 
 
@@ -115,12 +111,7 @@ def _settle_ranges(value: PandocJson, lines: list[str]) -> None:
         eof = (len(lines), len(lines[-1]) + 1)
         if (start.line, start.column) <= eof < (end.line, end.column):
             end = SourcePoint(*eof)
-        if (
-            value.get("t") == "Div"
-            and end.column > 1
-            and end.line <= len(lines)
-            and end.column == len(lines[end.line - 1]) + 1
-        ):
+        if value.get("t") == "Div" and end.column > 1 and end.line <= len(lines) and end.column == len(lines[end.line - 1]) + 1:
             end = SourcePoint(end.line + 1, 1)
         if SourceRange(start, end) != position:
             content = cast(list[PandocJson], value["c"])
@@ -205,9 +196,7 @@ def located_nodes(value: PandocJson) -> list[LocatedNode]:
                 nodes.append(LocatedNode(position, wrapper, ancestors))
         if isinstance(item, dict):
             node_type = item.get("t")
-            nested_ancestors = (
-                ancestors + (node_type,) if isinstance(node_type, str) else ancestors
-            )
+            nested_ancestors = ancestors + (node_type,) if isinstance(node_type, str) else ancestors
             for child in item.values():
                 visit(child, nested_ancestors)
         elif isinstance(item, list):
