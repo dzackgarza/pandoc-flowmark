@@ -67,3 +67,7 @@ install-pandoc-flowmark bindir=(home_directory() / ".local/bin"):
     mkdir -p "{{bindir}}"
     install -m755 "$dir/$tag-linux-amd64/pandoc-flowmark" "{{bindir}}/pandoc-flowmark"
     pandoc-flowmark --version | head -1
+
+# Run the scheduled whole-tree audit (semgrep and debt scans) through the central implementation.
+ambient:
+    @just -f ~/ai-review-ci/justfiles/python.just -d . ambient
