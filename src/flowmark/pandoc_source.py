@@ -419,9 +419,7 @@ def wrap_plain_paragraphs(source: str, pandoc_exe: str, wrappers: ParagraphWrapp
             # A Note contains blocks sourced from its definition elsewhere.
             if not (start <= begin_offset < finish_offset <= end):
                 continue
-            if source_position(inline.node) is not None and not re.search(
-                r"\n[ \t]*\]$", source[begin_offset:finish_offset]
-            ):
+            if source_position(inline.node) is not None and not re.search(r"\n[ \t]*\]$", source[begin_offset:finish_offset]):
                 # Ordinary bracketed prose still wraps between its words. Only
                 # a standalone closing bracket consumes its preceding newline.
                 continue
