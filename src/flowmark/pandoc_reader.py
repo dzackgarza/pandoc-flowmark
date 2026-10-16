@@ -191,8 +191,8 @@ def located_nodes(value: PandocJson) -> list[LocatedNode]:
             if len(children) == 1 and isinstance(children[0], dict):
                 nodes.append(LocatedNode(position, children[0], ancestors))
             elif wrapper["t"] == "Span" and len(children) > 1:
-                # Literal brackets can contain several sourced children. Their
-                # source group owns whitespace the individual children omit.
+                # A bracketed literal can have several individually sourced
+                # children, while its own delimiters have no child positions.
                 nodes.append(LocatedNode(position, wrapper, ancestors))
         if isinstance(item, dict):
             node_type = item.get("t")
