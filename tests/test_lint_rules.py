@@ -56,6 +56,17 @@ def rule_ids(
         ("Inline $x_i}$.\n", "math/unmatched-group-close"),
         ("Inline $\\left(x$.\n", "math/unclosed-left"),
         ("Inline $x\\right)$.\n", "math/unmatched-right"),
+        ("Inline $A \\subseteq B$.\n", "math/subset-notation"),
+        ("Inline $A \\subset B$.\n", "math/subset-notation"),
+        ("Inline $A \\subsetneq B$.\n", "math/subset-notation"),
+        ("Inline $B \\supseteq A$.\n", "math/subset-notation"),
+        ("Inline $B \\supset A$.\n", "math/subset-notation"),
+        ("Inline $A \\cap B$.\n", "math/set-operation-notation"),
+        ("Inline $A \\cup B$.\n", "math/set-operation-notation"),
+        ("Inline $\\bigcup_i U_i$.\n", "math/set-operation-notation"),
+        ("Inline $A \\setminus B$.\n", "math/set-operation-notation"),
+        ("Inline $A \\union_X B$.\n", "math/set-operation-notation"),
+        ("Inline $A \\intersect_X B$.\n", "math/set-operation-notation"),
         ("Inline $Hom_R(M,N)$.\n", "math/bare-operator"),
         ("$$\nSpec R \\to Proj S\n$$\n", "math/bare-operator"),
     ],
@@ -580,6 +591,23 @@ def test_semantic_math_macros_and_braced_scripts_are_quiet() -> None:
     assert "math/repeated-subscript" not in rules
     assert "math/repeated-superscript" not in rules
     assert "math/bare-operator" not in rules
+
+
+def test_notation_policy_rules_stay_inside_math_regions() -> None:
+    fenced = "```tex\n$A \\cap B \\subseteq C$\n```\n"
+    rules = rule_ids(fenced)
+    assert "math/subset-notation" not in rules
+    assert "math/set-operation-notation" not in rules
+
+    commented = "$$\nA \\cap B % \\subseteq C\n$$\n"
+    rules = rule_ids(commented)
+    assert "math/set-operation-notation" in rules
+    assert "math/subset-notation" not in rules
+
+    prose = "The subset $A \\injects B$ is a mono.\n"
+    rules = rule_ids(prose)
+    assert "math/subset-notation" not in rules
+    assert "math/set-operation-notation" not in rules
 
 
 def test_escaped_braces_and_tex_comments_do_not_corrupt_math_group_balance() -> None:

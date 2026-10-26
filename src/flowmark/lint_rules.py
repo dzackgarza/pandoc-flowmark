@@ -273,6 +273,30 @@ _ROMANIZED_MATH_TEXT = re.compile(
 )
 _LEFT_RIGHT = re.compile(r"(?<!\\)\\(?P<kind>left|right)\b")
 
+# Inclusion notation that names a relation where a morphism should be named.
+# Longest alternatives first; the lookahead permits a following `_` script.
+_INCLUSION_NOTATION = re.compile(
+    r"(?<!\\)\\(?P<name>nsubseteq|subseteq|subsetneq|subset|nsupseteq|supseteq|supsetneq|supset)(?![A-Za-z])"
+)
+# Set-operation notation that should be authored as a (co)limit diagram instead.
+_SET_OPERATION_NOTATION = re.compile(
+    r"(?<!\\)\\(?P<name>bigcup|bigcap|bigsqcup|cup|cap|sqcup|sqcap|setminus|union|intersect|intersection)(?![A-Za-z])"
+)
+# What each operation constructs, named for the finding message.
+_SET_OPERATION_CONSTRUCTIONS = {
+    "bigcap": "an intersection or fiber",
+    "cap": "an intersection or fiber",
+    "intersect": "an intersection or fiber",
+    "intersection": "an intersection or fiber",
+    "bigcup": "a union or quotient",
+    "bigsqcup": "a union or quotient",
+    "cup": "a union or quotient",
+    "union": "a union or quotient",
+    "sqcup": "a union or quotient",
+    "sqcap": "an intersection or fiber",
+    "setminus": "a complement or difference",
+}
+
 _ANY_URL = re.compile(r"https?://[^\s<>)\]]+")
 _QUOTED_ATTRIBUTE_VALUE = re.compile(r'="[^"\n]*"')
 _LINK_DESTINATION = re.compile(r"\]\((?P<dest>[^)\s]*)")
@@ -736,6 +760,49 @@ def _mathematical_findings(text: str) -> list[RuleFinding]:
                     start + match.end("name"),
                     suggestions=(fix,),
                     fix=fix,
+                )
+            )
+    return findings
+
+
+def _notation_policy_findings(text: str) -> list[RuleFinding]:
+    """Inclusion and set-operation notation must be written as named mathematics.
+
+    House style names maps and squares, not element-level set relations: an
+    inclusion is a monomorphism, an intersection/fiber is a pullback square, and
+    a union/quotient is a pushout square. The rules flag the notation and name
+    the intended construction; they do not auto-fix, because the replacement
+    needs the surrounding maps, which only the author can supply.
+    """
+    findings: list[RuleFinding] = []
+    for start, end in _math_regions(text):
+        visible = _mask_tex_comments(text[start:end])
+        for match in _INCLUSION_NOTATION.finditer(visible):
+            command = f"\\{match.group('name')}"
+            findings.append(
+                RuleFinding(
+                    "math/subset-notation",
+                    "warning",
+                    f"`{command}` states an inclusion as a set relation. "
+                    + "Name the morphism instead: give the inclusion as a "
+                    + "monomorphism `$A \\injects B$` or name the subobject.",
+                    start + match.start(),
+                    start + match.end(),
+                )
+            )
+        for match in _SET_OPERATION_NOTATION.finditer(visible):
+            command = f"\\{match.group('name')}"
+            construction = _SET_OPERATION_CONSTRUCTIONS[match.group("name")]
+            findings.append(
+                RuleFinding(
+                    "math/set-operation-notation",
+                    "warning",
+                    f"`{command}` builds {construction} with set operations. "
+                    + "Express it as a diagram instead: author the pullback "
+                    + "(intersection, fiber, difference) or pushout (union, "
+                    + "quotient) square in a `tikzcd` fence, naming the maps.",
+                    start + match.start(),
+                    start + match.end(),
                 )
             )
     return findings
@@ -2548,6 +2615,7 @@ def lint_rule_findings(
         ),
         *_pandoc_resource_findings(text, pandoc_document, source_path),
         *_mathematical_findings(text),
+        *_notation_policy_findings(text),
         *_math_notation_findings(text, protected, fences),
         *_style_findings(text, lines, fences, protected, styles, max_line_length),
     ]
@@ -2814,6 +2882,16 @@ _BUILTIN_RULES = (
         check=_correctness_check("math/bare-operator"),
     ),
     LintRule(
+        "math/subset-notation",
+        "Inclusion notation is written instead of a named morphism.",
+        check=_correctness_check("math/subset-notation"),
+    ),
+    LintRule(
+        "math/set-operation-notation",
+        "Set-operation notation is written instead of a pullback or pushout diagram.",
+        check=_correctness_check("math/set-operation-notation"),
+    ),
+    LintRule(
         "math/repeated-subscript",
         "A term has two subscripts in a row, which TeX rejects.",
         RuleLevel.ERROR,
@@ -2956,8 +3034,8 @@ def register_builtin_rules(registry: RuleRegistry) -> None:
 __all__ = (
     "RuleFinding",
     "StyleRule",
-    "locate_after",
     "lint_rule_findings",
+    "locate_after",
     "mask_tex_comments",
     "pandoc_attr",
     "pandoc_math_regions",

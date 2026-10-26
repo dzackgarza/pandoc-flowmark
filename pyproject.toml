@@ -130,8 +130,8 @@ reportImplicitStringConcatenation = false
 # reportUnknownArgumentType = false
 
 [tool.codespell]
-# Add here as needed:
-# ignore-words-list = "foo,bar"
+# `oint` is the TeX contour-integral command `\oint`, not a misspelling.
+ignore-words-list = "oint"
 # The TeXstudio command index is generated data of TeX command names.
 skip = "tests/testdocs/*.md,src/flowmark/data/texstudio-command-index.json"
 
