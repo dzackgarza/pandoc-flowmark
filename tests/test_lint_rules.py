@@ -807,6 +807,12 @@ def test_footnote_labels_are_not_prose() -> None:
     assert _findings(source, "math/outside-math-mode") == ["^2", "_0", "^n"]
 
 
+def test_unicode_in_a_footnote_label_is_not_reported() -> None:
+    """No output shows a footnote label; the note's prose is still judged."""
+    source = "Five.[^α] Text with ⊗ here.\n\n[^α]: Body with → in it.\n"
+    assert _findings(source, "math/unicode-symbol") == ["⊗", "→"]
+
+
 def test_unicode_math_symbols_are_reported_in_code_and_math_too() -> None:
     """Only a fence that names its language keeps Unicode: Lean's syntax uses it."""
     source = (
