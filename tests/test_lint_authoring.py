@@ -686,6 +686,45 @@ def test_texstudio_packages_can_be_supplied_as_context() -> None:
     )
 
 
+def test_tex_vocabulary_names_the_packages_that_the_lint_accepts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    macros = tmp_path / "macros"
+    macros.mkdir()
+    (macros / "preamble.tex").write_text(
+        "\\documentclass{amsart}\n\\usepackage{mathtools}\n% \\usepackage{siunitx}\n"
+    )
+    context = tex_context({"packages": ["amssymb"], "macro_sources": [str(macros)]})
+    context_file = tmp_path / "context.json"
+    context_file.write_text(json.dumps(context))
+
+    arguments = ["--tex-vocabulary", "--format", "json", "--no-config"]
+    assert main([*arguments, "--context", str(context_file)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    index = json.loads(Path(payload["index"]).read_text())
+    packages = set(payload["packages"])
+
+    assert set(index["core"]) <= packages
+    assert {"amssymb", "mathtools", "class-amsart"} <= packages
+    # The closure follows the includes of the index.
+    assert {"mhsetup", "amsfonts"} <= packages
+    # A package in a TeX comment is not loaded.
+    assert "siunitx" not in packages
+
+    # The lint with the same context accepts a command of an active package
+    # and names each provider of a command that no active package has.
+    assert "\\xmapsto" in index["packages"]["mathtools"]["commands"]
+    diagnostics = [
+        diagnostic
+        for diagnostic in lint_text("Use $x\\xmapsto{f}y$ and $\\SI{3}{m}$.\n", options(context))
+        if diagnostic.rule == "tex/unknown-command"
+    ]
+    assert [diagnostic.data["command"] for diagnostic in diagnostics] == ["\\SI"]
+    providers = cast(tuple[str, ...], diagnostics[0].data["providers"])
+    assert "siunitx" in providers
+    assert not packages & set(providers)
+
+
 def test_authorial_residue_ignores_code() -> None:
     source = "TODO outside\n\n~~~text\nTODO ??? [citation needed]\n~~~\n"
     diagnostics = [

@@ -18,6 +18,7 @@ from flowmark.lint import (
     lint_rules,
     lint_text,
 )
+from flowmark.lint_authoring import tex_context_vocabulary
 from flowmark.lint_engine import LintRule
 
 
@@ -114,6 +115,14 @@ def _parser() -> argparse.ArgumentParser:
         "--list-rules",
         action="store_true",
         help="List the effective named lint rules and exit",
+    )
+    parser.add_argument(
+        "--tex-vocabulary",
+        action="store_true",
+        help=(
+            "Print the TeXstudio command index and the packages that the `tex` "
+            "context activates for every document, and exit"
+        ),
     )
     return parser
 
@@ -260,6 +269,39 @@ def _rule_payload(rule: LintRule) -> dict[str, object]:
     }
 
 
+def _print_tex_vocabulary(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> int:
+    source_path = cast(str | None, args.source_path)
+    config = _config_for(None if source_path is None else "-", args, parser)
+    tex = _options(args, config, parser).context.get("tex", {})
+    if not isinstance(tex, dict):
+        parser.error("The `tex` lint context must be an object")
+    try:
+        vocabulary = tex_context_vocabulary(
+            cast(dict[str, object], tex),
+            None if source_path is None else Path(source_path),
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    if args.output_format == "json":
+        json.dump(
+            {
+                "version": 1,
+                "index": str(vocabulary.index),
+                "packages": list(vocabulary.packages),
+            },
+            sys.stdout,
+            ensure_ascii=False,
+        )
+        sys.stdout.write("\n")
+    else:
+        print(vocabulary.index)
+        for package in vocabulary.packages:
+            print(package)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -275,6 +317,9 @@ def main(argv: list[str] | None = None) -> int:
             for rule in rules:
                 print(f"{rule['name']}\t{rule['default_level']}\t{rule['description']}")
         return 0
+
+    if args.tex_vocabulary:
+        return _print_tex_vocabulary(args, parser)
 
     if not args.files:
         parser.error("at least one Markdown file/directory or '-' is required")

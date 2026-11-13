@@ -483,6 +483,8 @@ known_commands = ["\\ bespoke"]
 ```
 
 `tex/unknown-command` also draws on this table: it consults a bundled TeXstudio command index to say a command belongs to a package the document does not load, which is a more useful report than “undefined”.
+A package is active when the core of the index, the `packages` and `classes` of the table, the macro sources or the raw TeX of the document load it, and so is each package that an active package includes.
+`flowmark-lint --tex-vocabulary --format json` prints the path of the index and the packages that the table and the macro sources activate, without a document, so an editor can complete the same commands that the rule accepts: it adds the packages that the raw TeX of its document loads.
 The other context tables are `references` (`snapshot`, `resolutions`, `theorem_families`, `theorem_class_to_prefix`, `referenceable_div_classes`, `proof_div_classes`, `family_aliases`), `wikilinks`, and `compiler` (`tikz.diagnostics`).
 
 ## Project Docs

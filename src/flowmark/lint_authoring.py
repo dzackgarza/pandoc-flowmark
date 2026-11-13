@@ -226,8 +226,11 @@ class _TexstudioVocabulary:
     packages: frozenset[str]
 
 
+_TEXSTUDIO_INDEX_PATH = Path(__file__).with_name("data") / "texstudio-command-index.json"
+
+
 def _load_texstudio_index() -> _TexstudioIndex:
-    path = Path(__file__).with_name("data") / "texstudio-command-index.json"
+    path = _TEXSTUDIO_INDEX_PATH
     raw = cast(object, json.loads(path.read_text()))
     if not isinstance(raw, dict):
         raise ValueError(f"Invalid TeXstudio command index: {path}")
@@ -458,14 +461,33 @@ def _texstudio_vocabulary(
     if isinstance(cached, _TexstudioVocabulary):
         return cached.commands, cached.packages
 
-    package_roots = set(_strings(data.get("packages")))
-    class_roots = set(_strings(data.get("classes")))
+    package_roots, class_roots = _context_texstudio_roots(data, context.source_path)
     for fragment in _raw_tex_fragments(context):
         packages, classes = _package_names_from_tex(fragment)
         package_roots.update(packages)
         class_roots.update(classes)
 
-    for path in _macro_source_files(context, data):
+    package_commands, active_packages = _texstudio_package_closure(
+        _TEXSTUDIO_INDEX.packages,
+        _texstudio_roots(package_roots, class_roots),
+    )
+    result = _TexstudioVocabulary(
+        frozenset(_TEXSTUDIO_INDEX.core_commands | package_commands),
+        frozenset(set(_TEXSTUDIO_INDEX.core) | active_packages),
+    )
+    context.cache["authoring/texstudio-vocabulary"] = result
+    return result.commands, result.packages
+
+
+def _context_texstudio_roots(
+    data: Mapping[str, object],
+    source_path: Path | None,
+) -> tuple[set[str], set[str]]:
+    """The packages and classes that the `tex` context loads for every document."""
+
+    package_roots = set(_strings(data.get("packages")))
+    class_roots = set(_strings(data.get("classes")))
+    for path in _macro_source_files(source_path, data):
         if path.suffix.casefold() not in {".tex", ".sty", ".cls"}:
             continue
         try:
@@ -474,22 +496,52 @@ def _texstudio_vocabulary(
             raise ValueError(f"Cannot read macro source {path}: {error}") from error
         package_roots.update(packages)
         class_roots.update(classes)
+    return package_roots, class_roots
+
+
+def _texstudio_roots(package_roots: Iterable[str], class_roots: Iterable[str]) -> set[str]:
+    """The index entries of loaded packages and classes: a class is `class-<name>` when the index has it."""
 
     roots = set(package_roots)
     for name in class_roots:
         class_name = f"class-{name}"
         roots.add(class_name if class_name in _TEXSTUDIO_INDEX.packages else name)
+    return roots
 
-    package_commands, active_packages = _texstudio_package_closure(
+
+@dataclass(frozen=True)
+class TexContextVocabulary:
+    """The TeXstudio command index and the packages that a `tex` context activates.
+
+    ``packages`` holds the core entries of the index and the closure of the
+    context packages, the context classes and the packages that the macro
+    sources load. A document adds the packages that its raw TeX loads, and the
+    closure of those over the ``includes`` of the index.
+    """
+
+    index: Path
+    packages: tuple[str, ...]
+
+
+def tex_context_vocabulary(
+    data: Mapping[str, object],
+    source_path: Path | None,
+) -> TexContextVocabulary:
+    """The vocabulary that `tex/unknown-command` uses before it reads a document.
+
+    ``data`` is the `tex` section of the lint context; ``source_path`` resolves
+    a relative macro source as in a lint of that path.
+    """
+
+    package_roots, class_roots = _context_texstudio_roots(data, source_path)
+    _commands, active = _texstudio_package_closure(
         _TEXSTUDIO_INDEX.packages,
-        roots,
+        _texstudio_roots(package_roots, class_roots),
     )
-    result = _TexstudioVocabulary(
-        frozenset(_TEXSTUDIO_INDEX.core_commands | package_commands),
-        frozenset(set(_TEXSTUDIO_INDEX.core) | active_packages),
+    return TexContextVocabulary(
+        _TEXSTUDIO_INDEX_PATH,
+        tuple(sorted(set(_TEXSTUDIO_INDEX.core) | active)),
     )
-    context.cache["authoring/texstudio-vocabulary"] = result
-    return result.commands, result.packages
 
 
 def _texstudio_command_providers(command: str) -> tuple[str, ...]:
@@ -700,8 +752,8 @@ def _macro_definition(name: str, value: object) -> _MacroDefinition | None:
     )
 
 
-def _macro_source_base(context: RuleContext, data: Mapping[str, object]) -> Path:
-    default = context.source_path.parent if context.source_path is not None else Path.cwd()
+def _macro_source_base(source_path: Path | None, data: Mapping[str, object]) -> Path:
+    default = source_path.parent if source_path is not None else Path.cwd()
     raw = data.get("macro_base")
     if not isinstance(raw, str) or not raw.strip():
         return default
@@ -709,8 +761,8 @@ def _macro_source_base(context: RuleContext, data: Mapping[str, object]) -> Path
     return expanded.resolve() if expanded.is_absolute() else (default / expanded).resolve()
 
 
-def _macro_source_files(context: RuleContext, data: Mapping[str, object]) -> list[Path]:
-    base = _macro_source_base(context, data)
+def _macro_source_files(source_path: Path | None, data: Mapping[str, object]) -> list[Path]:
+    base = _macro_source_base(source_path, data)
     resolved: dict[str, Path] = {}
     for spec in _strings(data.get("macro_sources")):
         expanded = os.path.expandvars(os.path.expanduser(spec))
@@ -764,7 +816,7 @@ def _macro_inventory(
         if macro is not None:
             definitions[name] = macro
 
-    for path in _macro_source_files(context, data):
+    for path in _macro_source_files(context.source_path, data):
         if path.suffix.casefold() == ".json":
             try:
                 value = cast(object, json.loads(path.read_text()))
@@ -2665,4 +2717,4 @@ def register_authoring_rules(registry: RuleRegistry) -> None:
     )
 
 
-__all__ = ("register_authoring_rules",)
+__all__ = ("TexContextVocabulary", "register_authoring_rules", "tex_context_vocabulary")
