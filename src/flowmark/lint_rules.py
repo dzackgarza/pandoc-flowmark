@@ -550,10 +550,36 @@ def _build_protected_map(
             opener_end = end if line_end < 0 else line_end
             for value in _QUOTED_ATTRIBUTE_VALUE.finditer(text, start, opener_end):
                 _mark(protected, value.start(), value.end())
+    for start, end in _footnote_labels(text):
+        _mark(protected, start, end)
 
     for match in _RAW_TEX_COMMAND.finditer(text):
         _mark(protected, match.start(), match.end())
     return protected
+
+
+def _footnote_labels(text: str) -> list[tuple[int, int]]:
+    """
+    Source span of each footnote label: the marker `[^label]` of a reference note,
+    and the `[^label]:` that opens its definition. Pandoc reads a label as syntax,
+    never as text, and gives the definition label no range; outside code, each
+    `[^label]:` for a label that Pandoc read as a note is that definition or a
+    marker before a colon.
+    """
+    labels: list[tuple[int, int]] = []
+    markers: set[str] = set()
+    for node, start, end in _pandoc_source_spans(text):
+        # An inline note `^[...]` holds its own blocks; a reference note's range
+        # is its marker alone.
+        if node.get("t") == "Note" and text.startswith("[^", start):
+            labels.append((start, end))
+            markers.add(text[start:end])
+    for marker in markers:
+        labels.extend(
+            (match.start(), match.end())
+            for match in re.finditer(re.escape(marker + ":"), text)
+        )
+    return labels
 
 
 def _build_literal_protected_map(
@@ -1168,8 +1194,9 @@ def _math_notation_findings(
     Unicode symbols render as text, not as mathematics, and fail under pdflatex,
     so they are reported everywhere -- prose, code spans and math alike -- except
     in a fenced block that declares a language, whose own syntax may use them
-    (Lean's `∀` and `→`). `protected` covers code, math, raw TeX, comments and
-    front matter for the TeX-notation check.
+    (Lean's `∀` and `→`), and in a footnote label, which no output shows.
+    `protected` covers code, math, raw TeX, comments, footnote labels and front
+    matter for the TeX-notation check.
     """
     in_language = bytearray(len(text))
     for fence in fences:
@@ -1183,6 +1210,9 @@ def _math_notation_findings(
         _mark(urls, match.start(), match.end())
     for match in _LINK_DESTINATION.finditer(text):
         _mark(urls, match.start("dest"), match.end("dest"))
+    labels = bytearray(len(text))
+    for start, end in _footnote_labels(text):
+        _mark(labels, start, end)
 
     findings: list[RuleFinding] = []
     for match in _TEX_IN_PROSE.finditer(text):
@@ -1200,7 +1230,12 @@ def _math_notation_findings(
             )
         )
     for offset, char in enumerate(text):
-        if not _is_math_symbol(char) or in_language[offset] or urls[offset]:
+        if (
+            not _is_math_symbol(char)
+            or in_language[offset]
+            or urls[offset]
+            or labels[offset]
+        ):
             continue
         findings.append(
             RuleFinding(
