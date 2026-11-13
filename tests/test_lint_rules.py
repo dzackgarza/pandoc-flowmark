@@ -786,6 +786,27 @@ def test_tex_in_a_div_title_is_not_prose() -> None:
     assert "math/outside-math-mode" not in rule_ids(source)
 
 
+def test_footnote_labels_are_not_prose() -> None:
+    """
+    `[^label]` is Pandoc's footnote syntax: the marker of a reference and the
+    label of its definition, in any form of label and wherever the definition
+    stands. The prose of the document and of each note body is still judged.
+    """
+    source = (
+        "# Fibers\n\n"
+        "By the theorem the fibers are known.[^1] See below.[^note-x] Also x^2 "
+        "here.[^note_1] Quoted.[^\\alpha] Empty.[^e_1] Inline.^[With y_0 inside.]\n\n"
+        "[^1]: The degenerate fibers are listed.\n\n"
+        "[^note-x]: A first paragraph.\n\n"
+        "    A second paragraph with R^n in it.\n\n"
+        "[^note_1]:\n"
+        "    A body on the next line.\n\n"
+        "> [^\\alpha]: In a quote.\n\n"
+        "[^e_1]:\n"
+    )
+    assert _findings(source, "math/outside-math-mode") == ["^2", "_0", "^n"]
+
+
 def test_unicode_math_symbols_are_reported_in_code_and_math_too() -> None:
     """Only a fence that names its language keeps Unicode: Lean's syntax uses it."""
     source = (
