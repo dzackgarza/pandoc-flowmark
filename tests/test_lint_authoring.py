@@ -458,6 +458,107 @@ def test_macro_candidate_span_reclaims_braces_normalization_dropped(
     )
 
 
+def test_macro_candidates_of_one_notation_are_a_choice_of_meaning(
+    tmp_path: Path,
+) -> None:
+    """Two macros with one body are two meanings that share notation."""
+    macros = tmp_path / "macros"
+    macros.mkdir()
+    (macros / "defs.tex").write_text(
+        "\\newcommand{\\discriminant}{\\Delta}\n\\newcommand{\\laplacian}{\\Delta}\n"
+    )
+    source = "The operator is $\\Delta$ here.\n"
+
+    diagnostic = next(
+        diagnostic
+        for diagnostic in lint_text(
+            source, options(tex_context({"macro_sources": [str(macros)]}))
+        )
+        if diagnostic.rule == "math/user-macro-candidates"
+    )
+
+    assert diagnostic.message == (
+        "`\\Delta` is the notation of 2 macros with different meanings; "
+        "use the macro of the meaning here: `\\discriminant` or `\\laplacian`."
+    )
+    assert [suggestion.replacement for suggestion in diagnostic.suggestions] == [
+        "\\discriminant",
+        "\\laplacian",
+    ]
+    assert diagnostic.fix is None
+
+
+def alias_context(tmp_path: Path, aliases: dict[str, object]) -> LintOptions:
+    macros = tmp_path / "macros"
+    macros.mkdir(parents=True)
+    (macros / "defs.tex").write_text(
+        "\\newcommand{\\divisorof}[1]{\\operatorname{div}(#1)}\n"
+        "\\newcommand{\\divisibility}[1]{\\operatorname{div}(#1)}\n"
+        "\\newcommand{\\characteristic}{\\operatorname{char}}\n"
+    )
+    shortcuts = tmp_path / "shortcuts.json"
+    shortcuts.write_text(json.dumps(aliases))
+    return options(
+        tex_context(
+            {"macro_sources": [str(macros)], "macro_aliases": [str(shortcuts)]}
+        )
+    )
+
+
+def test_retired_alias_of_one_macro_is_fixed_to_its_canonical_name(
+    tmp_path: Path,
+) -> None:
+    source = "The field has $\\chr k = p$.\n"
+
+    diagnostic = next(
+        diagnostic
+        for diagnostic in lint_text(
+            source, alias_context(tmp_path, {"chr": "characteristic"})
+        )
+        if diagnostic.rule == "tex/unknown-command"
+    )
+
+    assert diagnostic.message == (
+        "`\\chr` is a retired alias of `\\characteristic`; use `\\characteristic`."
+    )
+    assert diagnostic.data == {
+        "command": "\\chr",
+        "kind": "retired-alias",
+        "canonical": ("\\characteristic",),
+    }
+    assert diagnostic.fix is not None
+    assert diagnostic.fix.replacement == "\\characteristic"
+    assert (
+        fix_text(source, alias_context(tmp_path / "fix", {"chr": "characteristic"}))
+        == "The field has $\\characteristic k = p$.\n"
+    )
+
+
+def test_retired_alias_of_several_meanings_offers_each_canonical_name(
+    tmp_path: Path,
+) -> None:
+    source = "The vector has $\\di(v) = 2$.\n"
+
+    diagnostic = next(
+        diagnostic
+        for diagnostic in lint_text(
+            source,
+            alias_context(tmp_path, {"di": ["divisorof", "divisibility"]}),
+        )
+        if diagnostic.rule == "tex/unknown-command"
+    )
+
+    assert diagnostic.message == (
+        "`\\di` is a retired alias of 2 macros with different meanings; "
+        "use the macro of the meaning here: `\\divisorof` or `\\divisibility`."
+    )
+    assert [suggestion.replacement for suggestion in diagnostic.suggestions] == [
+        "\\divisorof",
+        "\\divisibility",
+    ]
+    assert diagnostic.fix is None
+
+
 def test_leading_argument_macro_candidate_matches_manual_expansion(
     tmp_path: Path,
 ) -> None:
