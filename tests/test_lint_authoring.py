@@ -529,7 +529,9 @@ def test_retired_alias_of_one_macro_is_fixed_to_its_canonical_name(
     assert diagnostic.fix is not None
     assert diagnostic.fix.replacement == "\\characteristic"
     assert (
-        fix_text(source, alias_context(tmp_path / "fix", {"chr": "characteristic"}))
+        fix_text(
+            source, alias_context(tmp_path / "fix", {"chr": "characteristic"})
+        ).text
         == "The field has $\\characteristic k = p$.\n"
     )
 

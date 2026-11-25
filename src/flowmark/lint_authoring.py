@@ -789,6 +789,37 @@ def _macro_source_files(source_path: Path | None, data: Mapping[str, object]) ->
     return [resolved[key] for key in sorted(resolved)]
 
 
+def _macro_aliases(context: RuleContext) -> Mapping[str, tuple[str, ...]]:
+    """Retired command names and their canonical macros, from ``tex.macro_aliases``.
+
+    Each file is a JSON object that maps a name to a canonical name, or to a
+    list of canonical names when the old name had more than one meaning
+    (pandoc-config ``styles/shortcuts.json``). Names have no backslash.
+    """
+
+    cached = context.cache.get("authoring/macro-aliases")
+    if isinstance(cached, Mapping):
+        return cast(Mapping[str, tuple[str, ...]], cached)
+    data = _tex(context)
+    base = _macro_source_base(context.source_path, data)
+    aliases: dict[str, tuple[str, ...]] = {}
+    for spec in _strings(data.get("macro_aliases")):
+        path = Path(os.path.expandvars(os.path.expanduser(spec)))
+        if not path.is_absolute():
+            path = base / path
+        try:
+            value = cast(object, json.loads(path.read_text()))
+        except (OSError, json.JSONDecodeError) as error:
+            raise ValueError(f"Cannot read macro aliases {path}: {error}") from error
+        for alias, canonical in _mapping(value).items():
+            names = [canonical] if isinstance(canonical, str) else _strings(canonical)
+            if not names:
+                raise ValueError(f"Macro alias `{alias}` in {path} names no canonical macro")
+            aliases["\\" + alias] = tuple("\\" + name for name in names)
+    context.cache["authoring/macro-aliases"] = aliases
+    return aliases
+
+
 def _macro_inventory(
     context: RuleContext,
 ) -> tuple[frozenset[str], tuple[_MacroDefinition, ...]]:
@@ -1464,6 +1495,7 @@ def _unknown_tex_commands(
     known, _expansions = _macro_inventory(context)
     package_commands, _active_packages = _texstudio_vocabulary(context, _tex(context))
     user_commands = known - package_commands
+    aliases = _macro_aliases(context)
 
     findings: list[RuleFinding] = []
     seen: set[int] = set()
@@ -1475,6 +1507,10 @@ def _unknown_tex_commands(
             if absolute in seen or command in known:
                 continue
             seen.add(absolute)
+            canonical = aliases.get(command)
+            if canonical is not None:
+                findings.append(_retired_alias_finding(command, canonical, absolute))
+                continue
             providers = _texstudio_command_providers(command)
             suggestions: tuple[Suggestion, ...] = ()
             if len(providers) == 1:
@@ -1510,6 +1546,32 @@ def _unknown_tex_commands(
                 )
             )
     return findings
+
+
+def _choice_of_meaning(names: Sequence[str]) -> str:
+    """The hint for notation that more than one macro renders: each macro is one meaning."""
+
+    return f"{len(names)} macros with different meanings; use the macro of the meaning here: " + _joined(list(names), "or") + "."
+
+
+def _retired_alias_finding(command: str, canonical: tuple[str, ...], start: int) -> RuleFinding:
+    suggestions = tuple(Suggestion(f"Use `{name}`", name) for name in canonical)
+    if len(canonical) == 1:
+        message = f"`{command}` is a retired alias of `{canonical[0]}`; use `{canonical[0]}`."
+    else:
+        message = f"`{command}` is a retired alias of " + _choice_of_meaning([f"`{name}`" for name in canonical])
+    return RuleFinding(
+        "tex/unknown-command",
+        "warning",
+        message,
+        start,
+        start + len(command),
+        suggestions=suggestions,
+        # A rename to the one canonical name keeps the meaning, so a batch fix
+        # may apply it; with several names the author chooses the meaning.
+        fix=suggestions[0] if len(canonical) == 1 else None,
+        data={"command": command, "kind": "retired-alias", "canonical": canonical},
+    )
 
 
 def _similar_names(name: str, candidates: Iterable[str], preferred: frozenset[str]) -> list[str]:
@@ -1644,7 +1706,10 @@ def _user_macro_candidates(
         # by its signature when an argument could not be recovered.
         replacements = [f"`{candidates_by_name[name][1] or _macro_invocation(candidates_by_name[name][0])}`" for name in names]
         matched = " ".join(context.text[authored_from:authored_to].split())
-        message = f"`{matched}` matches " + ("a macro" if len(names) == 1 else f"{len(names)} macros") + "; consider " + _joined(replacements, "or") + " instead."
+        if len(names) == 1:
+            message = f"`{matched}` matches a macro; consider {replacements[0]} instead."
+        else:
+            message = f"`{matched}` is the notation of " + _choice_of_meaning(replacements)
         suggestions = tuple(Suggestion(f"Use `{invocation}`", invocation) for name in names if (invocation := candidates_by_name[name][1]) is not None)
         findings.append(
             RuleFinding(

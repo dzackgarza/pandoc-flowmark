@@ -436,6 +436,11 @@ The fibre is $\overline{\Agn}$.
 
 It matches a macro’s body after normalizing whitespace and braces away, so `\overline{\Agn}` and `\overline \Agn` both match `\newcommand{\Agbar}{\overline{\Agn}}`. An argument may sit at either end of the body (`\newcommand{\red}[1]{#1_{\mathrm{red}}}` is matched too), but a body whose argument is both first and last (`#1\overline{#1}`) is not, because neither end is then delimited.
 The rule is advisory: it carries `suggestions`, not a `fix`, so `--fix` never rewrites math.
+Two macros with one body are two meanings that share notation (`\discriminant` and `\laplacian` both render `\Delta`), so a span that matches more than one macro is reported as a choice of meaning, with one suggestion for each macro.
+
+`macro_aliases` names JSON files that map a retired command name to its canonical macro, or to a list of canonical macros when the old name had more than one meaning (`{"ch": "characteristic", "di": ["divisorof", "divisibility"]}`; names without the backslash).
+For a command of such a file that nothing defines, `tex/unknown-command` names the canonical macro in place of near spellings and packages.
+One canonical name is a `fix`, as the rename keeps the meaning; several names are `suggestions`, and the author chooses.
 Where several macros fit one span it lists them all rather than choosing, because no single rewrite is correct.
 
 `math/script-macro-candidates` catches ambiguous symbolic superscripts and subscripts.
@@ -463,6 +468,8 @@ macro_sources = ["macros", "tex/preamble.tex"]
 # Base that relative macro_sources resolve against. Defaults to the document's
 # own directory.
 macro_base = "."
+# Retired command names and their canonical macros (resolved like macro_sources).
+macro_aliases = ["shortcuts.json"]
 # Inline definitions, name = body. Overrides file-sourced ones of the same name.
 [lint.context.tex.macros]
 Agn = "\\mathrm{A}"
