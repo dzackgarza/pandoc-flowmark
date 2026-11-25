@@ -44,7 +44,7 @@ format:
 build:
     @make build
 
-[doc("The release tag and the tarball's SHA-256 change together; see SUPPLY-CHAIN-SECURITY.md.")]
+[doc("Install the pinned pandoc-flowmark reader into `bindir`.")]
 install-pandoc-flowmark bindir=(home_directory() / ".local/bin"):
     #!/usr/bin/env bash
     set -euo pipefail
