@@ -813,14 +813,47 @@ def test_unicode_in_a_footnote_label_is_not_reported() -> None:
     assert _findings(source, "math/unicode-symbol") == ["⊗", "→"]
 
 
-def test_unicode_math_symbols_are_reported_in_code_and_math_too() -> None:
-    """Only a fence that names its language keeps Unicode: Lean's syntax uses it."""
+def test_unicode_math_symbols_in_math_and_untyped_fences() -> None:
+    """Math and unnamed fences retain diagnostics; literal spans and named fences do not."""
     source = (
         "Code `x ∈ M`, math $α$.\n\n"
         "```\nψ_p(∇): T → End(E)\n```\n\n"
         "```lean\ntheorem t : ∀ n : ℕ, n = n := fun _ => rfl\n```\n"
     )
-    assert _findings(source, "math/unicode-symbol") == ["∈", "α", "ψ", "∇", "→"]
+    assert _findings(source, "math/unicode-symbol") == ["α", "ψ", "∇", "→"]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("<!-- F₂d and Γ₂d -->\n", []),
+        ("Example `AltBil⊆SkewBil` and `γ`.\n", []),
+        (
+            "γ <!-- γ --> `γ` **γ** [γ](https://example.org/)\n",
+            [(1, 1), (1, 20), (1, 25)],
+        ),
+        ("``γ ` δ`` γ\n", [(1, 11)]),
+        ("A `γ\nδ` γ\n", [(2, 4)]),
+        ("γ <!--\nγ\n--> γ\n", [(1, 1), (3, 5)]),
+        ("<!-- γ --> γ\n", [(1, 12)]),
+        ("> <!-- γ\n> δ -->\n> γ\n", [(3, 3)]),
+        ("| A | B |\n| --- | --- |\n| `γ` | γ |\n", [(3, 9)]),
+        ("A[^n].\n\n[^n]: `γ` δ <!-- α -->\n", [(3, 11)]),
+        ("A `γ` and `δ\n\nγ\n", [(1, 12), (3, 1)]),
+        ("A \\<!-- γ --> and \\`δ\\`.\n", [(1, 9), (1, 21)]),
+        ('<span title="γ">δ</span>\n', [(1, 14), (1, 17)]),
+        ("A\t`γ`\tδ\n", [(1, 7)]),
+    ],
+)
+def test_unicode_math_symbols_exclude_parsed_comments_and_code_spans(
+    source: str, expected: list[tuple[int, int]]
+) -> None:
+    """Use real Pandoc syntax, not a textual delimiter heuristic; retain source positions."""
+    diagnostics = [d for d in lint_text(source) if d.rule == "math/unicode-symbol"]
+    assert [(d.line, d.column) for d in diagnostics] == expected
+    for diagnostic in diagnostics:
+        assert diagnostic.end_line == diagnostic.line
+        assert diagnostic.end_column == diagnostic.column + 1
 
 
 def test_headings_with_inline_math_or_code_are_still_headings() -> None:

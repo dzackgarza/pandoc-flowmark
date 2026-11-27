@@ -1192,9 +1192,9 @@ def _math_notation_findings(
     Outside math, pandoc reads TeX notation as Markdown: `_` delimits emphasis,
     and a bare control word such as `\\sum` is raw TeX, which HTML output drops.
     Unicode symbols render as text, not as mathematics, and fail under pdflatex,
-    so they are reported everywhere -- prose, code spans and math alike -- except
-    in a fenced block that declares a language, whose own syntax may use them
-    (Lean's `∀` and `→`), and in a footnote label, which no output shows.
+    so they are reported in prose, math and unnamed fences, except in parsed
+    HTML comments and inline code spans, in a fenced block that declares a
+    language (Lean's syntax uses `∀` and `→`), and in invisible footnote labels.
     `protected` covers code, math, raw TeX, comments, footnote labels and front
     matter for the TeX-notation check.
     """
@@ -1213,6 +1213,15 @@ def _math_notation_findings(
     labels = bytearray(len(text))
     for start, end in _footnote_labels(text):
         _mark(labels, start, end)
+    # Unlike the TeX-in-prose check, Unicode math remains invalid inside math
+    # and unnamed fences. Exclude only the parsed literal spans requested by
+    # this rule, not the entire TeX-protected map or all raw HTML.
+    literals = bytearray(len(text))
+    for node, start, end in _pandoc_source_spans(text):
+        if not _is_literal_inline(node):
+            continue
+        if node.get("t") == "Code" or text.startswith("<!--", start):
+            _mark(literals, start, end)
 
     findings: list[RuleFinding] = []
     for match in _TEX_IN_PROSE.finditer(text):
@@ -1235,6 +1244,7 @@ def _math_notation_findings(
             or in_language[offset]
             or urls[offset]
             or labels[offset]
+            or literals[offset]
         ):
             continue
         findings.append(
